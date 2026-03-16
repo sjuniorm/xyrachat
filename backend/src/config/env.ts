@@ -23,6 +23,14 @@ const envSchema = z.object({
   WHATSAPP_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_APP_SECRET: z.string().optional(),
 
+  INSTAGRAM_VERIFY_TOKEN: z.string().optional(),
+  INSTAGRAM_APP_SECRET: z.string().optional(),
+
+  FACEBOOK_VERIFY_TOKEN: z.string().optional(),
+  FACEBOOK_APP_SECRET: z.string().optional(),
+
+  TELEGRAM_SECRET_TOKEN: z.string().optional(),
+
   STORAGE_ENDPOINT: z.string().optional(),
   STORAGE_ACCESS_KEY: z.string().optional(),
   STORAGE_SECRET_KEY: z.string().optional(),
