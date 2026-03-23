@@ -1,6 +1,17 @@
 import { pool } from '../../config/database';
 import { AppError } from '../../middleware/errorHandler';
-import { ConversationStatus, MessageDirection } from '../../types';
+import { ConversationStatus, MessageDirection, ChannelType } from '../../types';
+import { WhatsAppService } from '../channels/whatsapp.service';
+import { TelegramService } from '../channels/telegram.service';
+import { InstagramService } from '../channels/instagram.service';
+import { FacebookService } from '../channels/facebook.service';
+import { emitToConversation } from '../../websocket';
+import { logger } from '../../utils/logger';
+
+const whatsappService = new WhatsAppService();
+const telegramService = new TelegramService();
+const instagramService = new InstagramService();
+const facebookService = new FacebookService();
 
 interface ListFilters {
   status?: string;
@@ -135,12 +146,101 @@ export class ConversationsService {
       );
 
       await client.query('COMMIT');
-      return msgResult.rows[0];
+
+      const message = msgResult.rows[0];
+
+      // Emit real-time event
+      emitToConversation(conversationId, 'message:new', message);
+
+      // Route message to external channel
+      try {
+        await this.routeOutboundMessage(tenantId, conversationId, data.content);
+      } catch (routeError) {
+        logger.error('Failed to route outbound message to channel', routeError);
+      }
+
+      return message;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  private async routeOutboundMessage(tenantId: string, conversationId: string, content: string) {
+    // Look up conversation with channel and contact info
+    const convResult = await pool.query(
+      `SELECT c.*, ch.type as ch_type, ch.credentials as ch_credentials,
+              ct.channel_identifiers, ct.phone as contact_phone
+       FROM conversations c
+       JOIN channels ch ON ch.id = c.channel_id
+       JOIN contacts ct ON ct.id = c.contact_id
+       WHERE c.id = $1 AND c.tenant_id = $2`,
+      [conversationId, tenantId]
+    );
+
+    if (convResult.rows.length === 0) return;
+
+    const conv = convResult.rows[0];
+    const channelType = conv.ch_type;
+    const creds = conv.ch_credentials || {};
+    const identifiers = conv.channel_identifiers || {};
+
+    switch (channelType) {
+      case ChannelType.TELEGRAM: {
+        const botToken = creds.botToken;
+        const chatId = identifiers.telegram;
+        if (!botToken || !chatId) {
+          // Try to find chatId from the last inbound message metadata
+          const lastMsg = await pool.query(
+            `SELECT metadata FROM messages WHERE conversation_id = $1 AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1`,
+            [conversationId]
+          );
+          const telegramChatId = lastMsg.rows[0]?.metadata?.telegramChatId;
+          if (botToken && telegramChatId) {
+            await telegramService.sendTextMessage(botToken, telegramChatId, content);
+          } else {
+            logger.warn('Missing Telegram bot token or chat ID for outbound message');
+          }
+        } else {
+          await telegramService.sendTextMessage(botToken, chatId, content);
+        }
+        break;
+      }
+      case ChannelType.WHATSAPP: {
+        const phoneNumberId = creds.phoneNumberId;
+        const accessToken = creds.accessToken;
+        const recipientPhone = identifiers.whatsapp || conv.contact_phone;
+        if (phoneNumberId && accessToken && recipientPhone) {
+          await whatsappService.sendTextMessage(phoneNumberId, accessToken, recipientPhone, content);
+        } else {
+          logger.warn('Missing WhatsApp credentials for outbound message');
+        }
+        break;
+      }
+      case ChannelType.INSTAGRAM: {
+        const pageAccessToken = creds.pageAccessToken;
+        const recipientId = identifiers.instagram;
+        if (pageAccessToken && recipientId) {
+          await instagramService.sendTextMessage(pageAccessToken, recipientId, content);
+        } else {
+          logger.warn('Missing Instagram credentials for outbound message');
+        }
+        break;
+      }
+      case ChannelType.FACEBOOK: {
+        const pageAccessToken = creds.pageAccessToken;
+        const recipientId = identifiers.facebook;
+        if (pageAccessToken && recipientId) {
+          await facebookService.sendTextMessage(pageAccessToken, recipientId, content);
+        } else {
+          logger.warn('Missing Facebook credentials for outbound message');
+        }
+        break;
+      }
+      default:
+        logger.info(`No outbound routing for channel type: ${channelType}`);
     }
   }
 
