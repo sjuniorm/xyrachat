@@ -7,7 +7,7 @@ import Image from 'next/image';
 
 export default function AuthPage() {
   const router = useRouter();
-  const { login, register, devLogin } = useAuthStore();
+  const { login, register } = useAuthStore();
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -18,7 +18,7 @@ export default function AuthPage() {
     firstName: '',
     lastName: '',
     tenantName: '',
-    tenantSlug: '',
+    tenantSlug: 'xyrachat', // pre-fill the default workspace
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -212,18 +212,6 @@ export default function AuthPage() {
             </button>
           </p>
 
-          <div className="mt-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-surface-200" />
-            <span className="text-2xs text-surface-400 uppercase tracking-wider">Dev Mode</span>
-            <div className="h-px flex-1 bg-surface-200" />
-          </div>
-
-          <button
-            onClick={() => { devLogin(); router.push('/inbox'); }}
-            className="mt-4 w-full rounded-lg border-2 border-dashed border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-100 hover:border-amber-400"
-          >
-            Skip Login (Dev Mode)
-          </button>
         </div>
       </div>
     </div>

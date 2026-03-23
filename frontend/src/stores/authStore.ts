@@ -61,17 +61,11 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ isLoading: false });
         return;
       }
+      // Clear stale dev-token — it doesn't work against the real API
       if (token === 'dev-token') {
-        const mockUser: User = {
-          id: 'dev-user-001',
-          email: 'dev@xyrachat.io',
-          firstName: 'Dev',
-          lastName: 'User',
-          role: 'admin' as UserRole,
-          tenantId: 'dev-tenant-001',
-          createdAt: new Date().toISOString(),
-        };
-        set({ user: mockUser, isAuthenticated: true, isLoading: false });
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        set({ user: null, isAuthenticated: false, isLoading: false });
         return;
       }
       const { data } = await authAPI.me();
