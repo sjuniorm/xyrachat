@@ -22,14 +22,14 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data } = await authAPI.login({ email, password, tenantSlug });
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
-    set({ user: data.user, isAuthenticated: true });
+    set({ user: data.user, isAuthenticated: true, isLoading: false });
   },
 
   register: async (formData) => {
     const { data } = await authAPI.register(formData);
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
-    set({ user: data.user, isAuthenticated: true });
+    set({ user: data.user, isAuthenticated: true, isLoading: false });
   },
 
   devLogin: () => {
