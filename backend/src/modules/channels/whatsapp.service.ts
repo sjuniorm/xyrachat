@@ -141,6 +141,61 @@ export class WhatsAppService {
     }
   }
 
+  async listTemplates(businessAccountId: string, accessToken: string): Promise<any> {
+    try {
+      const response = await axios.get(
+        `${this.apiUrl}/${businessAccountId}/message_templates`,
+        {
+          params: {
+            fields: 'name,status,language,category,components',
+            limit: 100,
+          },
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      logger.error('WhatsApp list templates failed', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  async sendTemplateMessage(
+    phoneNumberId: string,
+    accessToken: string,
+    to: string,
+    templateName: string,
+    languageCode: string = 'en_US',
+    components: any[] = []
+  ): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${this.apiUrl}/${phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: languageCode },
+            ...(components.length > 0 ? { components } : {}),
+          },
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      logger.error('WhatsApp send template failed', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
   async markAsRead(phoneNumberId: string, accessToken: string, messageId: string): Promise<void> {
     try {
       await axios.post(

@@ -82,6 +82,18 @@ export const channelsAPI = {
   create: (data: any) => api.post('/channels', data),
   update: (id: string, data: any) => api.put(`/channels/${id}`, data),
   delete: (id: string) => api.delete(`/channels/${id}`),
+  registerWebhook: (id: string, webhookUrl?: string) =>
+    api.post(`/channels/${id}/register-webhook`, { webhookUrl }),
+  // WhatsApp templates
+  listWhatsAppTemplates: (channelId: string) =>
+    api.get(`/channels/${channelId}/whatsapp/templates`),
+  sendWhatsAppTemplate: (channelId: string, data: {
+    to: string;
+    templateName: string;
+    languageCode?: string;
+    components?: any[];
+    contactId?: string;
+  }) => api.post(`/channels/${channelId}/whatsapp/send-template`, data),
 };
 
 // Chatbots

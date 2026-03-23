@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { channelsAPI } from '@/services/api';
 import { Channel } from '@/types';
-import { Trash2, Plug, Copy, Check, ExternalLink, Settings2 } from 'lucide-react';
+import { Trash2, Plug, Copy, Check, ExternalLink, Settings2, RefreshCw } from 'lucide-react';
 import { PageHeader, Button, Badge, Modal, Input, EmptyState, SkeletonRow, useToast } from '@/components/ui';
 
 const WEBHOOK_BASE = 'https://api.xyra.chat/api/v1/webhooks';
@@ -30,6 +30,7 @@ interface CredentialField {
 const channelCredentialFields: Record<string, CredentialField[]> = {
   whatsapp: [
     { key: 'phoneNumberId', label: 'Phone Number ID', placeholder: 'e.g. 123456789012345', required: true },
+    { key: 'businessAccountId', label: 'WhatsApp Business Account ID', placeholder: 'e.g. 987654321098765', required: true },
     { key: 'accessToken', label: 'Permanent Access Token', placeholder: 'Your WhatsApp Cloud API token', required: true },
     { key: 'verifyToken', label: 'Verify Token', placeholder: 'Custom string for webhook verification', required: true },
   ],
@@ -103,6 +104,7 @@ export default function IntegrationsPage() {
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null);
   const { toast } = useToast();
 
   const load = useCallback(async () => {
@@ -178,6 +180,18 @@ export default function IntegrationsPage() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const handleRegisterWebhook = async (channelId: string) => {
+    setRegisteringWebhook(channelId);
+    try {
+      await channelsAPI.registerWebhook(channelId);
+      toast('Webhook registered successfully!', 'success');
+    } catch (error: any) {
+      toast(error.response?.data?.error || 'Failed to register webhook', 'error');
+    } finally {
+      setRegisteringWebhook(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -226,8 +240,8 @@ export default function IntegrationsPage() {
                     </Badge>
                   </div>
                   {ch.type !== 'webchat' && (
-                    <div className="mt-3 pt-3 border-t border-surface-100">
-                      <p className="text-2xs text-surface-400 mb-1">Webhook URL</p>
+                    <div className="mt-3 pt-3 border-t border-surface-100 space-y-2">
+                      <p className="text-2xs text-surface-400">Webhook URL</p>
                       <div className="flex items-center gap-1.5">
                         <code className="flex-1 text-2xs bg-surface-50 rounded px-2 py-1 text-surface-600 truncate">{webhookUrl}</code>
                         <button
@@ -238,6 +252,17 @@ export default function IntegrationsPage() {
                           {copiedField === ch.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-surface-400" />}
                         </button>
                       </div>
+                      {/* Telegram: manual webhook re-registration button */}
+                      {ch.type === 'telegram' && (
+                        <button
+                          onClick={() => handleRegisterWebhook(ch.id)}
+                          disabled={registeringWebhook === ch.id}
+                          className="flex items-center gap-1.5 text-2xs text-brand-600 hover:text-brand-700 disabled:opacity-50"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${registeringWebhook === ch.id ? 'animate-spin' : ''}`} />
+                          {registeringWebhook === ch.id ? 'Registering…' : 'Re-register webhook'}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

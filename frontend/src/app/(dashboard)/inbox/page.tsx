@@ -7,10 +7,11 @@ import { cn, formatDate, getInitials } from '@/lib/utils';
 import { Conversation, Message, MessageDirection } from '@/types';
 import {
   Search, Send, Paperclip, MoreHorizontal, Phone, Video,
-  Bot, Image, FileText, Check, CheckCheck,
-  MessageSquare as MessageSquareIcon,
+  Bot, FileText, Check, CheckCheck,
+  MessageSquare as MessageSquareIcon, Layout,
 } from 'lucide-react';
-import { Badge, Button, SkeletonInbox, EmptyState, useToast } from '@/components/ui';
+import { Badge, Button, SkeletonInbox, EmptyState, Modal, useToast } from '@/components/ui';
+import { channelsAPI } from '@/services/api';
 
 const channelIcons: Record<string, string> = {
   whatsapp: '📱', webchat: '💬', facebook: 'f', instagram: '📷',
@@ -85,6 +86,115 @@ function AttachmentPreview({ messageType, mediaUrl }: { messageType: string; med
   return null;
 }
 
+// WhatsApp Template Modal
+function WhatsAppTemplateModal({
+  isOpen, onClose, channelId, contactPhone, contactId, onSent,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  channelId: string;
+  contactPhone?: string;
+  contactId?: string;
+  onSent: (conversationId: string) => void;
+}) {
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [toPhone, setToPhone] = useState(contactPhone || '');
+  const [isSending, setIsSending] = useState(false);
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!isOpen || !channelId) return;
+    setIsLoadingTemplates(true);
+    channelsAPI.listWhatsAppTemplates(channelId)
+      .then(({ data }) => setTemplates(data?.data || []))
+      .catch(() => toast('Failed to load templates', 'error'))
+      .finally(() => setIsLoadingTemplates(false));
+  }, [isOpen, channelId]);
+
+  const handleSend = async () => {
+    if (!selectedTemplate || !toPhone.trim()) return;
+    setIsSending(true);
+    try {
+      const { data } = await channelsAPI.sendWhatsAppTemplate(channelId, {
+        to: toPhone.trim(),
+        templateName: selectedTemplate,
+        contactId,
+      });
+      toast('Template sent! Conversation opened.', 'success');
+      onSent(data.conversationId);
+      onClose();
+    } catch (error: any) {
+      toast(error.response?.data?.error || 'Failed to send template', 'error');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Send WhatsApp Template" description="Send a pre-approved template to start a conversation">
+      <div className="space-y-4">
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-2xs text-amber-800">
+          WhatsApp requires a pre-approved template message to initiate a new conversation or re-open one after 24 hours.
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-surface-600 mb-1.5">Phone Number</label>
+          <input
+            type="tel"
+            value={toPhone}
+            onChange={(e) => setToPhone(e.target.value)}
+            placeholder="+1234567890 (include country code)"
+            className="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-surface-600 mb-1.5">Template</label>
+          {isLoadingTemplates ? (
+            <div className="text-xs text-surface-400 py-2">Loading templates…</div>
+          ) : templates.length === 0 ? (
+            <div className="text-xs text-surface-400 py-2">No approved templates found. Create templates in Meta Business Manager.</div>
+          ) : (
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value)}
+              className="w-full rounded-lg border border-surface-200 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            >
+              <option value="">Select a template…</option>
+              {templates.map((t: any) => (
+                <option key={t.name} value={t.name}>
+                  {t.name} ({t.language}) — {t.status}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {selectedTemplate && templates.find((t: any) => t.name === selectedTemplate) && (
+          <div className="rounded-lg bg-surface-50 border border-surface-200 p-3">
+            <p className="text-2xs font-medium text-surface-500 mb-1">Preview</p>
+            {templates.find((t: any) => t.name === selectedTemplate)?.components
+              ?.filter((c: any) => c.type === 'BODY')
+              .map((c: any, i: number) => (
+                <p key={i} className="text-xs text-surface-700 whitespace-pre-wrap">{c.text}</p>
+              ))}
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="rounded-lg border border-surface-200 px-4 py-2 text-sm text-surface-600 hover:bg-surface-50">Cancel</button>
+          <button
+            onClick={handleSend}
+            disabled={!selectedTemplate || !toPhone.trim() || isSending}
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {isSending ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : null}
+            Send Template
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function InboxPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
@@ -96,6 +206,9 @@ export default function InboxPage() {
   const [isSending, setIsSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [attachmentPreview, setAttachmentPreview] = useState<{ file: File; url: string } | null>(null);
+  const [whatsappChannels, setWhatsappChannels] = useState<any[]>([]);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateChannelId, setTemplateChannelId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedConvRef = useRef<Conversation | null>(null);
@@ -121,6 +234,13 @@ export default function InboxPage() {
       setIsLoading(false);
     }
   }, [searchQuery, statusFilter]);
+
+  // Load WhatsApp channels for template sending
+  useEffect(() => {
+    channelsAPI.list().then(({ data }) => {
+      setWhatsappChannels((data || []).filter((ch: any) => ch.type === 'whatsapp' && ch.is_active));
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadConversations();
@@ -343,6 +463,20 @@ export default function InboxPage() {
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {/* WhatsApp template button — only shown for WhatsApp conversations */}
+              {selectedConv.channel_type === 'whatsapp' && whatsappChannels.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Send WhatsApp Template"
+                  onClick={() => {
+                    setTemplateChannelId(selectedConv.channel_id || whatsappChannels[0].id);
+                    setTemplateModalOpen(true);
+                  }}
+                >
+                  <Layout className="h-4 w-4 text-green-600" />
+                </Button>
+              )}
               <Button variant="ghost" size="sm" title="Call"><Phone className="h-4 w-4" /></Button>
               <Button variant="ghost" size="sm" title="Video"><Video className="h-4 w-4" /></Button>
               <Button variant="ghost" size="sm" title="More"><MoreHorizontal className="h-4 w-4" /></Button>
@@ -460,6 +594,21 @@ export default function InboxPage() {
             description="Choose a conversation from the list to start messaging"
           />
         </div>
+      )}
+
+      {/* WhatsApp Template Modal */}
+      {templateModalOpen && templateChannelId && (
+        <WhatsAppTemplateModal
+          isOpen={templateModalOpen}
+          onClose={() => setTemplateModalOpen(false)}
+          channelId={templateChannelId}
+          contactPhone={selectedConv?.contact_phone}
+          contactId={selectedConv?.contact_id}
+          onSent={(conversationId) => {
+            loadConversations();
+            // If the returned conversation is different, we could navigate to it
+          }}
+        />
       )}
     </div>
   );

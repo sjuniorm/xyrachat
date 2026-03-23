@@ -2,6 +2,11 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../../middleware/auth';
 import { pool } from '../../config/database';
 import { AppError } from '../../middleware/errorHandler';
+import { TelegramService } from './telegram.service';
+import { env } from '../../config/env';
+import { logger } from '../../utils/logger';
+
+const telegramService = new TelegramService();
 
 export class ChannelsController {
   async list(req: AuthenticatedRequest, res: Response): Promise<void> {
@@ -39,7 +44,33 @@ export class ChannelsController {
         `INSERT INTO channels (tenant_id, type, name, credentials, config) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [tenantId, type, name, credentials || {}, config || {}]
       );
-      res.status(201).json(result.rows[0]);
+      const channel = result.rows[0];
+
+      // Auto-register Telegram webhook when a Telegram channel is created
+      if (type === 'telegram' && credentials?.botToken) {
+        try {
+          const apiBase = env.CORS_ORIGIN.includes('localhost')
+            ? null // Can't register localhost webhooks with Telegram
+            : `https://api.xyra.chat/api/v1`; // Use production URL
+
+          if (apiBase) {
+            const webhookUrl = `${apiBase}/webhooks/telegram`;
+            await telegramService.setWebhook(
+              credentials.botToken,
+              webhookUrl,
+              env.TELEGRAM_SECRET_TOKEN
+            );
+            logger.info(`Telegram webhook registered for channel ${channel.id}`);
+          } else {
+            logger.info('Skipping Telegram webhook registration in local dev — use ngrok or similar');
+          }
+        } catch (webhookError: any) {
+          // Don't fail channel creation if webhook registration fails
+          logger.error('Failed to register Telegram webhook', webhookError.message);
+        }
+      }
+
+      res.status(201).json(channel);
     } catch (error: any) {
       res.status(error.statusCode || 500).json({ error: error.message });
     }

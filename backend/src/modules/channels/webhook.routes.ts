@@ -236,9 +236,15 @@ async function processChannelInboundMessage(msg: any, channelType: ChannelType, 
       channelQuery = "SELECT * FROM channels WHERE type = $1 AND is_active = true AND credentials->>'pageId' = $2";
       channelParams = [channelTypeName, msg.metadata?.pageId];
     } else if (channelType === ChannelType.TELEGRAM) {
-      // Match by chat ID or bot token — look up all active telegram channels
-      channelQuery = 'SELECT * FROM channels WHERE type = $1 AND is_active = true';
-      channelParams = [channelTypeName];
+      // Match by the bot token that received this update (stored in metadata)
+      if (msg.metadata?.botToken) {
+        channelQuery = "SELECT * FROM channels WHERE type = $1 AND is_active = true AND credentials->>'botToken' = $2";
+        channelParams = [channelTypeName, msg.metadata.botToken];
+      } else {
+        // Fallback: first active telegram channel
+        channelQuery = 'SELECT * FROM channels WHERE type = $1 AND is_active = true LIMIT 1';
+        channelParams = [channelTypeName];
+      }
     } else {
       return;
     }

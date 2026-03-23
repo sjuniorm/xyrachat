@@ -197,22 +197,23 @@ export class ConversationsService {
     switch (channelType) {
       case ChannelType.TELEGRAM: {
         const botToken = creds.botToken;
-        const chatId = identifiers.telegram;
-        if (!botToken || !chatId) {
-          // Try to find chatId from the last inbound message metadata
-          const lastMsg = await pool.query(
-            `SELECT metadata FROM messages WHERE conversation_id = $1 AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1`,
-            [conversationId]
-          );
-          const telegramChatId = lastMsg.rows[0]?.metadata?.telegramChatId;
-          if (botToken && telegramChatId) {
-            await telegramService.sendTextMessage(botToken, telegramChatId, content);
-          } else {
-            logger.warn('Missing Telegram bot token or chat ID for outbound message');
-          }
-        } else {
-          await telegramService.sendTextMessage(botToken, chatId, content);
+        // Always resolve chatId from the last inbound message metadata (most reliable source)
+        const lastMsg = await pool.query(
+          `SELECT metadata FROM messages WHERE conversation_id = $1 AND direction = 'inbound' ORDER BY created_at DESC LIMIT 1`,
+          [conversationId]
+        );
+        const telegramChatId = lastMsg.rows[0]?.metadata?.telegramChatId
+          ?? identifiers.telegram;
+
+        if (!botToken) {
+          logger.warn('Missing Telegram bot token for outbound message', { conversationId });
+          break;
         }
+        if (!telegramChatId) {
+          logger.warn('Missing Telegram chat ID for outbound message', { conversationId });
+          break;
+        }
+        await telegramService.sendTextMessage(botToken, String(telegramChatId), content);
         break;
       }
       case ChannelType.WHATSAPP: {
