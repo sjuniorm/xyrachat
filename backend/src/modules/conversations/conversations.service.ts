@@ -149,22 +149,20 @@ export class ConversationsService {
 
       const message = msgResult.rows[0];
 
-      // Route message to external channel, then mark as delivered
-      try {
-        await this.routeOutboundMessage(tenantId, conversationId, data.content);
-        // Mark as delivered after successful channel send
-        await pool.query(
-          `UPDATE messages SET status = 'delivered', delivered_at = NOW() WHERE id = $1`,
-          [message.id]
-        );
-        message.status = 'delivered';
-        message.delivered_at = new Date().toISOString();
-      } catch (routeError) {
-        logger.error('Failed to route outbound message to channel', routeError);
-      }
-
-      // Emit real-time event (after routing so status is up to date)
+      // Emit real-time event immediately so UI updates fast
       emitToConversation(conversationId, 'message:new', message);
+
+      // Route message to external channel in background, then update status
+      this.routeOutboundMessage(tenantId, conversationId, data.content)
+        .then(async () => {
+          await pool.query(
+            `UPDATE messages SET status = 'delivered', delivered_at = NOW() WHERE id = $1`,
+            [message.id]
+          );
+        })
+        .catch((routeError) => {
+          logger.error('Failed to route outbound message to channel', routeError);
+        });
 
       return message;
     } catch (error) {

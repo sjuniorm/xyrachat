@@ -309,7 +309,15 @@ export default function InboxPage() {
     try {
       const { data } = await conversationsAPI.sendMessage(selectedConv.id, { content: messageContent, messageType: 'text' });
       // Replace optimistic message with the real one from server
-      setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? { ...data, status: 'sent' } : m));
+      // Also register the real ID so the WebSocket dedup check works correctly
+      setMessages((prev) => {
+        // If WebSocket already added the real message, just remove the optimistic one
+        if (prev.some((m) => m.id === data.id)) {
+          return prev.filter((m) => m.id !== optimisticMsg.id);
+        }
+        // Otherwise replace optimistic with real
+        return prev.map((m) => m.id === optimisticMsg.id ? { ...data } : m);
+      });
     } catch (error) {
       // Remove optimistic message on failure
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
