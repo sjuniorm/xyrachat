@@ -134,8 +134,8 @@ export class ConversationsService {
       await client.query('BEGIN');
 
       const msgResult = await client.query(
-        `INSERT INTO messages (tenant_id, conversation_id, sender_id, direction, message_type, content, media_url, is_from_bot)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        `INSERT INTO messages (tenant_id, conversation_id, sender_id, direction, message_type, content, media_url, is_from_bot, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'sent') RETURNING *`,
         [tenantId, conversationId, userId, MessageDirection.OUTBOUND, data.messageType || 'text', data.content, data.mediaUrl, false]
       );
 
@@ -149,15 +149,22 @@ export class ConversationsService {
 
       const message = msgResult.rows[0];
 
-      // Emit real-time event
-      emitToConversation(conversationId, 'message:new', message);
-
-      // Route message to external channel
+      // Route message to external channel, then mark as delivered
       try {
         await this.routeOutboundMessage(tenantId, conversationId, data.content);
+        // Mark as delivered after successful channel send
+        await pool.query(
+          `UPDATE messages SET status = 'delivered', delivered_at = NOW() WHERE id = $1`,
+          [message.id]
+        );
+        message.status = 'delivered';
+        message.delivered_at = new Date().toISOString();
       } catch (routeError) {
         logger.error('Failed to route outbound message to channel', routeError);
       }
+
+      // Emit real-time event (after routing so status is up to date)
+      emitToConversation(conversationId, 'message:new', message);
 
       return message;
     } catch (error) {

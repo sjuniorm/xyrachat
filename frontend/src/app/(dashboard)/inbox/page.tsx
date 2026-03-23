@@ -98,9 +98,15 @@ export default function InboxPage() {
   const [attachmentPreview, setAttachmentPreview] = useState<{ file: File; url: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedConvRef = useRef<Conversation | null>(null);
   const { toast } = useToast();
 
   const { joinConversation, leaveConversation, onNewMessage, onConversationUpdated } = useSocket();
+
+  // Keep ref in sync so WebSocket callbacks always see the latest selectedConv
+  useEffect(() => {
+    selectedConvRef.current = selectedConv;
+  }, [selectedConv]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -137,15 +143,19 @@ export default function InboxPage() {
 
   useEffect(() => {
     const cleanup = onNewMessage((message: Message) => {
-      if (message.conversation_id === selectedConv?.id) {
-        setMessages((prev) => [...prev, message]);
-        // Simulate typing indicator clearing
+      const currentConv = selectedConvRef.current;
+      if (message.conversation_id === currentConv?.id) {
+        setMessages((prev) => {
+          // Avoid duplicates (optimistic message already added)
+          if (prev.some((m) => m.id === message.id)) return prev;
+          return [...prev, message];
+        });
         setIsTyping(false);
       }
       loadConversations();
     });
     return cleanup;
-  }, [selectedConv, onNewMessage, loadConversations]);
+  }, [onNewMessage, loadConversations]);
 
   useEffect(() => {
     const cleanup = onConversationUpdated(() => { loadConversations(); });
@@ -158,15 +168,32 @@ export default function InboxPage() {
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !selectedConv || isSending) return;
+    const messageContent = newMessage.trim();
     setIsSending(true);
+    setNewMessage('');
+    clearAttachment();
+
+    // Optimistically add message to UI immediately
+    const optimisticMsg: Message = {
+      id: `temp-${Date.now()}`,
+      conversation_id: selectedConv.id,
+      direction: MessageDirection.OUTBOUND,
+      message_type: 'text',
+      content: messageContent,
+      is_from_bot: false,
+      status: 'sent',
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
     try {
-      await conversationsAPI.sendMessage(selectedConv.id, { content: newMessage, messageType: 'text' });
-      setNewMessage('');
-      clearAttachment();
-      // Simulate typing indicator from the other end
-      setIsTyping(true);
-      setTimeout(() => setIsTyping(false), 3000);
+      const { data } = await conversationsAPI.sendMessage(selectedConv.id, { content: messageContent, messageType: 'text' });
+      // Replace optimistic message with the real one from server
+      setMessages((prev) => prev.map((m) => m.id === optimisticMsg.id ? { ...data, status: 'sent' } : m));
     } catch (error) {
+      // Remove optimistic message on failure
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
+      setNewMessage(messageContent);
       toast('Failed to send message', 'error');
     } finally {
       setIsSending(false);
