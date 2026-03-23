@@ -24,21 +24,15 @@ import { analyticsRoutes } from './modules/analytics/analytics.routes';
 const app = express();
 const server = http.createServer(app);
 
+// Trust proxy (behind nginx)
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet());
 app.use(cors({
   origin: env.CORS_ORIGIN.split(','),
   credentials: true,
 }));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use(`${env.API_PREFIX}`, limiter);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -49,6 +43,18 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Webhook routes (before rate limiter — external services send many requests)
+app.use(`${env.API_PREFIX}/webhooks`, webhookRoutes);
+
+// Rate limiting (applied to all other API routes)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(`${env.API_PREFIX}`, limiter);
+
 // API routes
 app.use(`${env.API_PREFIX}/auth`, authRoutes);
 app.use(`${env.API_PREFIX}/conversations`, conversationRoutes);
@@ -56,7 +62,6 @@ app.use(`${env.API_PREFIX}/contacts`, contactRoutes);
 app.use(`${env.API_PREFIX}/channels`, channelRoutes);
 app.use(`${env.API_PREFIX}/chatbots`, chatbotRoutes);
 app.use(`${env.API_PREFIX}/automations`, automationRoutes);
-app.use(`${env.API_PREFIX}/webhooks`, webhookRoutes);
 app.use(`${env.API_PREFIX}/teams`, teamRoutes);
 app.use(`${env.API_PREFIX}/analytics`, analyticsRoutes);
 
