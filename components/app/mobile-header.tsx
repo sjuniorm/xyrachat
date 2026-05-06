@@ -26,10 +26,9 @@ export function MobileHeader({
 
   return (
     <header
-      className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/5 px-4 md:hidden"
+      className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/5 px-3 md:hidden"
       style={{ background: "var(--xyra-sidebar)" }}
     >
-      <XyraWordmark size="sm" />
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
@@ -58,6 +57,7 @@ export function MobileHeader({
           </div>
         </SheetContent>
       </Sheet>
+      <XyraWordmark size="sm" />
     </header>
   );
 }
