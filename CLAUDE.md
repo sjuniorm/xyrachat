@@ -69,10 +69,14 @@ app/
   layout.tsx                # Root layout: Inter font, providers, sonner toaster
   globals.css               # Tailwind v4 + Xyra brand tokens + shadcn vars
   page.tsx                  # Marketing landing redirect → /login (or /dashboard if signed in)
+  manifest.ts               # PWA manifest — Xyra brand colors, icons
+  favicon.ico               # Browser tab fallback (legacy)
+  icon.png                  # Browser tab icon (modern, 512×512, Next auto-scales)
+  apple-icon.png            # iOS home screen icon (180×180)
 components/
   ui/                       # shadcn primitives (button, input, card, sidebar, sheet, sonner, ...)
   brand/
-    xyra-wordmark.tsx       # Gradient "Xyra Chat" wordmark
+    xyra-wordmark.tsx       # Two variants: `inline` (icon + gradient text) or `stacked` (full wordmark PNG)
   app/
     sidebar-nav.tsx         # Dashboard left nav
   consent/
@@ -94,6 +98,10 @@ supabase/
   migrations/
     001_initial.sql         # Schema for Week 1 (orgs, profiles, RLS, soft delete)
 public/
+  brand/
+    logo.png                # 1024×1024 wordmark (X + "XYRA CHAT" stacked)
+    logo-mark.png           # 1024×1024 X icon only
+_brand-source/              # Original SVG/PNG/favicon export — gitignored, never shipped
 .env.example                # Template — committed
 .env.local                  # Real secrets — NEVER committed
 ```
@@ -187,6 +195,12 @@ After Week 2: Inbox UI, conversations + messages tables, realtime subscriptions,
 - Server actions for mutations (form posts) — preferred over `/api/*` route handlers unless the endpoint is for an external caller (webhook, GDPR).
 - Use `supabase/server.ts` in RSCs and server actions; `supabase/client.ts` only in `"use client"` components that need realtime/auth.
 - Never import `lib/supabase/admin.ts` from a client component. Lint will not catch it — review every PR for this.
+- **Trusted server actions doing org-level mutations use the admin client.**
+  Pattern: authenticate the caller via the user-scoped client (`getUser()`),
+  enforce app-level invariants (e.g. one org per user), then mutate via
+  `createAdminClient()`. RLS is the gate for client-direct queries; fighting
+  RLS from inside an authenticated server action is the wrong shape. See
+  `app/(auth)/onboarding/page.tsx` for the canonical example.
 - Tables: snake_case. TypeScript types: PascalCase. Re-generate types via `supabase gen types typescript --linked > lib/db-types.ts` (Week 2 once linked).
 
 ## Open issues / notes

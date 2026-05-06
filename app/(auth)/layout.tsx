@@ -14,7 +14,7 @@ export default function AuthLayout({
         className="pointer-events-none absolute -top-32 left-1/2 size-[480px] -translate-x-1/2 rounded-full opacity-30 blur-3xl xyra-gradient"
       />
       <Link href="/" className="relative mb-8 inline-flex">
-        <XyraWordmark size="lg" />
+        <XyraWordmark size="lg" variant="stacked" />
       </Link>
       <div className="relative w-full max-w-md">{children}</div>
       <p className="relative mt-8 text-xs text-muted-foreground">

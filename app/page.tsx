@@ -18,7 +18,7 @@ export default async function Home() {
         className="pointer-events-none absolute -top-24 left-1/2 size-[640px] -translate-x-1/2 rounded-full opacity-25 blur-3xl xyra-gradient"
       />
       <div className="relative">
-        <XyraWordmark size="lg" />
+        <XyraWordmark size="lg" variant="stacked" />
         <h1 className="mt-6 max-w-2xl text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
           One inbox for every customer conversation.
         </h1>

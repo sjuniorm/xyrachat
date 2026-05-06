@@ -50,3 +50,6 @@ next-env.d.ts
 # supabase local artifacts
 supabase/.branches
 supabase/.temp
+
+# raw brand assets — keep originals local, don't ship to Vercel or GitHub
+_brand-source/

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { trackServer } from "@/lib/analytics-server";
 import { OnboardingForm } from "./onboarding-form";
 
@@ -18,23 +19,37 @@ async function createOrgAction(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return { error: "Organization name is required." };
 
+  // 1. Authenticate the caller via the user-scoped client (cookie session).
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  // 2. App-level guard: one org per user.
+  const { data: existing } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (existing?.org_id) redirect("/dashboard");
+
+  // 3. Create org + link profile via the service-role client.
+  // Caller is already verified above. RLS is the right gate for client-direct
+  // queries; trusted server actions doing org-level setup mutate via admin.
+  const admin = createAdminClient();
+
   const baseSlug = slugify(name) || "org";
   const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const { data: org, error: orgErr } = await supabase
+  const { data: org, error: orgErr } = await admin
     .from("organizations")
     .insert({ name, slug })
     .select("id, plan")
     .single();
   if (orgErr || !org) return { error: orgErr?.message ?? "Could not create org." };
 
-  const { error: profileErr } = await supabase
+  const { error: profileErr } = await admin
     .from("profiles")
     .update({ org_id: org.id, role: "owner" })
     .eq("id", user.id);
