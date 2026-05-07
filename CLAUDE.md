@@ -35,6 +35,25 @@ Reference: xyrachat.com
 
 Tokens are defined in [app/globals.css](app/globals.css) and Tailwind v4 picks them up via `@theme`.
 
+## ⚠️ Secrets policy — non-negotiable
+
+**`.env.local` MUST NEVER be committed or pushed to GitHub.** The repo is
+public (https://github.com/sjuniorm/xyrachat) — pushed secrets would be
+immediately public.
+
+Before any `git push`, the workflow is:
+1. Run `git ls-files | grep -E "^\.env"`
+2. If anything other than `.env.example` appears → STOP, do not push,
+   investigate `.gitignore`
+3. Only then push
+
+`.gitignore` line 34 (`.env*`) plus line 35 (`!.env.example`) is the gate.
+Touching either line requires re-verification that real envs are still ignored.
+
+If a secret ever lands in a commit — even one that's been overwritten — assume
+it's compromised, rotate it in the source provider (Supabase / PostHog), and
+update Vercel + `.env.local` with the new value.
+
 ## Required environment variables
 
 | Var | Where used | Notes |
