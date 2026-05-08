@@ -29,16 +29,16 @@ export default async function DashboardLayout({
   };
 
   return (
-    <div className="flex min-h-screen w-full">
+    <div className="flex h-dvh w-full">
       {/* Desktop sidebar — hidden on mobile */}
-      <aside className="sticky top-0 hidden h-screen w-[260px] shrink-0 border-r border-white/5 md:block">
+      <aside className="hidden h-full w-[260px] shrink-0 border-r border-white/5 md:block">
         <SidebarContent {...userProps} />
       </aside>
 
       {/* Mobile column: hamburger header + content */}
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex h-full flex-1 flex-col">
         <MobileHeader {...userProps} />
-        <main className="flex flex-1 flex-col">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { Inbox, Users, Megaphone, Bot } from "lucide-react";
 
 export default function DashboardPage() {
   return (
-    <div className="flex-1 px-8 py-10">
+    <div className="flex-1 overflow-y-auto px-8 py-10">
       <header className="mb-10">
         <h1 className="text-3xl font-semibold tracking-tight">
           Welcome to <span className="xyra-gradient-text">Xyra Chat</span>
