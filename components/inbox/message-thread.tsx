@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, MoreVertical, X } from "lucide-react";
+import { ArrowLeft, MoreVertical, UserPlus, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -90,9 +90,9 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
   const hasBotAssigned = conversation.status === "bot";
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
       {/* Top bar */}
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-white/5 px-3 md:px-4">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-white/5 px-3 md:gap-3 md:px-4">
         <Link
           href="/inbox"
           className="md:hidden inline-flex size-8 items-center justify-center rounded-md text-white/70 hover:bg-white/5 hover:text-white"
@@ -128,8 +128,14 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 gap-1.5">
-              Assign
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 px-2 md:px-3"
+              aria-label="Assign agent"
+            >
+              <UserPlus className="size-4 md:hidden" />
+              <span className="hidden md:inline">Assign</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -143,7 +149,12 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
         </DropdownMenu>
 
         {conversation.status !== "closed" ? (
-          <Button variant="outline" size="sm" className="h-8 gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 gap-1.5 px-2 md:px-3"
+            aria-label="Close conversation"
+          >
             <X className="size-3.5" />
             <span className="hidden md:inline">Close</span>
           </Button>
@@ -168,7 +179,7 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-4 md:px-6"
+        className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 md:px-6"
         style={{ background: "color-mix(in oklab, var(--xyra-bg) 92%, black)" }}
       >
         <div className="mx-auto flex max-w-3xl flex-col gap-2">

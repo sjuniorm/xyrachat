@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  ChevronRight,
   CornerDownRight,
   Languages,
   Paperclip,
@@ -22,14 +21,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { Conversation, Message } from "@/lib/mock-data";
 import { TOP_LANGUAGES, languageLabel } from "@/lib/i18n/languages";
@@ -68,7 +59,6 @@ export function Composer({
   const [pending, setPending] = useState(false);
   const [assistOpen, setAssistOpen] = useState(false);
   const [previousDraft, setPreviousDraft] = useState<string | null>(null);
-  const [translateMenuOpen, setTranslateMenuOpen] = useState(false);
   const [otherLangValue, setOtherLangValue] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -134,7 +124,6 @@ export function Composer({
   async function runAssist(action: AssistAction, language?: string) {
     if (!text.trim() || pending) return;
     setAssistOpen(false);
-    setTranslateMenuOpen(false);
     const prev = text;
     setPending(true);
     try {
@@ -229,7 +218,7 @@ export function Composer({
           style={{ minHeight: 44 }}
         />
 
-        <div className="flex items-center gap-1 border-t border-white/5 px-2 py-2">
+        <div className="flex flex-wrap items-center gap-1 border-t border-white/5 px-2 py-2">
           <Popover open={assistOpen} onOpenChange={setAssistOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -250,78 +239,78 @@ export function Composer({
             <PopoverContent
               side="top"
               align="start"
-              className="w-64 border-white/10 p-1"
+              collisionPadding={12}
+              className="w-[min(20rem,calc(100vw-24px))] border-white/10 p-2"
             >
-              {ASSIST_ACTIONS.map((a) => (
-                <button
-                  key={a.value}
-                  type="button"
-                  onClick={() => runAssist(a.value)}
-                  className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-white/5"
-                >
-                  {a.label}
-                </button>
-              ))}
-              <div className="my-1 h-px bg-white/10" />
-              <DropdownMenu open={translateMenuOpen} onOpenChange={setTranslateMenuOpen}>
-                <DropdownMenuTrigger asChild>
+              <div className="flex flex-col gap-0.5">
+                {ASSIST_ACTIONS.map((a) => (
                   <button
+                    key={a.value}
                     type="button"
-                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-white/5"
+                    onClick={() => runAssist(a.value)}
+                    className="flex w-full items-center rounded px-2 py-1.5 text-left text-sm hover:bg-white/5"
                   >
-                    <span className="inline-flex items-center gap-2">
-                      <Languages className="size-3.5" />
-                      Translate to…
-                    </span>
-                    <ChevronRight className="size-3.5 text-white/50" />
+                    {a.label}
                   </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent side="right" align="start" className="w-56">
-                  <DropdownMenuLabel className="text-xs">Pick a language</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      runAssist("translate", conversation.detected_language ?? "en")
-                    }
+                ))}
+              </div>
+
+              <div className="my-2 flex items-center gap-2 px-1 text-[10px] uppercase tracking-wide text-white/50">
+                <Languages className="size-3" />
+                <span>Translate to</span>
+                <span className="h-px flex-1 bg-white/10" />
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  runAssist("translate", conversation.detected_language ?? "en")
+                }
+                className="mb-1 flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-white/5"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-[color:var(--xyra-glow)]" />
+                  Customer's language
+                </span>
+                <span className="shrink-0 text-[10px] text-white/50">
+                  {languageLabel(conversation.detected_language)}
+                </span>
+              </button>
+
+              <div className="flex flex-wrap gap-1">
+                {TOP_LANGUAGES.map((l) => (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => runAssist("translate", l.code)}
+                    className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/80 hover:border-[color:var(--xyra-glow)]/40 hover:bg-white/10 hover:text-white"
                   >
-                    <Sparkles className="mr-2 size-3.5" />
-                    Customer's language
-                    <span className="ml-auto text-[10px] text-white/50">
-                      {languageLabel(conversation.detected_language)}
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {TOP_LANGUAGES.map((l) => (
-                    <DropdownMenuItem
-                      key={l.code}
-                      onClick={() => runAssist("translate", l.code)}
-                    >
-                      {l.label}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <div className="flex items-center gap-1 px-2 py-1.5">
-                    <input
-                      type="text"
-                      value={otherLangValue}
-                      onChange={(e) => setOtherLangValue(e.target.value)}
-                      placeholder="Other… (e.g. Polish)"
-                      className="h-7 flex-1 rounded border border-white/10 bg-white/5 px-2 text-xs text-white placeholder:text-white/40 focus:border-[color:var(--xyra-glow)] focus:outline-none"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      disabled={!otherLangValue.trim()}
-                      onClick={() => {
-                        runAssist("translate", otherLangValue.trim());
-                        setOtherLangValue("");
-                      }}
-                    >
-                      Go
-                    </Button>
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-2 flex items-center gap-1">
+                <input
+                  type="text"
+                  value={otherLangValue}
+                  onChange={(e) => setOtherLangValue(e.target.value)}
+                  placeholder="Other… (e.g. Polish)"
+                  className="h-7 min-w-0 flex-1 rounded border border-white/10 bg-white/5 px-2 text-xs text-white placeholder:text-white/40 focus:border-[color:var(--xyra-glow)] focus:outline-none"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={!otherLangValue.trim()}
+                  onClick={() => {
+                    runAssist("translate", otherLangValue.trim());
+                    setOtherLangValue("");
+                  }}
+                >
+                  Go
+                </Button>
+              </div>
             </PopoverContent>
           </Popover>
 

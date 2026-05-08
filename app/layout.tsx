@@ -46,7 +46,13 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col bg-background text-foreground">
         <PostHogProvider>
           {children}
-          <Toaster richColors theme="dark" />
+          <Toaster
+            richColors
+            theme="dark"
+            position="top-center"
+            mobileOffset={{ top: 12, left: 12, right: 12 }}
+            toastOptions={{ classNames: { toast: "max-w-[calc(100vw-24px)]" } }}
+          />
           {showConsent && <CookieBanner />}
         </PostHogProvider>
       </body>
