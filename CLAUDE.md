@@ -76,9 +76,17 @@ app/
     signup/page.tsx         # Name + email + password sign-up
     onboarding/page.tsx     # Create org, set self as owner
   (dashboard)/
-    layout.tsx              # Branded sidebar (260px) + content area
+    layout.tsx              # Branded sidebar (260px) + mobile header + content area (`h-dvh`)
     dashboard/page.tsx      # "Welcome to Xyra Chat" placeholder
-    inbox/page.tsx          # Inbox placeholder
+    inbox/
+      layout.tsx            # 3-panel inbox shell (client — usePathname for mobile flip)
+      page.tsx              # Empty state ("Select a conversation")
+      [id]/page.tsx         # Specific conversation: thread + contact panel
+  api/
+    ai/
+      message-assist/route.ts    # Stubbed AI rewrite (Week 7 → real Claude)
+      suggest-reply/route.ts     # Stubbed suggestion (Week 7 → real Claude)
+      translate-inbound/route.ts # Stubbed inbound translation (Week 7)
   api/
     gdpr/
       export/route.ts       # GET — JSON export of user/org data
@@ -93,11 +101,21 @@ app/
   icon.png                  # Browser tab icon (modern, 512×512, Next auto-scales)
   apple-icon.png            # iOS home screen icon (180×180)
 components/
-  ui/                       # shadcn primitives (button, input, card, sidebar, sheet, sonner, ...)
+  ui/                       # shadcn primitives (button, input, card, sidebar, sheet, sonner, popover, tabs, textarea, switch, scroll-area, channel-icon, ...)
   brand/
     xyra-wordmark.tsx       # Two variants: `inline` (icon + gradient text) or `stacked` (full wordmark PNG)
   app/
     sidebar-nav.tsx         # Dashboard left nav
+    sidebar-content.tsx     # Shared sidebar (used by desktop aside + mobile sheet)
+    sidebar-user.tsx        # Avatar dropdown / sign-out
+    mobile-header.tsx       # Hamburger header (md:hidden)
+  inbox/
+    conversation-list.tsx   # Search + filter tabs + items
+    conversation-item.tsx   # Single row
+    message-thread.tsx      # Top bar + grouped bubbles + composer
+    message-bubble.tsx      # Bubble with inbound action menu (translate / copy / quote)
+    contact-panel.tsx       # Right panel
+    composer.tsx            # Textarea + AI Assist popover + Suggest + shortcuts
   consent/
     cookie-banner.tsx       # EU-only cookie banner (geo-detected)
   posthog-provider.tsx      # Client provider wrapping app
@@ -109,8 +127,10 @@ lib/
     server.ts               # RSC / route handler client (cookies)
     middleware.ts           # Session refresh helper for middleware.ts
     admin.ts                # Service-role client (server-only, GDPR + webhooks)
+  i18n/languages.ts         # Top language list + label helper for translate menu
   analytics.ts              # PostHog browser client + identify/track/reset
   analytics-server.ts       # PostHog server client (`server-only`) — trackServer
+  mock-data.ts              # Week 2 mock conversations / contacts / messages — replaced by real DB in Week 4
   utils.ts                  # shadcn cn() helper
 middleware.ts               # Root: refresh session + route protection
 supabase/
@@ -198,16 +218,75 @@ GitHub → Vercel auto-deploy. Production env vars must be added in Vercel proje
 6. Hit `/api/gdpr/export` while signed in — downloads JSON.
 7. Hit `/api/gdpr/delete` (POST) — auth user removed, profile soft-deleted.
 
-## Roadmap snapshot (what's next — Week 2)
+## Week 2 — Inbox UI shell (DONE)
 
-Week 2: **Channels — connect a WhatsApp Business sender.**
+Full 3-panel inbox built against mock data — production-ready visuals,
+no real backing yet. Real data wires up in Week 4 once channels connect.
+
+**Routes:**
+- `/inbox` — empty state ("Select a conversation"); list-only on mobile
+- `/inbox/[id]` — thread + contact panel; full screen on mobile with back button
+- `app/(dashboard)/inbox/layout.tsx` is a **client** layout (uses `usePathname`
+  to flip mobile visibility between list and detail)
+
+**Components ([components/inbox/](components/inbox/)):**
+- `conversation-list.tsx` — search (⌘K), filter tabs (All/Open/Closed/Mine/Bot)
+- `conversation-item.tsx` — channel-iconed avatar, status dot, unread badge, agent avatar
+- `message-thread.tsx` — top bar (assign / close / overflow), grouped bubbles
+- `message-bubble.tsx` — inbound action menu (translate / copy / reply-with-quote),
+  quoted-reply preview, delivery ticks (sent/delivered/read), AI-translation toggle
+- `composer.tsx` — auto-grow textarea, internal-note toggle, AI Assist popover,
+  Suggest Reply button (gated on bot-assigned), keyboard shortcuts
+- `contact-panel.tsx` — editable name, details, tag pills, agent, notes, accordion
+- `components/ui/channel-icon.tsx` — WhatsApp / Instagram / Telegram / Email / Messenger
+
+**Keyboard shortcuts:**
+- `⌘K` / `Ctrl+K` → focus conversation search
+- `⌘↵` / `Ctrl+Enter` → send message
+- `⌘J` / `Ctrl+J` → open AI Assist popover (composer must be non-empty)
+- `⌘L` / `Ctrl+L` → Suggest Reply (composer's bot-assigned channels only)
+- `Escape` → close popovers / dialogs (Radix built-in)
+
+**AI surfaces in composer (stubbed in Week 2, real Claude in Week 7):**
+- `POST /api/ai/message-assist` — `{ text, action, language?, conversation_id?, channel_id? }`
+  → `{ text }`. Actions: improve / friendlier / professional / shorter / longer /
+  fix_grammar / translate. Replaces composer text with rewrite, shows 6s "Undo" toast.
+- `POST /api/ai/suggest-reply` — `{ conversation_id }` → `{ text }`. Replaces composer
+  text with a from-scratch suggestion grounded in conversation history + bot KB.
+- `POST /api/ai/translate-inbound` — `{ message_id, target_language? }` → `{ translation }`.
+  Cached on `message.metadata.translation`; show-original toggle in the bubble.
+
+**Mock data:** [lib/mock-data.ts](lib/mock-data.ts) — 10 conversations across
+WhatsApp / Instagram / Telegram / Email / Messenger, in 6 languages (es/en/fr/ja/pt/de),
+mix of statuses (open/closed/snoozed/bot), with attachments and inline replies.
+`CURRENT_USER_AGENT_ID = "ag_1"` is the demo "Mine" filter target.
+
+**i18n helper:** [lib/i18n/languages.ts](lib/i18n/languages.ts) — TOP_LANGUAGES
+list (es/en/fr/de/pt/it/nl/ca) + `languageLabel(code)`.
+
+**Dashboard layout change:** switched outer container from `min-h-screen` to
+`h-dvh`, and `<main>` to `flex min-h-0 flex-1`. This is what lets each inbox
+panel scroll independently. Other dashboard pages (e.g. `/dashboard`) need
+`overflow-y-auto` on their root div if their content overflows the viewport.
+
+**Deferred (intentionally) for later:**
+- Tablet "Show details" toggle to reveal contact panel (md ≤ x < lg). Currently
+  hidden below `lg`. Add when we have real density to justify it.
+- Real emoji picker, file attachment upload, saved replies list — placeholders
+  call `toast.message("…— Week N")` so the surface is visible.
+
+## Roadmap snapshot (what's next — Week 3)
+
+Week 3: **Channels — connect a real WhatsApp Business sender.**
 - `channels` table (provider, phone, status, encrypted credentials, `deleted_at`)
 - Onboarding flow: `/dashboard/settings/channels/new`
 - Webhook endpoint `app/api/webhooks/whatsapp/route.ts` (BotID-protected)
 - `wa_templates` table for approved Meta templates
 - Encrypt access tokens server-side (never store raw)
 
-After Week 2: Inbox UI, conversations + messages tables, realtime subscriptions, agent assignment, then bots/automations/broadcasts.
+After Week 3: Wire real `conversations` + `messages` tables (Week 4), Supabase
+Realtime subscriptions to replace mock data, agent assignment via DB, then
+bots/automations/broadcasts.
 
 ## Conventions
 
