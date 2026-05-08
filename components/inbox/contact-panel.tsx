@@ -1,12 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Mail, Phone, Plus, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Mail,
+  PanelRight,
+  Phone,
+  Plus,
+  X,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import type { Conversation, Contact } from "@/lib/mock-data";
 import { CONVERSATIONS } from "@/lib/mock-data";
@@ -21,7 +36,8 @@ const TAG_COLORS: Record<Contact["tags"][number]["color"], string> = {
   sky: "bg-sky-400/15 text-sky-300 border-sky-400/30",
 };
 
-export function ContactPanel({ conversation }: { conversation: Conversation }) {
+// Shared body — used both inline (desktop aside) and inside a Sheet (tablet).
+function ContactPanelBody({ conversation }: { conversation: Conversation }) {
   const [name, setName] = useState(conversation.contact.name);
   const [editingName, setEditingName] = useState(false);
   const [notes, setNotes] = useState(conversation.contact.notes);
@@ -40,8 +56,8 @@ export function ContactPanel({ conversation }: { conversation: Conversation }) {
   );
 
   return (
-    <aside
-      className="hidden h-full w-[300px] shrink-0 flex-col border-l border-white/5 lg:flex"
+    <div
+      className="flex h-full w-full flex-col"
       style={{ background: "color-mix(in oklab, var(--xyra-sidebar) 95%, black)" }}
     >
       <div className="flex flex-col items-center gap-3 border-b border-white/5 p-5 text-center">
@@ -77,7 +93,7 @@ export function ContactPanel({ conversation }: { conversation: Conversation }) {
         )}
       </div>
 
-      <div className="overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         <Section title="Details">
           {conversation.contact.phone && (
             <DetailRow icon={<Phone className="size-3.5" />} label="Phone">
@@ -205,7 +221,49 @@ export function ContactPanel({ conversation }: { conversation: Conversation }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// Desktop inline aside (lg+ only).
+export function ContactPanel({ conversation }: { conversation: Conversation }) {
+  return (
+    <aside className="hidden h-full w-[300px] shrink-0 border-l border-white/5 lg:block">
+      <ContactPanelBody conversation={conversation} />
     </aside>
+  );
+}
+
+// Tablet trigger (md ≤ width < lg) — opens a right-side Sheet with the same body.
+export function ContactSheetTrigger({
+  conversation,
+}: {
+  conversation: Conversation;
+}) {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden h-8 w-8 shrink-0 md:inline-flex lg:hidden"
+          aria-label="Show contact details"
+          title="Contact details"
+        >
+          <PanelRight className="size-4" />
+        </Button>
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        className="w-[320px] border-white/5 p-0 sm:max-w-[320px]"
+        style={{ background: "color-mix(in oklab, var(--xyra-sidebar) 95%, black)" }}
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>Contact details</SheetTitle>
+        </SheetHeader>
+        <ContactPanelBody conversation={conversation} />
+      </SheetContent>
+    </Sheet>
   );
 }
 

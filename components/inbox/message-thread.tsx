@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
+import { ContactSheetTrigger } from "@/components/inbox/contact-panel";
 import { MessageBubble } from "@/components/inbox/message-bubble";
 import { Composer } from "@/components/inbox/composer";
 import type { Conversation, Message } from "@/lib/mock-data";
@@ -159,6 +160,8 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
             <span className="hidden md:inline">Close</span>
           </Button>
         ) : null}
+
+        <ContactSheetTrigger conversation={conversation} />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
