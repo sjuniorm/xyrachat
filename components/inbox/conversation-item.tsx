@@ -70,7 +70,10 @@ export function ConversationItem({
         </div>
 
         <div className="mt-1.5 flex items-center justify-between gap-2">
-          <span className="text-xs text-white/40">
+          <span
+            suppressHydrationWarning
+            className="text-xs text-white/40"
+          >
             {timeAgo(conversation.last_message_at)}
           </span>
           <div className="flex items-center gap-2">

@@ -71,7 +71,9 @@ export function MessageBubble({
   const aiMeta = message.metadata?.ai_assisted;
 
   const bubbleClass = cn(
-    "max-w-[75%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+    // No max-width here — the parent column owns the width budget so the
+    // constraint has a definite containing block to compute against.
+    "rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
     isInternal
       ? "bg-amber-400/15 text-amber-100 ring-1 ring-amber-400/30"
       : isOutbound
@@ -123,12 +125,18 @@ export function MessageBubble({
     >
       <div
         className={cn(
-          "flex max-w-full flex-col gap-1",
+          // 75% width cap moved up here — gives the bubble's max-content a
+          // real percentage to compute against, so short messages like "test"
+          // no longer collapse to min-content (one character per line).
+          "flex w-fit max-w-[80%] min-w-0 flex-col gap-1 sm:max-w-[75%]",
           isOutbound ? "items-end" : "items-start",
         )}
       >
         {showHeader && !isOutbound && (
-          <span className="px-1 text-xs text-white/50">
+          <span
+            suppressHydrationWarning
+            className="px-1 text-xs text-white/50"
+          >
             {formatTime(message.created_at)}
           </span>
         )}
@@ -242,7 +250,7 @@ export function MessageBubble({
             isOutbound ? "flex-row-reverse" : "",
           )}
         >
-          <span>{formatTime(message.created_at)}</span>
+          <span suppressHydrationWarning>{formatTime(message.created_at)}</span>
           {isOutbound && <DeliveryTicks status={message.delivery_status} />}
           {aiMeta && (
             <span
