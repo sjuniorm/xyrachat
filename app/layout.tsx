@@ -43,7 +43,7 @@ export default async function RootLayout({
       lang="en"
       className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
+      <body className="min-h-full flex flex-col overflow-x-hidden bg-background text-foreground">
         <PostHogProvider>
           {children}
           <Toaster
@@ -51,6 +51,13 @@ export default async function RootLayout({
             theme="dark"
             position="top-center"
             mobileOffset={{ top: 12, left: 12, right: 12 }}
+            // Clamp toast width to the viewport on phones (Sonner default is 356px).
+            style={
+              {
+                "--width": "min(356px, calc(100vw - 24px))",
+                "--mobile-width": "calc(100vw - 24px)",
+              } as React.CSSProperties
+            }
             toastOptions={{ classNames: { toast: "max-w-[calc(100vw-24px)]" } }}
           />
           {showConsent && <CookieBanner />}
