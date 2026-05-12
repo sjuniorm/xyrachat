@@ -53,3 +53,8 @@ supabase/.temp
 
 # raw brand assets — keep originals local, don't ship to Vercel or GitHub
 _brand-source/
+
+# local debug screenshots shared with Claude — folder tracked (README), but
+# image files inside are local-only.
+_docs/screenshots/*
+!_docs/screenshots/README.md
