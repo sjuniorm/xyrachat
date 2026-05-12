@@ -28,6 +28,9 @@ export function ConversationItem({
     .join("")
     .toUpperCase();
 
+  const hasFooter =
+    conversation.unread_count > 0 || Boolean(conversation.assigned_agent);
+
   return (
     <Link
       href={`/inbox/${conversation.id}`}
@@ -50,33 +53,38 @@ export function ConversationItem({
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium text-white">
-            {conversation.contact.name}
-          </p>
-          <span
-            className={cn(
-              "ml-auto inline-block size-2 shrink-0 rounded-full",
-              STATUS_DOT[conversation.status],
-            )}
-            aria-label={`status: ${conversation.status}`}
-          />
-        </div>
-
-        <div className="mt-0.5 flex items-center gap-2">
-          <p className="truncate text-xs text-white/60">
-            {conversation.last_message_preview}
-          </p>
-        </div>
-
-        <div className="mt-1.5 flex items-center justify-between gap-2">
+        {/* Row 1: name + status dot + time */}
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-sm font-medium text-white">
+              {conversation.contact.name}
+            </p>
+            <span
+              className={cn(
+                "inline-block size-1.5 shrink-0 rounded-full",
+                STATUS_DOT[conversation.status],
+              )}
+              aria-label={`status: ${conversation.status}`}
+            />
+          </div>
           <span
             suppressHydrationWarning
-            className="text-xs text-white/40"
+            className="shrink-0 text-[11px] text-white/40"
           >
             {timeAgo(conversation.last_message_at)}
           </span>
-          <div className="flex items-center gap-2">
+        </div>
+
+        {/* Row 2: last message preview */}
+        <p className="mt-0.5 truncate text-xs text-white/60">
+          {conversation.last_message_preview || (
+            <span className="italic text-white/30">no messages yet</span>
+          )}
+        </p>
+
+        {/* Row 3 (only when needed): agent + unread */}
+        {hasFooter && (
+          <div className="mt-1.5 flex items-center justify-end gap-2">
             {conversation.assigned_agent && (
               <Avatar className="size-4">
                 <AvatarImage
@@ -94,7 +102,7 @@ export function ConversationItem({
               </span>
             )}
           </div>
-        </div>
+        )}
       </div>
     </Link>
   );
