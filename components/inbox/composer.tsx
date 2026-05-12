@@ -7,7 +7,6 @@ import {
   Languages,
   Paperclip,
   Send,
-  Smile,
   Sparkles,
   StickyNote,
   X,
@@ -25,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Conversation, Message } from "@/lib/mock-data";
 import { TOP_LANGUAGES, languageLabel } from "@/lib/i18n/languages";
+import { EmojiPicker } from "@/components/inbox/emoji-picker";
 
 type AssistAction =
   | "improve"
@@ -187,6 +187,23 @@ export function Composer({
     } finally {
       setPending(false);
     }
+  }
+
+  function insertEmoji(char: string) {
+    const ta = taRef.current;
+    if (!ta) {
+      setText((t) => t + char);
+      return;
+    }
+    const start = ta.selectionStart ?? text.length;
+    const end = ta.selectionEnd ?? text.length;
+    const next = text.slice(0, start) + char + text.slice(end);
+    setText(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const pos = start + char.length;
+      ta.setSelectionRange(pos, pos);
+    });
   }
 
   async function suggestReply() {
@@ -383,16 +400,7 @@ export function Composer({
             <Paperclip className="size-4" />
           </Button>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 text-white/60 hover:text-white"
-            onClick={() => toast.message("Emoji picker — Week 3")}
-            aria-label="Emoji"
-          >
-            <Smile className="size-4" />
-          </Button>
+          <EmojiPicker onSelect={insertEmoji} disabled={pending} />
 
           <Button
             type="button"

@@ -207,7 +207,7 @@ export function MessageThread({
         className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 md:px-6"
         style={{ background: "color-mix(in oklab, var(--xyra-bg) 92%, black)" }}
       >
-        <div className="mx-auto flex max-w-xl flex-col">
+        <div className="flex flex-col">
           {messages.map((m, i) => {
             const prev = messages[i - 1];
             const next = messages[i + 1];
