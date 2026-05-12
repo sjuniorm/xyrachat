@@ -207,19 +207,32 @@ export function MessageThread({
         className="flex-1 overflow-x-hidden overflow-y-auto px-3 py-4 md:px-6"
         style={{ background: "color-mix(in oklab, var(--xyra-bg) 92%, black)" }}
       >
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
-          {messages.map((m, i) => (
-            <MessageBubble
-              key={m.id}
-              message={m}
-              showHeader={shouldShowHeader(messages[i - 1], m)}
-              quotedMessage={
-                m.replied_to_message_id ? messagesById.get(m.replied_to_message_id) : undefined
-              }
-              onReplyWithQuote={setQuoted}
-              onTranslated={applyTranslation}
-            />
-          ))}
+        <div className="mx-auto flex max-w-3xl flex-col">
+          {messages.map((m, i) => {
+            const prev = messages[i - 1];
+            const next = messages[i + 1];
+            const isFirstInGroup = shouldShowHeader(prev, m);
+            const isLastInGroup = !next || shouldShowHeader(m, next);
+            // 16px between groups, 2px within a group (WhatsApp-style).
+            const marginClass =
+              i === 0 ? "" : isFirstInGroup ? "mt-4" : "mt-0.5";
+            return (
+              <div key={m.id} className={marginClass}>
+                <MessageBubble
+                  message={m}
+                  showHeader={isFirstInGroup}
+                  isLastInGroup={isLastInGroup}
+                  quotedMessage={
+                    m.replied_to_message_id
+                      ? messagesById.get(m.replied_to_message_id)
+                      : undefined
+                  }
+                  onReplyWithQuote={setQuoted}
+                  onTranslated={applyTranslation}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
 

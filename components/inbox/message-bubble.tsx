@@ -53,12 +53,14 @@ function DeliveryTicks({
 export function MessageBubble({
   message,
   showHeader,
+  isLastInGroup = true,
   quotedMessage,
   onReplyWithQuote,
   onTranslated,
 }: {
   message: Message;
   showHeader: boolean;
+  isLastInGroup?: boolean;
   quotedMessage?: Message;
   onReplyWithQuote: (m: Message) => void;
   onTranslated: (messageId: string, translation: NonNullable<Message["metadata"]>["translation"]) => void;
@@ -73,7 +75,7 @@ export function MessageBubble({
   const bubbleClass = cn(
     // No max-width here — the parent column owns the width budget so the
     // constraint has a definite containing block to compute against.
-    "rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+    "rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
     isInternal
       ? "bg-amber-400/15 text-amber-100 ring-1 ring-amber-400/30"
       : isOutbound
@@ -128,7 +130,7 @@ export function MessageBubble({
           // 75% width cap moved up here — gives the bubble's max-content a
           // real percentage to compute against, so short messages like "test"
           // no longer collapse to min-content (one character per line).
-          "flex w-fit max-w-[80%] min-w-0 flex-col gap-1 sm:max-w-[75%]",
+          "flex w-fit max-w-[80%] min-w-0 flex-col gap-0.5 sm:max-w-[75%]",
           isOutbound ? "items-end" : "items-start",
         )}
       >
@@ -244,28 +246,30 @@ export function MessageBubble({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div
-          className={cn(
-            "flex items-center gap-1.5 px-1 text-[11px] text-white/45",
-            isOutbound ? "flex-row-reverse" : "",
-          )}
-        >
-          <span suppressHydrationWarning>{formatTime(message.created_at)}</span>
-          {isOutbound && <DeliveryTicks status={message.delivery_status} />}
-          {aiMeta && (
-            <span
-              title={`AI ${aiMeta.action}`}
-              className="rounded-full bg-white/10 px-1.5 text-[10px] text-white/60"
-            >
-              ✨
-            </span>
-          )}
-          {isInternal && (
-            <span className="rounded-full bg-amber-400/15 px-1.5 text-[10px] text-amber-200">
-              internal note
-            </span>
-          )}
-        </div>
+        {isLastInGroup && (
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-1 text-[11px] text-white/45",
+              isOutbound ? "flex-row-reverse" : "",
+            )}
+          >
+            <span suppressHydrationWarning>{formatTime(message.created_at)}</span>
+            {isOutbound && <DeliveryTicks status={message.delivery_status} />}
+            {aiMeta && (
+              <span
+                title={`AI ${aiMeta.action}`}
+                className="rounded-full bg-white/10 px-1.5 text-[10px] text-white/60"
+              >
+                ✨
+              </span>
+            )}
+            {isInternal && (
+              <span className="rounded-full bg-amber-400/15 px-1.5 text-[10px] text-amber-200">
+                internal note
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
