@@ -32,19 +32,17 @@ export async function vaultCreateSecret(
 /**
  * Reads a decrypted secret by UUID. Service-role only.
  * Returns null if the secret does not exist.
+ *
+ * Calls the public.read_secret wrapper from migration 004 — direct access to
+ * vault.decrypted_secrets isn't exposed via PostgREST.
  */
 export async function vaultReadSecret(secretId: string): Promise<string | null> {
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .schema("vault")
-    .from("decrypted_secrets")
-    .select("decrypted_secret")
-    .eq("id", secretId)
-    .maybeSingle();
+  const { data, error } = await admin.rpc("read_secret", { secret_id: secretId });
   if (error) {
     throw new Error(`Vault read failed: ${error.message}`);
   }
-  return (data as { decrypted_secret: string | null } | null)?.decrypted_secret ?? null;
+  return (data as string | null) ?? null;
 }
 
 /**
