@@ -66,12 +66,19 @@ export function useMessages(
 }
 
 // =====================================================================
-// useInboxRefresh — calls router.refresh() whenever any conversation or
-// message in this org changes. Cheap because RSC re-renders are diff-based.
+// useInboxRefresh — keeps the inbox in sync via TWO mechanisms:
+//   1. Supabase Realtime — instant when it works, but RLS on nested
+//      subqueries can drop events silently
+//   2. A 5-second polling fallback — bulletproof safety net
+// Cheap because RSC re-renders are diff-based and only re-fetch what changed.
 // Mounted once at the inbox layout level.
 // =====================================================================
+const POLL_INTERVAL_MS = 5000;
+
 export function useInboxRefresh() {
   const router = useRouter();
+
+  // 1) Realtime.
   useEffect(() => {
     const supabase = createClient();
     const channel = supabase
@@ -89,6 +96,36 @@ export function useInboxRefresh() {
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
+    };
+  }, [router]);
+
+  // 2) Polling fallback. Pauses while the tab is hidden so we don't burn
+  //    background CPU/network on a backgrounded inbox.
+  useEffect(() => {
+    let id: ReturnType<typeof setInterval> | null = null;
+    function start() {
+      if (id !== null) return;
+      id = setInterval(() => router.refresh(), POLL_INTERVAL_MS);
+    }
+    function stop() {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        router.refresh(); // immediate catch-up on tab focus
+        start();
+      } else {
+        stop();
+      }
+    }
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [router]);
 }
