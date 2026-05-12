@@ -6,7 +6,10 @@ const AUTH_PATHS = ["/login", "/signup"];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
-  if (pathname.startsWith("/api/gdpr")) return true; // routes do their own auth
+  // Webhooks have no session cookie — they verify themselves via HMAC.
+  if (pathname.startsWith("/api/webhooks/")) return true;
+  // GDPR + auth-gated APIs do their own auth checks inside the handler.
+  if (pathname.startsWith("/api/gdpr")) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/favicon")) return true;
   return false;
@@ -54,6 +57,15 @@ export async function updateSession(request: NextRequest) {
   const isProtected =
     !isPublicPath(pathname) && !AUTH_PATHS.includes(pathname);
   if (!user && isProtected) {
+    // For /api/* protected routes, respond with JSON 401 instead of an HTML
+    // redirect (clients/curl/fetch handle that correctly; HTML redirect breaks
+    // JSON consumers).
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
