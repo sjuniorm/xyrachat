@@ -212,7 +212,10 @@ export function Composer({
           placeholder={internal ? "Internal note (only your team sees this)…" : "Type a message…"}
           aria-label="Compose message"
           className={cn(
-            "resize-none border-0 bg-transparent px-3.5 py-3 text-sm text-white placeholder:text-white/40 focus-visible:ring-0 transition",
+            // field-sizing-fixed overrides shadcn's default `field-sizing-content`,
+            // which would otherwise grow the textarea width to fit long unbroken
+            // strings and push horizontal scroll on mobile.
+            "field-sizing-fixed resize-none border-0 bg-transparent px-3.5 py-3 text-sm text-white placeholder:text-white/40 focus-visible:ring-0 transition",
             pending && "animate-pulse",
           )}
           style={{ minHeight: 44 }}
