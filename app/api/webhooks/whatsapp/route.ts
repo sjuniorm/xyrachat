@@ -289,13 +289,23 @@ async function handleInbound(
     msg.from,
     contactProfileName,
   );
-  if (!contactId) return;
+  if (!contactId) {
+    console.error(
+      `[wa webhook] failed to find/create contact for ${msg.from}`,
+    );
+    return;
+  }
   const conversationId = await findOrCreateConversation(
     channel.org_id,
     channel.id,
     contactId,
   );
-  if (!conversationId) return;
+  if (!conversationId) {
+    console.error(
+      `[wa webhook] failed to find/create conversation for contact ${contactId}`,
+    );
+    return;
+  }
 
   // If Meta says this is a reply to one of OUR previous messages, look up the
   // matching outbound row.
@@ -311,32 +321,42 @@ async function handleInbound(
 
   const extracted = extractContent(msg);
 
-  // Idempotent insert — Meta retries deliveries.
-  const { data: inserted, error } = await admin
+  // Idempotent insert via SELECT-then-INSERT. supabase-js's
+  // .upsert(onConflict, ignoreDuplicates) silently returns 0 inserted rows
+  // when the target index is PARTIAL (ours has WHERE wa_message_id IS NOT
+  // NULL) — PostgREST can't pass the predicate to PostgreSQL's ON CONFLICT
+  // and our previous code interpreted that empty result as "already
+  // processed, skip", losing every inbound message.
+  const { data: existing } = await admin
     .from("messages")
-    .upsert(
-      {
-        conversation_id: conversationId,
-        direction: "inbound" as MessageDirection,
-        content: extracted.content,
-        media_url: extracted.media_url,
-        media_type: extracted.media_type,
-        sender_type: "contact",
-        wa_message_id: msg.id,
-        replied_to_message_id: repliedToId,
-        metadata: msg.context ? { wa_context: { id: msg.context.id } } : {},
-        created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
-      },
-      { onConflict: "wa_message_id", ignoreDuplicates: true },
-    )
-    .select("id");
+    .select("id")
+    .eq("wa_message_id", msg.id)
+    .maybeSingle();
+  if (existing) return; // genuine retry from Meta — already in DB
 
-  if (error) {
-    console.error("[wa webhook] insert failed", error);
+  const insertPayload: Record<string, unknown> = {
+    conversation_id: conversationId,
+    direction: "inbound" as MessageDirection,
+    content: extracted.content,
+    media_url: extracted.media_url,
+    media_type: extracted.media_type,
+    sender_type: "contact",
+    wa_message_id: msg.id,
+    replied_to_message_id: repliedToId,
+    metadata: msg.context ? { wa_context: { id: msg.context.id } } : {},
+    created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
+  };
+
+  const { error: insertErr } = await admin
+    .from("messages")
+    .insert(insertPayload);
+  if (insertErr) {
+    // 23505 = unique violation — a concurrent retry beat us to it. Safe to
+    // ignore; the row is now in the DB.
+    if (insertErr.code === "23505") return;
+    console.error("[wa webhook] message insert failed", insertErr);
     return;
   }
-  // Empty array → conflict, already processed. Skip downstream side effects.
-  if (!inserted || inserted.length === 0) return;
 
   await admin
     .from("conversations")
