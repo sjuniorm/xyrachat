@@ -60,9 +60,14 @@ update Vercel + `.env.local` with the new value.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | client + server | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | Supabase anon (public) key |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Admin operations (GDPR delete, webhooks) — never expose to client |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only | Admin operations (GDPR delete, webhooks, Vault) — never expose to client |
 | `NEXT_PUBLIC_POSTHOG_KEY` | client + server | PostHog project key |
 | `NEXT_PUBLIC_POSTHOG_HOST` | client + server | `https://eu.i.posthog.com` (GDPR — EU hosting) |
+| `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | server only | Random secret; user pastes the same value into Meta App Dashboard → WhatsApp → Configuration → Webhook → Verify Token |
+| `META_APP_SECRET` | server only | Meta App Dashboard → Settings → Basic → App secret. Used for `X-Hub-Signature-256` HMAC verification on inbound webhooks. Shared across WhatsApp, Instagram, Messenger (same Meta app). |
+
+WhatsApp channel access tokens are NOT in env — they're stored per-channel in
+Supabase Vault. Only the vault UUID lives in `channels.access_token_vault_id`.
 
 Local dev: copy `.env.example` → `.env.local`. Production: set in Vercel project settings (also via `vercel env add`).
 
@@ -275,18 +280,74 @@ panel scroll independently. Other dashboard pages (e.g. `/dashboard`) need
 - Real emoji picker, file attachment upload, saved replies list — placeholders
   call `toast.message("…— Week N")` so the surface is visible.
 
-## Roadmap snapshot (what's next — Week 3)
+## Week 3 — WhatsApp Cloud API integration (DONE)
 
-Week 3: **Channels — connect a real WhatsApp Business sender.**
-- `channels` table (provider, phone, status, encrypted credentials, `deleted_at`)
-- Onboarding flow: `/dashboard/settings/channels/new`
-- Webhook endpoint `app/api/webhooks/whatsapp/route.ts` (BotID-protected)
-- `wa_templates` table for approved Meta templates
-- Encrypt access tokens server-side (never store raw)
+Real WhatsApp messages flowing in and out via Meta Cloud API. Inbox is no
+longer mock data — it reads from Supabase with realtime subscriptions.
 
-After Week 3: Wire real `conversations` + `messages` tables (Week 4), Supabase
-Realtime subscriptions to replace mock data, agent assignment via DB, then
-bots/automations/broadcasts.
+**New migration:** [supabase/migrations/003_channels_messages.sql](supabase/migrations/003_channels_messages.sql)
+- Tables: `channels`, `contacts`, `conversations`, `messages`, `webhook_log`
+- All with `deleted_at` + RLS policies scoped to `org_id` via `profiles`
+- Unique partial indexes on `wa_message_id` + `ig_message_id` (idempotency)
+- `messages` + `conversations` added to `supabase_realtime` publication
+- Active-row views: `channels_active`, `contacts_active`, `conversations_active`, `messages_active`
+
+**Apply:** Supabase SQL Editor → paste the migration → Run.
+**Pre-requisite:** Project Settings → **Vault** → ENABLE before any channel can be created (tokens stored there).
+
+**Webhook:** [app/api/webhooks/whatsapp/route.ts](app/api/webhooks/whatsapp/route.ts)
+- `GET` → handshake (`hub.verify_token` check)
+- `POST` → reads RAW body, verifies `X-Hub-Signature-256` HMAC against `META_APP_SECRET`
+  using `crypto.timingSafeEqual`, returns 401 on mismatch
+- Idempotent inserts via `upsert(onConflict: 'wa_message_id', ignoreDuplicates: true)`
+- Status updates (`sent` → `delivered` → `read`) only move forward, never regress
+- Always logs payload + signature_ok to `webhook_log` (replay buffer)
+- Always returns 200 within 5s (Meta retries non-200s)
+
+**Send:** [app/api/channels/whatsapp/send/route.ts](app/api/channels/whatsapp/send/route.ts)
+- Auth-gated (`supabase.auth.getUser()`)
+- Loads channel + contact (RLS for conversation, admin client after)
+- Decrypts token via `vaultReadSecret(channel.access_token_vault_id)`
+- POSTs to `https://graph.facebook.com/v22.0/{phone_number_id}/messages`
+- Saves outbound row locally; Realtime broadcasts to UI
+
+**Vault:** [lib/supabase/vault.ts](lib/supabase/vault.ts) — `vaultCreateSecret`, `vaultReadSecret`, `vaultUpdateSecret`. Server-only.
+
+**Settings UI:**
+- [app/(dashboard)/settings/channels/page.tsx](app/(dashboard)/settings/channels/page.tsx) — list connected channels
+- [app/(dashboard)/settings/channels/new/page.tsx](app/(dashboard)/settings/channels/new/page.tsx) — manual entry form:
+  - Step 1: Webhook URL + Verify token displayed with copy buttons (paste into Meta dashboard)
+  - Step 2: Channel name + Phone Number ID + WABA ID + Access Token (masked, reveal button)
+  - On submit: token → Vault → channels row with `access_token_vault_id`
+- **Embedded Signup deferred to Week 9** before client onboarding (manual entry sufficient for dev).
+
+**Inbox wired to real data:**
+- [lib/inbox/server.ts](lib/inbox/server.ts) — server-side fetchers (`getConversationsForCurrentOrg`, `getConversationDetail`, `getMessagesForConversation`)
+- [lib/inbox/adapt.ts](lib/inbox/adapt.ts) — adapters from DB rows → Week-2 component shape (saves a wholesale component rewrite)
+- [lib/realtime.ts](lib/realtime.ts) — `useMessages(id, initial)` per-thread + `useInboxRefresh()` for list updates
+- `MessageThread` uses `useMessages`; `Composer` POSTs to `/api/channels/whatsapp/send` then waits for Realtime to render
+- `ConversationList` renders an empty state with a "Connect WhatsApp" CTA when there are zero channels
+
+**Local testing flow** (no Meta account on the laptop):
+1. Apply migration 003 in Supabase SQL Editor
+2. Enable Vault in Supabase project settings
+3. Fill `META_APP_SECRET` in `.env.local` (Meta App Dashboard → Settings → Basic)
+4. `npm run dev` — UI works empty
+5. To test webhook locally: `ngrok http 3000` → paste public URL into Meta App Dashboard → WhatsApp → Configuration → Webhook (Verify Token already pushed to Vercel, copy from `.env.local`)
+
+**Pre-existing Meta context (from your notes):**
+- App ID: `4417258865176192`
+- Business Portfolio: `1612917756584806`
+- Use the free test phone number Meta provides until Week 9 launch
+
+## Roadmap snapshot (what's next — Week 4)
+
+Week 4: **More channels — Instagram DM + Telegram.**
+- Add IG webhook subscription to the same `app/api/webhooks/instagram/route.ts`
+- IG message_id idempotency already wired in messages table (`ig_message_id`)
+- Telegram channel: bot token storage in Vault, long-polling or webhook ingest
+- Real media URL resolution (fetch via Graph for image/audio/video — currently we store the media_id)
+- Per-agent read tracking → real unread counts in the conversation list
 
 ## Conventions
 

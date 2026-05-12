@@ -19,6 +19,9 @@ import { ContactSheetTrigger } from "@/components/inbox/contact-panel";
 import { MessageBubble } from "@/components/inbox/message-bubble";
 import { Composer } from "@/components/inbox/composer";
 import type { Conversation, Message } from "@/lib/mock-data";
+import type { MessageRow } from "@/lib/db-types";
+import { adaptMessage } from "@/lib/inbox/adapt";
+import { useMessages } from "@/lib/realtime";
 import { cn } from "@/lib/utils";
 
 const STATUS_BADGE: Record<
@@ -44,20 +47,35 @@ function shouldShowHeader(prev: Message | undefined, current: Message): boolean 
   return gap > 5 * 60 * 1000;
 }
 
-export function MessageThread({ conversation }: { conversation: Conversation }) {
-  // Local state so AI translations + new local-only messages are reflected
-  // immediately without a server round-trip.
-  const [messages, setMessages] = useState<Message[]>(conversation.messages);
-  useEffect(() => setMessages(conversation.messages), [conversation.messages]);
+export function MessageThread({
+  conversation,
+  initialMessageRows,
+}: {
+  conversation: Conversation;
+  initialMessageRows: MessageRow[];
+}) {
+  // Subscribe to Supabase Realtime so new inbound/outbound messages appear live.
+  const rows = useMessages(conversation.id, initialMessageRows);
+  const [localOverrides, setLocalOverrides] = useState<
+    Record<string, Partial<Message>>
+  >({});
+
+  const messages: Message[] = useMemo(() => {
+    return rows.map((r) => {
+      const adapted = adaptMessage(r);
+      const o = localOverrides[r.id];
+      return o ? { ...adapted, ...o } : adapted;
+    });
+  }, [rows, localOverrides]);
 
   const [quoted, setQuoted] = useState<Message | undefined>();
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom on conversation change.
+  // Scroll to bottom on conversation change OR when a new message arrives.
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [conversation.id]);
+  }, [conversation.id, rows.length]);
 
   const initials = conversation.contact.name
     .split(/\s+/)
@@ -78,13 +96,17 @@ export function MessageThread({ conversation }: { conversation: Conversation }) 
     messageId: string,
     translation: NonNullable<Message["metadata"]>["translation"],
   ) {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === messageId
-          ? { ...m, metadata: { ...m.metadata, translation } }
-          : m,
-      ),
-    );
+    setLocalOverrides((prev) => {
+      const existing = prev[messageId] ?? {};
+      const existingMeta = (existing.metadata ?? {}) as Message["metadata"];
+      return {
+        ...prev,
+        [messageId]: {
+          ...existing,
+          metadata: { ...existingMeta, translation },
+        },
+      };
+    });
   }
 
   // Mock: bot is "assigned" when the conversation status === "bot".

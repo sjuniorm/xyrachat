@@ -95,16 +95,48 @@ export function Composer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text, hasBotAssigned]);
 
-  function send() {
+  async function send() {
     if (!text.trim() || pending) return;
     setPending(true);
-    // Mock send — Week 4 wires real Supabase insert + realtime broadcast.
-    setTimeout(() => {
-      toast.success(internal ? "Internal note saved" : "Message sent");
+    // Internal notes don't hit a provider — they're org-only and ship in Week 5.
+    if (internal) {
+      setTimeout(() => {
+        toast.success("Internal note saved (stored locally — Week 5 wires DB)");
+        setText("");
+        onClearQuote();
+        setPending(false);
+      }, 200);
+      return;
+    }
+    try {
+      const res = await fetch("/api/channels/whatsapp/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: conversation.id,
+          content: text.trim(),
+          type: "text",
+          repliedToMessageId: quotedMessage?.id ?? undefined,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(
+          (data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : null) ?? `Send failed (HTTP ${res.status})`,
+        );
+        return;
+      }
       setText("");
       onClearQuote();
+      // The Realtime subscription in useMessages picks the new row up; no
+      // optimistic insert needed.
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Network error");
+    } finally {
       setPending(false);
-    }, 300);
+    }
   }
 
   function showUndoToast(prev: string) {

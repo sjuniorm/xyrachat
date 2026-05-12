@@ -1,16 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { MailPlus, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConversationItem } from "@/components/inbox/conversation-item";
-import {
-  CONVERSATIONS,
-  type Conversation,
-  type ConversationFilter,
-} from "@/lib/mock-data";
+import type { Conversation, ConversationFilter } from "@/lib/mock-data";
 
 const TABS: { value: ConversationFilter; label: string }[] = [
   { value: "all", label: "All" },
@@ -20,18 +18,23 @@ const TABS: { value: ConversationFilter; label: string }[] = [
   { value: "bot", label: "Bot" },
 ];
 
-export function ConversationList() {
+export function ConversationList({
+  conversations,
+  currentAgentId,
+}: {
+  conversations: Conversation[];
+  currentAgentId?: string;
+}) {
   const params = useParams<{ id?: string }>();
   const activeId = params?.id;
   const [filter, setFilter] = useState<ConversationFilter>("all");
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Cmd/Ctrl+K → focus search.
+  // ⌘K / Ctrl+K → focus search.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const isK = e.key.toLowerCase() === "k";
-      if (isK && (e.metaKey || e.ctrlKey)) {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -43,22 +46,21 @@ export function ConversationList() {
 
   const visible: Conversation[] = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return CONVERSATIONS.filter((c) => {
+    return conversations.filter((c) => {
       if (filter === "open" && c.status !== "open") return false;
       if (filter === "closed" && c.status !== "closed") return false;
       if (filter === "bot" && c.status !== "bot") return false;
-      // 'mine' is the demo agent in mock-data
-      if (filter === "mine" && c.assigned_agent?.id !== "ag_1") return false;
+      if (filter === "mine") {
+        if (!currentAgentId) return false;
+        if (c.assigned_agent?.id !== currentAgentId) return false;
+      }
       if (!q) return true;
       return (
         c.contact.name.toLowerCase().includes(q) ||
-        c.last_message_preview.toLowerCase().includes(q)
+        (c.last_message_preview ?? "").toLowerCase().includes(q)
       );
-    }).sort(
-      (a, b) =>
-        new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
-    );
-  }, [filter, search]);
+    });
+  }, [conversations, filter, search, currentAgentId]);
 
   return (
     <div
@@ -102,7 +104,9 @@ export function ConversationList() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {visible.length === 0 ? (
+        {conversations.length === 0 ? (
+          <EmptyInboxState />
+        ) : visible.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-white/50">
             No conversations match.
           </p>
@@ -116,6 +120,27 @@ export function ConversationList() {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+function EmptyInboxState() {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
+      <div className="inline-flex size-12 items-center justify-center rounded-full xyra-gradient">
+        <MailPlus className="size-5 text-white" />
+      </div>
+      <p className="text-sm font-medium text-white">No conversations yet</p>
+      <p className="max-w-[220px] text-xs text-white/60">
+        Connect a WhatsApp channel and customer messages will appear here in real time.
+      </p>
+      <Button
+        asChild
+        size="sm"
+        className="mt-1 h-8 xyra-gradient border-0 text-white hover:opacity-90"
+      >
+        <Link href="/settings/channels/new">Connect WhatsApp</Link>
+      </Button>
     </div>
   );
 }
