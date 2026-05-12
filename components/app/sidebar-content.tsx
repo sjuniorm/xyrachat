@@ -2,15 +2,18 @@ import Link from "next/link";
 import { XyraWordmark } from "@/components/brand/xyra-wordmark";
 import { SidebarNav } from "@/components/app/sidebar-nav";
 import { SidebarUser } from "@/components/app/sidebar-user";
+import type { Availability } from "@/lib/db-types";
 
 export function SidebarContent({
   fullName,
   email,
   avatarUrl,
+  availability,
 }: {
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
+  availability?: Availability;
 }) {
   return (
     <div
@@ -30,6 +33,7 @@ export function SidebarContent({
           fullName={fullName}
           email={email}
           avatarUrl={avatarUrl}
+          initialAvailability={availability ?? "online"}
         />
       </div>
     </div>

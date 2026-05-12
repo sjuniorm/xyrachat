@@ -12,6 +12,8 @@ export type ConversationStatus = "open" | "closed" | "snoozed" | "bot";
 export type MessageDirection = "inbound" | "outbound";
 export type MessageStatus = "sent" | "delivered" | "read" | "failed";
 export type SenderType = "contact" | "agent" | "bot";
+export type Availability = "online" | "away" | "offline";
+export type ProfileRole = "owner" | "admin" | "agent";
 
 export type ChannelRow = {
   id: string;
@@ -51,6 +53,7 @@ export type ConversationRow = {
   status: ConversationStatus;
   last_message_at: string;
   last_inbound_at: string | null;
+  snooze_until: string | null;
   deleted_at: string | null;
   created_at: string;
 };
@@ -79,6 +82,18 @@ export type MessageRow = {
   wa_message_id: string | null;
   ig_message_id: string | null;
   metadata: MessageMetadata;
+  deleted_at: string | null;
+  created_at: string;
+};
+
+export type ProfileRow = {
+  id: string;
+  org_id: string | null;
+  full_name: string | null;
+  email: string | null;
+  role: ProfileRole;
+  avatar_url: string | null;
+  availability: Availability;
   deleted_at: string | null;
   created_at: string;
 };

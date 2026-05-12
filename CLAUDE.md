@@ -340,14 +340,84 @@ longer mock data — it reads from Supabase with realtime subscriptions.
 - Business Portfolio: `1612917756584806`
 - Use the free test phone number Meta provides until Week 9 launch
 
-## Roadmap snapshot (what's next — Week 4)
+## Week 4 — Team management + chat assignment (DONE)
 
-Week 4: **More channels — Instagram DM + Telegram.**
-- Add IG webhook subscription to the same `app/api/webhooks/instagram/route.ts`
-- IG message_id idempotency already wired in messages table (`ig_message_id`)
-- Telegram channel: bot token storage in Vault, long-polling or webhook ingest
-- Real media URL resolution (fetch via Graph for image/audio/video — currently we store the media_id)
+Migration 007 adds `conversations.snooze_until`, `profiles.availability`, an
+"org members visible" RLS policy, REPLICA IDENTITY FULL on profiles for
+Realtime, and an updated `handle_new_user()` that auto-links invited
+profiles via `raw_user_meta_data.invited_org_id` + `invited_role`.
+
+**New routes**
+- `/settings/team` — members list (avatar + role badge + availability dot),
+  pending invites, invite dialog, remove member, cancel invite
+- `/settings` (existing) — now has a sub-nav at the top to switch between
+  Channels and Team
+
+**Team management** ([lib/team/](lib/team/))
+- `getTeamSnapshot()` — me + members + pending invites in one call
+- `getOrgMembers()` — light version for the AssignMenu
+- `inviteTeamMember()` — `supabase.auth.admin.inviteUserByEmail` with our
+  metadata payload. Owners + admins only
+- `removeTeamMember()` — clears `org_id` + `role`, unassigns any conversations
+  they owned. Role checks: owners can't be removed, admins can't remove other
+  admins, agents can't remove anyone
+- `cancelInvite()` — hard-deletes the unconfirmed auth.users row so the invite
+  link stops working
+- `setAvailability()` — toggle online/away/offline (sidebar dot)
+
+**Conversation actions** ([lib/inbox/actions.ts](lib/inbox/actions.ts))
+- `assignConversation` + `assignConversationsBulk` — agent change with org check
+- `setConversationStatus` + `setConversationsStatusBulk` — open/closed/bot
+- `snoozeConversation` — presets: 1h / 4h / tomorrow 9am / next week 9am
+- `deleteConversationsBulk` — soft-delete (sets deleted_at)
+
+**Message thread top bar** ([components/inbox/](components/inbox/))
+- `AssignMenu` — real org members in a dropdown, with availability dots,
+  Unassigned option, "you" sorted first
+- `StatusMenu` — Close / Reopen / Snooze (sub-menu) / Transfer to bot,
+  conditionally rendering Close vs Reopen based on current status
+
+**Inbox filters**
+- Tabs: All / Mine / Unassigned / Bot / Closed (replaced All/Open/Closed/Mine/Bot)
+- Channel filter dropdown (multi-select checkboxes, WhatsApp / IG / Telegram / Email / Messenger)
+- Sort dropdown: Last activity (default) / Newest first / Oldest first
+- Bulk selection: hover-revealed checkbox on each row; selection bar replaces
+  the filter row when ≥1 selected, with Assign / Close / Delete (Delete behind
+  a confirm dialog)
+
+**Agent presence** ([components/app/sidebar-user.tsx](components/app/sidebar-user.tsx))
+- Avatar shows availability dot (green / amber / grey)
+- Clicking the user button opens a dropdown with Availability section to toggle
+- Optimistic UI + revalidate on server confirm
+- Visible on team members in `/settings/team` and in `AssignMenu`
+
+**Browser notifications + tab title** ([components/inbox/notifications-watcher.tsx](components/inbox/notifications-watcher.tsx))
+- Lazy permission prompt on first click anywhere
+- Notifies on: conversation newly assigned to me, new inbound on conversations
+  assigned to me (via Realtime + a diff against the previous snapshot)
+- Tab title shows `(N) Xyra Chat` for open conversations assigned to me
+
+**Channel token rotation** (bonus that was promised)
+- [`app/(dashboard)/settings/channels/rotate-token-button.tsx`](app/(dashboard)/settings/channels/rotate-token-button.tsx)
+  — paste new token → server action overwrites the Vault secret in place.
+  Owners + admins only. No more SQL required when the temp token expires.
+
+**Realtime considerations**
+- Profiles added to `supabase_realtime` publication so availability changes
+  propagate without a refresh
+
+## Roadmap snapshot (what's next — Week 5)
+
+Week 5: **Instagram DM integration** (per user spec) — webhook subscription,
+inbound message ingest with `ig_message_id` idempotency (already in schema),
+send via Graph API, channel onboarding UI.
+
+Also queued for Week 5+:
+- Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
+- Real media URL resolution for inbound media (currently we store media_id)
 - Per-agent read tracking → real unread counts in the conversation list
+- Telegram channel (probably Week 6)
+- Saved replies CRUD (Week 5 placeholder we ship now)
 
 ## Conventions
 

@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactPanel } from "@/components/inbox/contact-panel";
 import {
@@ -6,6 +6,8 @@ import {
   getMessagesForConversation,
 } from "@/lib/inbox/server";
 import { adaptConversation } from "@/lib/inbox/adapt";
+import { getOrgMembers } from "@/lib/team/server";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function InboxConversationPage({
   params,
@@ -13,9 +15,16 @@ export default async function InboxConversationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [detail, messages] = await Promise.all([
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [detail, messages, members] = await Promise.all([
     getConversationDetail(id),
     getMessagesForConversation(id),
+    getOrgMembers(),
   ]);
   if (!detail) return notFound();
 
@@ -27,6 +36,10 @@ export default async function InboxConversationPage({
         <MessageThread
           conversation={conversation}
           initialMessageRows={messages}
+          assignedToId={detail.assigned_to}
+          status={detail.status}
+          members={members}
+          currentUserId={user.id}
         />
       </div>
       <ContactPanel conversation={conversation} />

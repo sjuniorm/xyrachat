@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import { createClient } from "@/lib/supabase/server";
 import type { ChannelRow } from "@/lib/db-types";
+import { RotateTokenButton } from "./rotate-token-button";
 
 export default async function ChannelsPage() {
   const supabase = await createClient();
@@ -82,6 +83,12 @@ export default async function ChannelsPage() {
                         {c.phone_number_id && ` · ID ${c.phone_number_id}`}
                       </p>
                     </div>
+                    {c.access_token_vault_id && (
+                      <RotateTokenButton
+                        channelId={c.id}
+                        channelName={c.name}
+                      />
+                    )}
                   </CardContent>
                 </Card>
               </li>

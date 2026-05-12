@@ -1,27 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowLeft, MoreVertical, UserPlus, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, X } from "lucide-react";
+import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import { ContactSheetTrigger } from "@/components/inbox/contact-panel";
 import { MessageBubble } from "@/components/inbox/message-bubble";
 import { Composer } from "@/components/inbox/composer";
+import { AssignMenu } from "@/components/inbox/assign-menu";
+import { StatusMenu } from "@/components/inbox/status-menu";
 import type { Conversation, Message } from "@/lib/mock-data";
-import type { MessageRow } from "@/lib/db-types";
+import type { ConversationStatus, MessageRow } from "@/lib/db-types";
 import { adaptMessage } from "@/lib/inbox/adapt";
 import { useMessages } from "@/lib/realtime";
+import { setConversationStatus } from "@/lib/inbox/actions";
+import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
 
 const STATUS_BADGE: Record<
@@ -50,10 +48,20 @@ function shouldShowHeader(prev: Message | undefined, current: Message): boolean 
 export function MessageThread({
   conversation,
   initialMessageRows,
+  assignedToId,
+  status,
+  members,
+  currentUserId,
 }: {
   conversation: Conversation;
   initialMessageRows: MessageRow[];
+  assignedToId: string | null;
+  status: ConversationStatus;
+  members: TeamMember[];
+  currentUserId: string;
 }) {
+  const router = useRouter();
+  const [closing, startClosing] = useTransition();
   // Subscribe to Supabase Realtime so new inbound/outbound messages appear live.
   const rows = useMessages(conversation.id, initialMessageRows);
   const [localOverrides, setLocalOverrides] = useState<
@@ -85,7 +93,7 @@ export function MessageThread({
     .join("")
     .toUpperCase();
 
-  const status = STATUS_BADGE[conversation.status];
+  const statusBadge = STATUS_BADGE[conversation.status];
   const messagesById = useMemo(() => {
     const m = new Map<string, Message>();
     for (const msg of messages) m.set(msg.id, msg);
@@ -138,9 +146,9 @@ export function MessageThread({
             </p>
             <Badge
               variant="outline"
-              className={cn("h-5 gap-1 px-1.5 text-[10px]", status.className)}
+              className={cn("h-5 gap-1 px-1.5 text-[10px]", statusBadge.className)}
             >
-              {status.label}
+              {statusBadge.label}
             </Badge>
           </div>
           <div className="flex items-center gap-1.5 text-xs text-white/60">
@@ -149,56 +157,42 @@ export function MessageThread({
           </div>
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 gap-1.5 px-2 md:px-3"
-              aria-label="Assign agent"
-            >
-              <UserPlus className="size-4 md:hidden" />
-              <span className="hidden md:inline">Assign</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel className="text-xs">Agents</DropdownMenuLabel>
-            <DropdownMenuItem>Junior Mylle (you)</DropdownMenuItem>
-            <DropdownMenuItem>Ana García</DropdownMenuItem>
-            <DropdownMenuItem>Marco Bianchi</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Unassign</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <AssignMenu
+          conversationId={conversation.id}
+          currentAgentId={assignedToId}
+          members={members}
+          currentUserId={currentUserId}
+        />
 
-        {conversation.status !== "closed" ? (
+        {status !== "closed" && (
           <Button
             variant="outline"
             size="sm"
+            disabled={closing}
+            onClick={() => {
+              startClosing(async () => {
+                const fd = new FormData();
+                fd.set("conversation_id", conversation.id);
+                fd.set("status", "closed");
+                const r = await setConversationStatus(fd);
+                if (!r.ok) toast.error(r.error);
+                else {
+                  toast.success("Conversation closed");
+                  router.refresh();
+                }
+              });
+            }}
             className="h-8 shrink-0 gap-1.5 px-2 md:px-3"
             aria-label="Close conversation"
           >
             <X className="size-3.5" />
             <span className="hidden md:inline">Close</span>
           </Button>
-        ) : null}
+        )}
 
         <ContactSheetTrigger conversation={conversation} />
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8" aria-label="More">
-              <MoreVertical className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuItem>Mark as unread</DropdownMenuItem>
-            <DropdownMenuItem>Snooze…</DropdownMenuItem>
-            <DropdownMenuItem>Add tag…</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Block contact</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <StatusMenu conversationId={conversation.id} status={status} />
       </header>
 
       {/* Messages */}

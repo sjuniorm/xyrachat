@@ -11,7 +11,7 @@ export type Channel =
 export type ConversationStatus = "open" | "closed" | "snoozed" | "bot";
 export type MessageDirection = "inbound" | "outbound";
 export type MessageDeliveryStatus = "sent" | "delivered" | "read" | "failed";
-export type ConversationFilter = "all" | "open" | "closed" | "mine" | "bot";
+export type ConversationFilter = "all" | "mine" | "unassigned" | "bot" | "closed";
 
 export type Agent = {
   id: string;
@@ -64,6 +64,7 @@ export type Conversation = {
   status: ConversationStatus;
   last_message_preview: string;
   last_message_at: string;
+  created_at?: string;
   unread_count: number;
   assigned_agent?: Agent;
   detected_language?: string; // BCP-47 like 'es-ES', 'en'
@@ -389,24 +390,6 @@ export const CONVERSATIONS: Conversation[] = [
 
 export function getConversation(id: string): Conversation | undefined {
   return CONVERSATIONS.find((c) => c.id === id);
-}
-
-export function listConversations(filter: ConversationFilter, search: string): Conversation[] {
-  const q = search.trim().toLowerCase();
-  return CONVERSATIONS.filter((c) => {
-    if (filter === "open" && c.status !== "open") return false;
-    if (filter === "closed" && c.status !== "closed") return false;
-    if (filter === "bot" && c.status !== "bot") return false;
-    if (filter === "mine" && c.assigned_agent?.id !== CURRENT_USER_AGENT_ID) return false;
-    if (!q) return true;
-    return (
-      c.contact.name.toLowerCase().includes(q) ||
-      c.last_message_preview.toLowerCase().includes(q)
-    );
-  }).sort(
-    (a, b) =>
-      new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime(),
-  );
 }
 
 export function timeAgo(iso: string): string {

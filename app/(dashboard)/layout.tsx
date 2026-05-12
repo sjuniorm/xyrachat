@@ -16,7 +16,7 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, email, avatar_url, org_id")
+    .select("full_name, email, avatar_url, org_id, availability")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -26,6 +26,11 @@ export default async function DashboardLayout({
     fullName: profile.full_name ?? null,
     email: profile.email ?? user.email ?? null,
     avatarUrl: profile.avatar_url ?? null,
+    availability: (profile.availability as
+      | "online"
+      | "away"
+      | "offline"
+      | null) ?? "online",
   };
 
   return (

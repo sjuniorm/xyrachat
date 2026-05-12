@@ -12,15 +12,18 @@ import {
 } from "@/components/ui/sheet";
 import { XyraWordmark } from "@/components/brand/xyra-wordmark";
 import { SidebarContent } from "@/components/app/sidebar-content";
+import type { Availability } from "@/lib/db-types";
 
 export function MobileHeader({
   fullName,
   email,
   avatarUrl,
+  availability,
 }: {
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
+  availability?: Availability;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -53,6 +56,7 @@ export function MobileHeader({
               fullName={fullName}
               email={email}
               avatarUrl={avatarUrl}
+              availability={availability}
             />
           </div>
         </SheetContent>
