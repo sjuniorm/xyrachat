@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { MessageDirection, MessageStatus } from "@/lib/db-types";
+import type { MessageStatus } from "@/lib/db-types";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -34,29 +34,43 @@ export async function POST(req: NextRequest) {
   const signatureHeader = req.headers.get("x-hub-signature-256");
   const signatureOk = verifyMetaSignature(rawBody, signatureHeader);
 
-  let payload: WaWebhookPayload | null = null;
+  const admin = createAdminClient();
+
+  // Reject BEFORE parsing JSON. Log the failed attempt (raw bytes, truncated)
+  // so we can spot brute-force or misconfigured callers in webhook_log.
+  if (!signatureOk) {
+    try {
+      await admin.from("webhook_log").insert({
+        provider: "whatsapp",
+        signature_ok: false,
+        payload: { _raw: rawBody.slice(0, 4000) },
+      });
+    } catch {
+      // Never let logging error block the 401 response.
+    }
+    return new NextResponse("Invalid signature", { status: 401 });
+  }
+
+  // Only NOW parse the JSON — signature has been verified against raw bytes.
+  let payload: WaWebhookPayload;
   try {
     payload = JSON.parse(rawBody) as WaWebhookPayload;
   } catch {
-    payload = null;
+    return new NextResponse("Invalid JSON", { status: 400 });
   }
 
-  // Always log — successful or failed signature. Useful for incident replay.
-  const admin = createAdminClient();
+  // Log the verified payload for replay + debugging.
   try {
     await admin.from("webhook_log").insert({
       provider: "whatsapp",
-      signature_ok: signatureOk,
-      payload: payload ?? { _raw: rawBody.slice(0, 4000) },
+      signature_ok: true,
+      payload,
     });
   } catch {
     // Never let logging error block the 200 response.
   }
 
-  if (!signatureOk) {
-    return new NextResponse("Invalid signature", { status: 401 });
-  }
-  if (!payload || payload.object !== "whatsapp_business_account") {
+  if (payload.object !== "whatsapp_business_account") {
     // Meta may also send during verification or test pings.
     return NextResponse.json({ received: true });
   }
@@ -321,42 +335,30 @@ async function handleInbound(
 
   const extracted = extractContent(msg);
 
-  // Idempotent insert via SELECT-then-INSERT. supabase-js's
-  // .upsert(onConflict, ignoreDuplicates) silently returns 0 inserted rows
-  // when the target index is PARTIAL (ours has WHERE wa_message_id IS NOT
-  // NULL) — PostgREST can't pass the predicate to PostgreSQL's ON CONFLICT
-  // and our previous code interpreted that empty result as "already
-  // processed, skip", losing every inbound message.
-  const { data: existing } = await admin
-    .from("messages")
-    .select("id")
-    .eq("wa_message_id", msg.id)
-    .maybeSingle();
-  if (existing) return; // genuine retry from Meta — already in DB
+  // Idempotent insert via a SECURITY DEFINER function that wraps real
+  // ON CONFLICT (wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING.
+  // Returns the new message id, or NULL when this was a Meta retry of a
+  // wa_message_id we already stored — in that case we skip downstream side
+  // effects (no double last_message_at bump).
+  const { data: insertedId, error: insertErr } = await admin.rpc(
+    "insert_inbound_wa_message",
+    {
+      p_conversation_id: conversationId,
+      p_content: extracted.content,
+      p_media_url: extracted.media_url,
+      p_media_type: extracted.media_type,
+      p_wa_message_id: msg.id,
+      p_replied_to_message_id: repliedToId,
+      p_metadata: msg.context ? { wa_context: { id: msg.context.id } } : {},
+      p_created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
+    },
+  );
 
-  const insertPayload: Record<string, unknown> = {
-    conversation_id: conversationId,
-    direction: "inbound" as MessageDirection,
-    content: extracted.content,
-    media_url: extracted.media_url,
-    media_type: extracted.media_type,
-    sender_type: "contact",
-    wa_message_id: msg.id,
-    replied_to_message_id: repliedToId,
-    metadata: msg.context ? { wa_context: { id: msg.context.id } } : {},
-    created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
-  };
-
-  const { error: insertErr } = await admin
-    .from("messages")
-    .insert(insertPayload);
   if (insertErr) {
-    // 23505 = unique violation — a concurrent retry beat us to it. Safe to
-    // ignore; the row is now in the DB.
-    if (insertErr.code === "23505") return;
-    console.error("[wa webhook] message insert failed", insertErr);
+    console.error("[wa webhook] insert_inbound_wa_message failed", insertErr);
     return;
   }
+  if (!insertedId) return; // ON CONFLICT hit — already processed
 
   await admin
     .from("conversations")
