@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CornerDownRight,
   Languages,
@@ -61,6 +62,7 @@ export function Composer({
   const [previousDraft, setPreviousDraft] = useState<string | null>(null);
   const [otherLangValue, setOtherLangValue] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const router = useRouter();
 
   // Auto-grow textarea up to 120px.
   function autoGrow() {
@@ -130,8 +132,9 @@ export function Composer({
       }
       setText("");
       onClearQuote();
-      // The Realtime subscription in useMessages picks the new row up; no
-      // optimistic insert needed.
+      // Immediate re-fetch so the outbound bubble appears without waiting
+      // on Realtime/polling. Realtime + the 5s poller still run as backups.
+      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Network error");
     } finally {
