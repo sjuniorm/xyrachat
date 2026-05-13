@@ -26,7 +26,8 @@ async function createOrgAction(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  // 2. App-level guard: one org per user.
+  // 2. App-level guard: one org per user. If they already have one,
+  //    short-circuit before doing any work.
   const { data: existing } = await supabase
     .from("profiles")
     .select("org_id")
@@ -34,28 +35,26 @@ async function createOrgAction(formData: FormData) {
     .maybeSingle();
   if (existing?.org_id) redirect("/dashboard");
 
-  // 3. Create org + link profile via the service-role client.
-  // Caller is already verified above. RLS is the right gate for client-direct
-  // queries; trusted server actions doing org-level setup mutate via admin.
+  // 3. Atomic org-creation via SECURITY DEFINER function (migration 008).
+  //    Two-step INSERT + UPDATE is no longer split across separate Postgres
+  //    calls — the function either creates both rows or neither (transaction),
+  //    so a silent zero-row UPDATE can't leave an orphan org behind.
   const admin = createAdminClient();
-
   const baseSlug = slugify(name) || "org";
   const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const { data: org, error: orgErr } = await admin
-    .from("organizations")
-    .insert({ name, slug })
-    .select("id, plan")
-    .single();
-  if (orgErr || !org) return { error: orgErr?.message ?? "Could not create org." };
+  const { data: orgId, error: rpcErr } = await admin.rpc(
+    "create_org_and_link",
+    {
+      p_user_id: user.id,
+      p_name: name,
+      p_slug: slug,
+    },
+  );
+  if (rpcErr) return { error: rpcErr.message };
+  if (!orgId) return { error: "Could not create org." };
 
-  const { error: profileErr } = await admin
-    .from("profiles")
-    .update({ org_id: org.id, role: "owner" })
-    .eq("id", user.id);
-  if (profileErr) return { error: profileErr.message };
-
-  await trackServer("org_created", user.id, { org_id: org.id, plan: org.plan });
+  await trackServer("org_created", user.id, { org_id: orgId as string });
 
   redirect("/dashboard");
 }
