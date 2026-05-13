@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   ConversationRow,
   ContactRow,
@@ -7,6 +8,28 @@ import type {
   ChannelRow,
   ConversationWithRelations,
 } from "@/lib/db-types";
+
+/**
+ * Lazy snooze-wake — flips any `status='snoozed'` conversation whose
+ * `snooze_until` has elapsed back to `status='open'`. Runs on every inbox
+ * fetch. Cheap because the WHERE clause is selective and idempotent.
+ *
+ * For higher precision (wake while no one's viewing), a Supabase pg_cron
+ * job calling the same query every minute is the follow-up. The lazy
+ * version is enough for MVP.
+ */
+async function wakeSnoozedConversations(): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("conversations")
+    .update({ status: "open", snooze_until: null })
+    .eq("status", "snoozed")
+    .lte("snooze_until", new Date().toISOString());
+  if (error) {
+    // Don't let a wake failure block the inbox render.
+    console.warn("[inbox] wakeSnoozedConversations failed", error);
+  }
+}
 
 type RawConversation = ConversationRow & {
   contact: ContactRow | null;
@@ -25,6 +48,7 @@ type RawConversation = ConversationRow & {
 export async function getConversationsForCurrentOrg(): Promise<
   ConversationWithRelations[]
 > {
+  await wakeSnoozedConversations();
   const supabase = await createClient();
 
   const { data: convs } = await supabase
@@ -75,6 +99,7 @@ export async function getConversationsForCurrentOrg(): Promise<
 export async function getConversationDetail(
   id: string,
 ): Promise<ConversationWithRelations | null> {
+  await wakeSnoozedConversations();
   const supabase = await createClient();
   const { data } = await supabase
     .from("conversations")

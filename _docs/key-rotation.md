@@ -55,7 +55,20 @@ Stored in Supabase Vault, not env. One per connected channel.
     or paste new token in an edit form once we build it in Week 6)
 - **Verify**: Send an outbound message from the inbox composer
 
-## 5. PostHog project API key
+## 5. Resend SMTP API key
+
+Used by Supabase Auth → SMTP Settings to send invite / magic-link / password
+reset emails from `team@xyrachat.com`.
+
+- **Rotate at**: Resend Dashboard → **API Keys** → revoke the existing
+  Xyra-Chat key → **Create API Key** → name `xyra-chat-smtp-<date>` → copy
+- **Update**:
+  - Supabase Dashboard → **Authentication → SMTP Settings** → paste new
+    key in the **Password** field → Save
+- **Verify**: send yourself a fresh invite from `/settings/team`; email
+  arrives from `team@xyrachat.com` within ~30s.
+
+## 6. PostHog project API key
 
 - **Rotate at**: PostHog → Project Settings → Project → **Rotate Project API key**
 - **Update**:
