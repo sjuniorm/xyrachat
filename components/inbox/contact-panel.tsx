@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -260,6 +261,9 @@ export function ContactSheetTrigger({
       >
         <SheetHeader className="sr-only">
           <SheetTitle>Contact details</SheetTitle>
+          <SheetDescription>
+            Edit contact name, tags, notes and view conversation history.
+          </SheetDescription>
         </SheetHeader>
         <ContactPanelBody conversation={conversation} />
       </SheetContent>

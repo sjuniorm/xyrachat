@@ -18,11 +18,13 @@ import {
 import { cn } from "@/lib/utils";
 import { InviteDialog } from "./invite-dialog";
 import { ConfirmAction } from "./confirm-action";
+import { ChangeRoleMenu } from "./change-role-menu";
 
 const ROLE_BADGE: Record<string, string> = {
   owner:
     "border-[color:var(--xyra-purple)]/40 bg-[color:var(--xyra-purple)]/15 text-[color:var(--xyra-glow)]",
   admin: "border-amber-400/40 bg-amber-400/15 text-amber-200",
+  supervisor: "border-sky-400/40 bg-sky-400/15 text-sky-200",
   agent: "border-white/15 bg-white/5 text-white/70",
 };
 
@@ -49,7 +51,7 @@ export default async function TeamPage() {
               Invite teammates, assign roles, and remove members who leave.
             </p>
           </div>
-          {canManage && <InviteDialog />}
+          {canManage && <InviteDialog myRole={me.role} />}
         </header>
 
         <Card className="border-white/10 bg-card/60">
@@ -70,9 +72,13 @@ export default async function TeamPage() {
                   .join("")
                   .toUpperCase();
                 const isMe = m.id === me.id;
-                const canRemove =
-                  canManage && !isMe && m.role !== "owner" &&
+                const canChangeRole =
+                  canManage && !isMe &&
                   !(me.role === "admin" && m.role === "admin");
+                const canRemove =
+                  canManage && !isMe &&
+                  !(me.role === "admin" && (m.role === "admin" || m.role === "owner")) &&
+                  !(me.role === "admin" && m.role === "owner");
                 return (
                   <li
                     key={m.id}
@@ -119,22 +125,31 @@ export default async function TeamPage() {
                         {m.email}
                       </p>
                     </div>
-                    {canRemove && (
-                      <ConfirmAction
-                        action={removeTeamMember}
-                        hidden={[{ name: "user_id", value: m.id }]}
-                        buttonLabel={
-                          <>
-                            <UserMinus className="mr-1.5 size-3.5" />
-                            Remove
-                          </>
-                        }
-                        title={`Remove ${m.full_name ?? m.email}?`}
-                        description="They lose access to this organization immediately. Any conversations assigned to them will become unassigned. Their auth account stays."
-                        confirmLabel="Remove"
-                        confirmingLabel="Removing…"
-                      />
-                    )}
+                    <div className="flex items-center gap-1">
+                      {canChangeRole && (
+                        <ChangeRoleMenu
+                          userId={m.id}
+                          currentRole={m.role}
+                          myRole={me.role}
+                        />
+                      )}
+                      {canRemove && (
+                        <ConfirmAction
+                          action={removeTeamMember}
+                          hidden={[{ name: "user_id", value: m.id }]}
+                          buttonLabel={
+                            <>
+                              <UserMinus className="mr-1.5 size-3.5" />
+                              Remove
+                            </>
+                          }
+                          title={`Remove ${m.full_name ?? m.email}?`}
+                          description="They lose access to this organization immediately. Any conversations assigned to them will become unassigned. Their auth account stays."
+                          confirmLabel="Remove"
+                          confirmingLabel="Removing…"
+                        />
+                      )}
+                    </div>
                   </li>
                 );
               })}

@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, Clock } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChannelIcon } from "@/components/ui/channel-icon";
 import { cn } from "@/lib/utils";
 import { timeAgo, type Conversation } from "@/lib/mock-data";
+import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 
 const STATUS_DOT: Record<Conversation["status"], string> = {
   open: "bg-emerald-400",
@@ -54,16 +55,18 @@ export function ConversationItem({
           onToggleSelect?.(conversation.id, !selected);
         }}
         className={cn(
-          "absolute top-3.5 left-2.5 z-10 inline-flex size-4 items-center justify-center rounded border transition",
+          // White box + dark check when selected so it stands out against
+          // the purple avatar fallback sitting right behind it.
+          "absolute top-3.5 left-2.5 z-10 inline-flex size-4 items-center justify-center rounded border shadow-[0_0_0_2px_rgba(0,0,0,0.6)] transition",
           selected
-            ? "border-[color:var(--xyra-purple)] bg-[color:var(--xyra-purple)] opacity-100"
-            : "border-white/30 bg-black/30 hover:border-white/60",
+            ? "border-white bg-white"
+            : "border-white/60 bg-black/50 hover:border-white",
           selectionEnabled || selected
             ? "opacity-100"
             : "opacity-0 group-hover/row:opacity-100",
         )}
       >
-        {selected && <Check className="size-3 text-white" />}
+        {selected && <Check className="size-3 text-[color:var(--xyra-purple)]" />}
       </button>
 
       <Link
@@ -117,12 +120,24 @@ export function ConversationItem({
             </span>
           </div>
 
-          {/* Row 2: last message preview */}
-          <p className="mt-0.5 truncate text-xs text-white/60">
-            {conversation.last_message_preview || (
-              <span className="italic text-white/30">no messages yet</span>
-            )}
-          </p>
+          {/* Row 2: last message preview (or snooze info if snoozed) */}
+          {conversation.status === "snoozed" && conversation.snooze_until ? (
+            <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-amber-300">
+              <Clock className="size-3 shrink-0" />
+              <span
+                suppressHydrationWarning
+                className="truncate"
+              >
+                Snoozed {formatSnoozeUntil(conversation.snooze_until)}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-0.5 truncate text-xs text-white/60">
+              {conversation.last_message_preview || (
+                <span className="italic text-white/30">no messages yet</span>
+              )}
+            </p>
+          )}
 
           {/* Row 3 (only when needed): agent + unread */}
           {hasFooter && (

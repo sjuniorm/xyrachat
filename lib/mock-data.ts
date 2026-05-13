@@ -65,6 +65,7 @@ export type Conversation = {
   last_message_preview: string;
   last_message_at: string;
   created_at?: string;
+  snooze_until?: string | null;
   unread_count: number;
   assigned_agent?: Agent;
   detected_language?: string; // BCP-47 like 'es-ES', 'en'

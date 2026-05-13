@@ -136,9 +136,15 @@ export async function setConversationStatus(
   }
 
   const admin = createAdminClient();
+  // Closing a conversation auto-unassigns the agent — matches user
+  // expectation that "I'm done with this" should free me from it. Reopening
+  // (open) does NOT re-assign anyone — agents pick it back up explicitly.
+  const update: Record<string, unknown> = { status, snooze_until: null };
+  if (status === "closed") update.assigned_to = null;
+
   const { error } = await admin
     .from("conversations")
-    .update({ status, snooze_until: null })
+    .update(update)
     .eq("id", conversationId);
   if (error) return { ok: false, error: error.message };
 
@@ -220,9 +226,13 @@ export async function setConversationsStatusBulk(
   if (!auth.ok) return auth;
 
   const admin = createAdminClient();
+  // Bulk close also unassigns — same rule as the single-conversation path.
+  const update: Record<string, unknown> = { status, snooze_until: null };
+  if (status === "closed") update.assigned_to = null;
+
   const { error } = await admin
     .from("conversations")
-    .update({ status, snooze_until: null })
+    .update(update)
     .in("id", ids)
     .eq("org_id", auth.orgId);
   if (error) return { ok: false, error: error.message };

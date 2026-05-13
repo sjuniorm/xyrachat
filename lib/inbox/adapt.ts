@@ -70,6 +70,7 @@ export function adaptConversation(
     last_message_preview: c.last_message_preview ?? "",
     last_message_at: c.last_message_at,
     created_at: c.created_at,
+    snooze_until: c.snooze_until,
     unread_count: c.unread_count,
     assigned_agent: c.assigned_agent
       ? {

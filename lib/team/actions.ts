@@ -22,8 +22,9 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   if (!email || !/.+@.+\..+/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
   }
-  if (role !== "admin" && role !== "agent") {
-    return { ok: false, error: "Role must be admin or agent." };
+  // Owners can be invited only by other owners — see role-check below.
+  if (!["owner", "admin", "supervisor", "agent"].includes(role)) {
+    return { ok: false, error: "Invalid role." };
   }
 
   const supabase = await createClient();
@@ -40,6 +41,12 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   if (!me?.org_id) return { ok: false, error: "You're not in an org." };
   if (me.role !== "owner" && me.role !== "admin") {
     return { ok: false, error: "Only owners and admins can invite." };
+  }
+  if (role === "owner" && me.role !== "owner") {
+    return { ok: false, error: "Only owners can invite other owners." };
+  }
+  if (role === "admin" && me.role !== "owner") {
+    return { ok: false, error: "Only owners can invite admins." };
   }
 
   const h = await headers();
@@ -99,11 +106,26 @@ export async function removeTeamMember(
   if (!target || target.org_id !== me.org_id) {
     return { ok: false, error: "User not in your org." };
   }
-  if (target.role === "owner") {
-    return { ok: false, error: "Owners can't be removed." };
+  if (me.role === "agent" || me.role === "supervisor") {
+    return { ok: false, error: "Only owners and admins can remove members." };
   }
-  if (me.role === "agent") {
-    return { ok: false, error: "Agents can't remove members." };
+  // Owners can remove other owners — but never the last one.
+  if (target.role === "owner") {
+    if (me.role !== "owner") {
+      return { ok: false, error: "Only owners can remove other owners." };
+    }
+    const { count } = await admin
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", me.org_id)
+      .eq("role", "owner")
+      .is("deleted_at", null);
+    if ((count ?? 0) <= 1) {
+      return {
+        ok: false,
+        error: "Can't remove the last owner. Promote someone first.",
+      };
+    }
   }
   if (me.role === "admin" && target.role === "admin") {
     return { ok: false, error: "Admins can't remove other admins." };
@@ -166,6 +188,87 @@ export async function cancelInvite(
 
   const { error: delErr } = await admin.auth.admin.deleteUser(targetId);
   if (delErr) return { ok: false, error: delErr.message };
+
+  revalidatePath("/settings/team");
+  return { ok: true };
+}
+
+/**
+ * Promote/demote a team member's role. Only owners can change anyone's role
+ * (including promoting someone to owner — co-owner pattern). Admins are
+ * limited to moving people between supervisor + agent.
+ */
+export async function changeMemberRole(
+  formData: FormData,
+): Promise<ActionResult> {
+  const targetId = String(formData.get("user_id") ?? "");
+  const newRole = String(formData.get("role") ?? "") as ProfileRole;
+
+  if (!targetId) return { ok: false, error: "Missing user id." };
+  if (!["owner", "admin", "supervisor", "agent"].includes(newRole)) {
+    return { ok: false, error: "Invalid role." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!me?.org_id) return { ok: false, error: "You're not in an org." };
+
+  const admin = createAdminClient();
+  const { data: target } = await admin
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (!target || target.org_id !== me.org_id) {
+    return { ok: false, error: "User not in your org." };
+  }
+  if (user.id === targetId) {
+    return { ok: false, error: "You can't change your own role." };
+  }
+  if (me.role !== "owner" && me.role !== "admin") {
+    return { ok: false, error: "Only owners and admins can change roles." };
+  }
+  // Only owners can mint other owners or admins.
+  if ((newRole === "owner" || newRole === "admin") && me.role !== "owner") {
+    return { ok: false, error: "Only owners can promote to admin or owner." };
+  }
+  // Demoting an owner is owner-only and requires there to be another owner.
+  if (target.role === "owner" && newRole !== "owner") {
+    if (me.role !== "owner") {
+      return { ok: false, error: "Only owners can demote other owners." };
+    }
+    const { count } = await admin
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", me.org_id)
+      .eq("role", "owner")
+      .is("deleted_at", null);
+    if ((count ?? 0) <= 1) {
+      return {
+        ok: false,
+        error: "Can't demote the last owner. Promote someone else first.",
+      };
+    }
+  }
+  // Admins can't touch admins.
+  if (me.role === "admin" && target.role === "admin") {
+    return { ok: false, error: "Admins can't change other admins' roles." };
+  }
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ role: newRole })
+    .eq("id", targetId);
+  if (error) return { ok: false, error: error.message };
 
   revalidatePath("/settings/team");
   return { ok: true };

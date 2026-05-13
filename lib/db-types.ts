@@ -13,7 +13,7 @@ export type MessageDirection = "inbound" | "outbound";
 export type MessageStatus = "sent" | "delivered" | "read" | "failed";
 export type SenderType = "contact" | "agent" | "bot";
 export type Availability = "online" | "away" | "offline";
-export type ProfileRole = "owner" | "admin" | "agent";
+export type ProfileRole = "owner" | "admin" | "supervisor" | "agent";
 
 export type ChannelRow = {
   id: string;

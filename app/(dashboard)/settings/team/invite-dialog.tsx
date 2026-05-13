@@ -16,12 +16,36 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { inviteTeamMember } from "@/lib/team/actions";
+import type { ProfileRole } from "@/lib/db-types";
+import { cn } from "@/lib/utils";
 
-export function InviteDialog() {
+type InviteRole = "owner" | "admin" | "supervisor" | "agent";
+
+const ROLE_DESCRIPTIONS: Record<InviteRole, string> = {
+  owner: "Full control — same rights as you. Multiple owners allowed.",
+  admin: "Invite and remove agents/supervisors, manage channels.",
+  supervisor: "Sees every conversation, can assign and close any chat. No member or channel management.",
+  agent: "Replies to conversations assigned to them.",
+};
+
+const ROLE_LABEL: Record<InviteRole, string> = {
+  owner: "Owner",
+  admin: "Admin",
+  supervisor: "Supervisor",
+  agent: "Agent",
+};
+
+export function InviteDialog({ myRole }: { myRole: ProfileRole }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "agent">("agent");
+  const [role, setRole] = useState<InviteRole>("agent");
   const [pending, startTransition] = useTransition();
+
+  // Owners can invite anyone. Admins can invite supervisor + agent only.
+  const allowedRoles: InviteRole[] =
+    myRole === "owner"
+      ? ["owner", "admin", "supervisor", "agent"]
+      : ["supervisor", "agent"];
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -50,8 +74,7 @@ export function InviteDialog() {
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
           <DialogDescription>
-            They'll get an email from Supabase with a link to set their password
-            and join {/*org name not loaded here yet — could be a future prop*/}
+            They'll get an email with a link to set their password and join
             your workspace.
           </DialogDescription>
         </DialogHeader>
@@ -72,21 +95,17 @@ export function InviteDialog() {
           </div>
           <div className="space-y-1.5">
             <Label>Role</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <RoleOption
-                value="agent"
-                label="Agent"
-                description="Can reply to conversations assigned to them."
-                checked={role === "agent"}
-                onSelect={() => setRole("agent")}
-              />
-              <RoleOption
-                value="admin"
-                label="Admin"
-                description="Can invite, assign, and manage channels."
-                checked={role === "admin"}
-                onSelect={() => setRole("admin")}
-              />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {allowedRoles.map((r) => (
+                <RoleOption
+                  key={r}
+                  value={r}
+                  label={ROLE_LABEL[r]}
+                  description={ROLE_DESCRIPTIONS[r]}
+                  checked={role === r}
+                  onSelect={() => setRole(r)}
+                />
+              ))}
             </div>
             <input type="hidden" name="role" value={role} />
           </div>
@@ -132,14 +151,14 @@ function RoleOption({
       type="button"
       role="radio"
       aria-checked={checked}
-      data-state={checked ? "checked" : ""}
       data-value={value}
       onClick={onSelect}
-      className={
+      className={cn(
+        "rounded-lg border px-3 py-2 text-left text-sm transition",
         checked
-          ? "rounded-lg border border-[color:var(--xyra-glow)] bg-white/5 px-3 py-2 text-left text-sm"
-          : "rounded-lg border border-white/10 px-3 py-2 text-left text-sm hover:border-white/20 hover:bg-white/5"
-      }
+          ? "border-[color:var(--xyra-glow)] bg-white/5"
+          : "border-white/10 hover:border-white/20 hover:bg-white/5",
+      )}
     >
       <p className="font-medium text-white">{label}</p>
       <p className="mt-0.5 text-xs text-white/55">{description}</p>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -50,6 +51,9 @@ export function MobileHeader({
         >
           <SheetHeader className="sr-only">
             <SheetTitle>Navigation</SheetTitle>
+            <SheetDescription>
+              Main navigation and account controls
+            </SheetDescription>
           </SheetHeader>
           <div onClick={() => setOpen(false)}>
             <SidebarContent

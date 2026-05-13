@@ -19,6 +19,7 @@ import type { ConversationStatus, MessageRow } from "@/lib/db-types";
 import { adaptMessage } from "@/lib/inbox/adapt";
 import { useMessages } from "@/lib/realtime";
 import { setConversationStatus } from "@/lib/inbox/actions";
+import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +155,14 @@ export function MessageThread({
           <div className="flex items-center gap-1.5 text-xs text-white/60">
             <ChannelIcon channel={conversation.channel} size="sm" withRing={false} />
             <span>{channelLabel(conversation.channel)}</span>
+            {conversation.status === "snoozed" && conversation.snooze_until && (
+              <span
+                suppressHydrationWarning
+                className="ml-1 text-amber-300/90"
+              >
+                · Snoozed {formatSnoozeUntil(conversation.snooze_until)}
+              </span>
+            )}
           </div>
         </div>
 
