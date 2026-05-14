@@ -64,10 +64,13 @@ update Vercel + `.env.local` with the new value.
 | `NEXT_PUBLIC_POSTHOG_KEY` | client + server | PostHog project key |
 | `NEXT_PUBLIC_POSTHOG_HOST` | client + server | `https://eu.i.posthog.com` (GDPR — EU hosting) |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | server only | Random secret; user pastes the same value into Meta App Dashboard → WhatsApp → Configuration → Webhook → Verify Token |
+| `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | server only | Same idea as the WA one but used for `/api/webhooks/instagram` GET handshake. Keep distinct so each can be rotated independently. |
 | `META_APP_SECRET` | server only | Meta App Dashboard → Settings → Basic → App secret. Used for `X-Hub-Signature-256` HMAC verification on inbound webhooks. Shared across WhatsApp, Instagram, Messenger (same Meta app). |
+| `META_APP_ID` | server only | Meta App ID. Only needed for the "Continue with Facebook" Instagram OAuth flow — manual entry still works without it. |
 
-WhatsApp channel access tokens are NOT in env — they're stored per-channel in
-Supabase Vault. Only the vault UUID lives in `channels.access_token_vault_id`.
+WhatsApp + Instagram channel access tokens are NOT in env — they're stored
+per-channel in Supabase Vault. Only the vault UUID lives in
+`channels.access_token_vault_id`.
 
 Local dev: copy `.env.example` → `.env.local`. Production: set in Vercel project settings (also via `vercel env add`).
 
@@ -92,7 +95,16 @@ app/
       message-assist/route.ts    # Stubbed AI rewrite (Week 7 → real Claude)
       suggest-reply/route.ts     # Stubbed suggestion (Week 7 → real Claude)
       translate-inbound/route.ts # Stubbed inbound translation (Week 7)
-  api/
+    auth/
+      instagram/
+        start/route.ts           # Begin Meta OAuth (sets state cookie)
+        callback/route.ts        # Code→token, list pages, save channel
+    channels/
+      whatsapp/send/route.ts     # POST text/template via Graph API
+      instagram/send/route.ts    # POST text/image DM via Graph API
+    webhooks/
+      whatsapp/route.ts          # Meta WA inbound + delivery webhooks
+      instagram/route.ts         # Meta IG inbound + reactions + receipts
     gdpr/
       export/route.ts       # GET — JSON export of user/org data
       delete/route.ts       # POST — soft-delete user + org cascade
@@ -406,18 +418,97 @@ profiles via `raw_user_meta_data.invited_org_id` + `invited_role`.
 - Profiles added to `supabase_realtime` publication so availability changes
   propagate without a refresh
 
-## Roadmap snapshot (what's next — Week 5)
+## Week 5 — Instagram DM integration (DONE)
 
-Week 5: **Instagram DM integration** (per user spec) — webhook subscription,
-inbound message ingest with `ig_message_id` idempotency (already in schema),
-send via Graph API, channel onboarding UI.
+Real Instagram DMs flowing in and out via the Meta Graph API. Same security
++ idempotency contract as WhatsApp: HMAC over the raw request body, partial
+unique index on `ig_message_id`, SECURITY DEFINER wrapper for the ON CONFLICT
+insert. Echoes (`is_echo`) are dropped to avoid double-storing our own outbound.
 
-Also queued for Week 5+:
+**New migrations**
+- [`014_instagram_channel.sql`](supabase/migrations/014_instagram_channel.sql) —
+  adds `channels.page_id`, `channels.ig_business_account_id`, `channels.metadata`
+  (JSONB) plus indexes; `insert_inbound_ig_message()` SECURITY DEFINER fn that
+  mirrors `insert_inbound_wa_message` from migration 006.
+- [`013_drop_debug_helpers.sql`](supabase/migrations/013_drop_debug_helpers.sql)
+  — drops the temporary `debug_auth_uid()` from the Week 4 RLS-recursion hunt.
+
+**New routes**
+- `app/api/webhooks/instagram/route.ts` — GET handshake (uses
+  `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` — a separate verify token from WhatsApp so
+  either can be rotated alone) + POST with HMAC verification using
+  `META_APP_SECRET`. Handles message events, reactions (stored in
+  `message.metadata.ig_reactions`), delivery + read receipts, story replies,
+  and the `story_mention` / `share` / `ig_reel` attachment types. Echo
+  messages are skipped.
+- `app/api/channels/instagram/send/route.ts` — POSTs to
+  `https://graph.facebook.com/v22.0/{page_id}/messages` with
+  `messaging_type: "RESPONSE"`. Recipient is the contact's `instagram_id`
+  (IGSID). Token comes from Vault via `vaultReadSecret()`.
+- `app/api/auth/instagram/start/route.ts` + `.../callback/route.ts` — OAuth
+  flow ("Continue with Facebook"). Start sets a httpOnly state cookie and
+  redirects to Meta's dialog. Callback verifies state, exchanges code for a
+  short-lived user token, upgrades to a 60-day long-lived token, lists pages
+  via `/me/accounts?fields=…,instagram_business_account`, picks the first
+  IG-linked page, stores its long-lived **page** token in Vault, and inserts
+  a `type='instagram'` channel. Auto-pulls IG username + profile pic into
+  `channel.metadata`.
+
+**Settings UI**
+- [`app/(dashboard)/settings/channels/add-channel-button.tsx`](app/(dashboard)/settings/channels/add-channel-button.tsx)
+  — single "Add channel" CTA → dropdown with WhatsApp / Instagram options.
+- [`app/(dashboard)/settings/channels/instagram/new/`](app/(dashboard)/settings/channels/instagram/new/)
+  — "Continue with Facebook" button (shown only when `META_APP_ID` is set)
+  + manual entry fallback (Page ID, IG Business Account ID, Page access
+  token, optional IG username). Same Vault flow as WhatsApp.
+- [`app/(dashboard)/settings/channels/flash.tsx`](app/(dashboard)/settings/channels/flash.tsx)
+  — toasts `?connected=instagram` / `?error=…` from the OAuth redirect, then
+  strips the query params so refresh doesn't replay.
+
+**Inbox**
+- [`components/inbox/composer.tsx`](components/inbox/composer.tsx) now routes
+  to `/api/channels/instagram/send` when `conversation.channel === "instagram"`
+  (was hardcoded to WhatsApp send before).
+- [`components/inbox/message-bubble.tsx`](components/inbox/message-bubble.tsx)
+  renders the new attachment types from Instagram: `image` (already), `video`
+  (HTML5 `<video controls>`), `audio` (HTML5 `<audio controls>`),
+  `story_mention` (icon pill + "view" link), `share` (chip with "open" link).
+  Story-reply context (`metadata.ig_story`) shows a gradient "Story reply"
+  pill at the top of the bubble. IG reactions render as a small chip below.
+- [`lib/inbox/adapt.ts`](lib/inbox/adapt.ts) — `attachmentTypeFromMediaType()`
+  maps `messages.media_type` → the UiMessage attachment type union (which
+  was extended in `lib/mock-data.ts`).
+
+**Environment**
+- New: `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (required for the webhook handshake),
+  `META_APP_ID` (only required for the OAuth flow — manual entry works
+  without it).
+- `META_APP_SECRET` is reused — same Meta app handles WhatsApp + Instagram.
+
+**Meta setup walkthrough** (for the next session)
+1. Meta App Dashboard → Add Products → Instagram + Webhooks (or "Instagram
+   Graph API").
+2. Webhooks → Instagram → Callback URL = `https://<host>/api/webhooks/instagram`,
+   Verify Token = value of `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`.
+3. Subscribe to fields: `messages`, `messaging_postbacks`, `messaging_referral`,
+   `message_reactions`.
+4. For OAuth: Settings → Basic → copy App ID into `META_APP_ID`.
+5. Until App Review is passed, only Test Users (added in
+   App Roles → Roles → Add Testers) can authorize. The connected Instagram
+   account must be a Business or Creator account linked to a Facebook Page.
+
+## Roadmap snapshot (what's next — Week 6)
+
+Week 6: **Telegram + Email channels**. Telegram via bot API
+(`api.telegram.org`), email via Resend Inbound + IMAP.
+
+Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
 - Real media URL resolution for inbound media (currently we store media_id)
 - Per-agent read tracking → real unread counts in the conversation list
-- Telegram channel (probably Week 6)
-- Saved replies CRUD (Week 5 placeholder we ship now)
+- Saved replies CRUD
+- Chooser UI when an OAuth-connected Facebook account has multiple
+  IG-linked Pages (currently we auto-pick the first).
 
 ## Conventions
 

@@ -31,7 +31,7 @@ export type Contact = {
 };
 
 export type MessageAttachment = {
-  type: "image" | "file";
+  type: "image" | "video" | "audio" | "file" | "story_mention" | "share";
   url: string;
   name: string;
   size?: string;
@@ -54,6 +54,8 @@ export type Message = {
       target_lang: string;
       translated_text: string;
     };
+    ig_story?: { id: string; url: string | null };
+    ig_reactions?: Array<{ from: string; emoji: string }>;
   };
 };
 

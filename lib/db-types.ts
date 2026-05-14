@@ -15,6 +15,14 @@ export type SenderType = "contact" | "agent" | "bot";
 export type Availability = "online" | "away" | "offline";
 export type ProfileRole = "owner" | "admin" | "supervisor" | "agent";
 
+export type ChannelMetadata = {
+  // Instagram
+  ig_username?: string;
+  ig_profile_pic_url?: string;
+  // Set when the channel was connected via OAuth rather than manual entry.
+  oauth?: { connected_at: string; user_id: string };
+};
+
 export type ChannelRow = {
   id: string;
   org_id: string;
@@ -22,9 +30,12 @@ export type ChannelRow = {
   name: string;
   phone_number_id: string | null;
   wa_business_account_id: string | null;
+  page_id: string | null;
+  ig_business_account_id: string | null;
   access_token_vault_id: string | null;
   webhook_secret: string | null;
   active: boolean;
+  metadata: ChannelMetadata;
   deleted_at: string | null;
   created_at: string;
 };

@@ -5,9 +5,11 @@ import {
   Check,
   CheckCheck,
   Copy,
+  Image as ImageIcon,
   Languages,
   MessageSquareReply,
   Paperclip,
+  Sparkle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -173,6 +175,19 @@ export function MessageBubble({
                   </div>
                 )}
 
+                {message.metadata?.ig_story && (
+                  <div
+                    className={cn(
+                      "mb-1.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide",
+                      isOutbound
+                        ? "bg-white/15 text-white/85"
+                        : "bg-[linear-gradient(135deg,#833AB4_0%,#FD1D1D_50%,#FCB045_100%)] text-white",
+                    )}
+                  >
+                    <Sparkle className="size-3" />
+                    Story reply
+                  </div>
+                )}
                 {message.attachments?.map((att, i) => (
                   <div key={i} className="mb-1.5">
                     {att.type === "image" ? (
@@ -182,6 +197,44 @@ export function MessageBubble({
                         alt={att.name}
                         className="max-h-64 rounded-lg"
                       />
+                    ) : att.type === "video" ? (
+                      <video
+                        src={att.url}
+                        controls
+                        className="max-h-64 rounded-lg"
+                      />
+                    ) : att.type === "audio" ? (
+                      <audio src={att.url} controls className="w-full" />
+                    ) : att.type === "story_mention" ? (
+                      <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
+                        <ImageIcon className="size-3.5" />
+                        <span className="truncate">Mentioned you in a story</span>
+                        {att.url && (
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-auto underline text-white/70 hover:text-white"
+                          >
+                            view
+                          </a>
+                        )}
+                      </div>
+                    ) : att.type === "share" ? (
+                      <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
+                        <Paperclip className="size-3.5" />
+                        <span className="truncate">Shared a post</span>
+                        {att.url && (
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="ml-auto underline text-white/70 hover:text-white"
+                          >
+                            open
+                          </a>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
                         <Paperclip className="size-3.5" />
@@ -245,6 +298,24 @@ export function MessageBubble({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {message.metadata?.ig_reactions && message.metadata.ig_reactions.length > 0 && (
+          <div
+            className={cn(
+              "-mt-1 inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-1.5 py-0.5 text-xs ring-1 ring-white/10",
+              isOutbound ? "self-end" : "self-start",
+            )}
+          >
+            {message.metadata.ig_reactions.slice(0, 3).map((r, i) => (
+              <span key={i}>{r.emoji}</span>
+            ))}
+            {message.metadata.ig_reactions.length > 3 && (
+              <span className="text-white/50">
+                +{message.metadata.ig_reactions.length - 3}
+              </span>
+            )}
+          </div>
+        )}
 
         {isLastInGroup && (
           <div

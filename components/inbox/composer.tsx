@@ -111,15 +111,35 @@ export function Composer({
       return;
     }
     try {
-      const res = await fetch("/api/channels/whatsapp/send", {
+      const endpoint =
+        conversation.channel === "instagram"
+          ? "/api/channels/instagram/send"
+          : conversation.channel === "whatsapp"
+            ? "/api/channels/whatsapp/send"
+            : null;
+      if (!endpoint) {
+        toast.error(
+          `Sending on ${conversation.channel} isn't wired up yet.`,
+        );
+        return;
+      }
+      const payload =
+        conversation.channel === "whatsapp"
+          ? {
+              conversationId: conversation.id,
+              content: text.trim(),
+              type: "text" as const,
+              repliedToMessageId: quotedMessage?.id ?? undefined,
+            }
+          : {
+              conversationId: conversation.id,
+              content: text.trim(),
+              repliedToMessageId: quotedMessage?.id ?? undefined,
+            };
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId: conversation.id,
-          content: text.trim(),
-          type: "text",
-          repliedToMessageId: quotedMessage?.id ?? undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {

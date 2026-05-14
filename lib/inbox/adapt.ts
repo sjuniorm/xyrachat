@@ -19,11 +19,29 @@ function fallbackAvatar(name: string): string {
   )}&background=9333EA&color=fff&bold=true&size=128`;
 }
 
+function attachmentTypeFromMediaType(mt: string | null): import("@/lib/mock-data").MessageAttachment["type"] {
+  switch (mt) {
+    case "image":
+      return "image";
+    case "video":
+      return "video";
+    case "audio":
+      return "audio";
+    case "story_mention":
+      return "story_mention";
+    case "share":
+    case "ig_reel":
+      return "share";
+    default:
+      return "file";
+  }
+}
+
 export function adaptMessage(row: MessageRow): UiMessage {
   const attachments = row.media_url
     ? [
         {
-          type: row.media_type === "image" ? ("image" as const) : ("file" as const),
+          type: attachmentTypeFromMediaType(row.media_type),
           url: row.media_url,
           name: row.media_url.split("/").pop() ?? "attachment",
         },

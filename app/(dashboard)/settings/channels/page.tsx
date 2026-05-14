@@ -1,15 +1,18 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import { createClient } from "@/lib/supabase/server";
 import type { ChannelRow } from "@/lib/db-types";
 import { RotateTokenButton } from "./rotate-token-button";
+import { AddChannelButton } from "./add-channel-button";
+import { ChannelsFlash } from "./flash";
 
-export default async function ChannelsPage() {
+export default async function ChannelsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ connected?: string; error?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -22,6 +25,8 @@ export default async function ChannelsPage() {
     .order("created_at", { ascending: false });
   const list = (channels as ChannelRow[] | null) ?? [];
 
+  const sp = await searchParams;
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-3xl">
@@ -32,29 +37,22 @@ export default async function ChannelsPage() {
               Connect WhatsApp, Instagram, Messenger and more so messages land in your inbox.
             </p>
           </div>
-          <Button asChild className="xyra-gradient text-white border-0 hover:opacity-90">
-            <Link href="/settings/channels/new">
-              <Plus className="mr-1.5 size-4" />
-              Add channel
-            </Link>
-          </Button>
+          <AddChannelButton />
         </header>
+
+        <ChannelsFlash connected={sp.connected} error={sp.error} />
 
         {list.length === 0 ? (
           <Card className="border-white/10 bg-card/60">
             <CardHeader>
               <CardTitle>No channels connected yet</CardTitle>
               <CardDescription>
-                Add your first WhatsApp Business sender to start receiving customer messages.
+                Connect your first sender — WhatsApp Business or Instagram —
+                so customer messages start landing in your inbox.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button asChild className="xyra-gradient text-white border-0 hover:opacity-90">
-                <Link href="/settings/channels/new">
-                  <Plus className="mr-1.5 size-4" />
-                  Add WhatsApp channel
-                </Link>
-              </Button>
+              <AddChannelButton size="lg" />
             </CardContent>
           </Card>
         ) : (
@@ -80,7 +78,9 @@ export default async function ChannelsPage() {
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {channelLabel(c.type)}
-                        {c.phone_number_id && ` · ID ${c.phone_number_id}`}
+                        {c.type === "whatsapp" && c.phone_number_id && ` · ID ${c.phone_number_id}`}
+                        {c.type === "instagram" && c.metadata?.ig_username && ` · @${c.metadata.ig_username}`}
+                        {c.type === "instagram" && !c.metadata?.ig_username && c.ig_business_account_id && ` · IG ${c.ig_business_account_id}`}
                       </p>
                     </div>
                     {c.access_token_vault_id && (

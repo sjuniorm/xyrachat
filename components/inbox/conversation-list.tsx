@@ -335,14 +335,14 @@ function EmptyInboxState() {
       </div>
       <p className="text-sm font-medium text-white">No conversations yet</p>
       <p className="max-w-[220px] text-xs text-white/60">
-        Connect a WhatsApp channel and customer messages will appear here in real time.
+        Connect a WhatsApp or Instagram channel and customer messages will appear here in real time.
       </p>
       <Button
         asChild
         size="sm"
         className="mt-1 h-8 xyra-gradient border-0 text-white hover:opacity-90"
       >
-        <Link href="/settings/channels/new">Connect WhatsApp</Link>
+        <Link href="/settings/channels">Connect a channel</Link>
       </Button>
     </div>
   );
