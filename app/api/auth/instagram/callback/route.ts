@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
+import { subscribeIgWebhooks } from "@/lib/instagram/subscribe";
 
 export const runtime = "nodejs";
 
@@ -127,9 +128,17 @@ export async function GET(req: NextRequest) {
     return redirectWithError(req, `Could not save channel: ${insertErr.message}`);
   }
 
-  const res = NextResponse.redirect(
-    new URL("/settings/channels?connected=instagram", req.url),
-  );
+  // 7. Subscribe the IG account to webhooks. This is a separate Meta call
+  //    from configuring the webhook in the app dashboard — without it, the
+  //    app-level webhook is set up but Meta won't actually deliver events
+  //    for THIS specific account. Easy step to miss. If it fails we still
+  //    consider the channel connected and surface a hint in the URL so the
+  //    UI can offer a "Re-link webhooks" action.
+  const subscribed = await subscribeIgWebhooks(igUserId, longToken);
+
+  const dest = new URL("/settings/channels?connected=instagram", req.url);
+  if (!subscribed) dest.searchParams.set("warn", "webhooks-unsubscribed");
+  const res = NextResponse.redirect(dest);
   res.cookies.delete("ig_oauth_state");
   return res;
 }
