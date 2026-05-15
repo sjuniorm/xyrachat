@@ -81,28 +81,27 @@ export function NewInstagramChannelForm({
           <CardHeader>
             <CardTitle className="text-base">One-click connect</CardTitle>
             <CardDescription>
-              Sign in with the Facebook account that owns the Page linked to
-              your Instagram Business profile. We'll pull the credentials
-              automatically.
+              Sign in with the Instagram Business account you want to manage
+              from Xyra. We&apos;ll pull the credentials automatically.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button
               asChild
-              className="bg-[#1877F2] text-white hover:bg-[#1877F2]/90 border-0"
+              className="text-white border-0 bg-[linear-gradient(135deg,#833AB4_0%,#FD1D1D_50%,#FCB045_100%)] hover:opacity-90"
             >
               <a href="/api/auth/instagram/start">
-                <span className="mr-2 inline-flex size-4 items-center justify-center rounded-sm bg-white text-[10px] font-bold text-[#1877F2]">
-                  f
+                <span className="mr-2 inline-flex size-4 items-center justify-center rounded-sm bg-white text-[10px] font-bold text-[#E1306C]">
+                  IG
                 </span>
-                Continue with Facebook
+                Continue with Instagram
               </a>
             </Button>
             <p className="mt-3 text-xs text-white/50">
-              You'll be redirected to Facebook to authorize Xyra Chat. Required
-              scopes: <code>instagram_basic</code>,{" "}
-              <code>instagram_manage_messages</code>,{" "}
-              <code>pages_messaging</code>.
+              You&apos;ll be redirected to Instagram to authorize Xyra Chat.
+              Required scopes: <code>instagram_business_basic</code>,{" "}
+              <code>instagram_business_manage_messages</code>,{" "}
+              <code>instagram_business_manage_comments</code>.
             </p>
           </CardContent>
         </Card>
@@ -178,14 +177,21 @@ export function NewInstagramChannelForm({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="page_id">Facebook Page ID</Label>
+                  <Label htmlFor="page_id">
+                    Facebook Page ID{" "}
+                    <span className="text-white/40">(optional)</span>
+                  </Label>
                   <Input
                     id="page_id"
                     name="page_id"
-                    placeholder="123456789012345"
+                    placeholder="Leave blank for Instagram-direct connections"
                     inputMode="numeric"
-                    required
                   />
+                  <p className="text-[11px] text-white/50">
+                    Only fill this in if your Instagram is linked to a
+                    Facebook Page and you have a Page access token. For
+                    Instagram Business Login (no Page), leave blank.
+                  </p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -202,7 +208,7 @@ export function NewInstagramChannelForm({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="access_token">Page access token</Label>
+                  <Label htmlFor="access_token">Access token</Label>
                   <div className="relative">
                     <Input
                       id="access_token"

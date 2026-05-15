@@ -5,7 +5,7 @@ import { vaultReadSecret } from "@/lib/supabase/vault";
 
 export const runtime = "nodejs";
 
-const META_GRAPH_VERSION = "v22.0";
+const IG_GRAPH_VERSION = "v22.0";
 
 type SendBody = {
   conversationId: string;
@@ -68,9 +68,9 @@ export async function POST(req: Request) {
   if (!channel || channel.type !== "instagram") {
     return NextResponse.json({ error: "Channel is not Instagram" }, { status: 400 });
   }
-  if (!channel.page_id || !channel.access_token_vault_id) {
+  if (!channel.access_token_vault_id) {
     return NextResponse.json(
-      { error: "Channel is missing page_id or token" },
+      { error: "Channel is missing a token" },
       { status: 400 },
     );
   }
@@ -81,16 +81,25 @@ export async function POST(req: Request) {
     );
   }
 
-  // 4. Decrypt the Page access token from Vault.
+  // 4. Decrypt the access token from Vault.
   const token = await vaultReadSecret(channel.access_token_vault_id);
   if (!token) {
     return NextResponse.json({ error: "Token missing from vault" }, { status: 500 });
   }
 
-  // 5. Call Meta Graph API. Instagram Messaging POSTs to /{page_id}/messages
-  //    (Messenger Platform endpoint), using the linked Page's access token.
-  //    The recipient.id is the contact's Instagram-scoped ID (IGSID).
-  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`;
+  // 5. Pick send strategy. Two paths exist:
+  //    - IG-direct (Instagram Business Login): no page_id, token is an IG
+  //      user access token, send via graph.instagram.com/{ig_user_id}/messages
+  //    - Facebook Login (Page-linked IG): page_id set, token is a Page
+  //      access token, send via graph.facebook.com/{page_id}/messages
+  //    Both are official Meta send paths; the distinction is how the channel
+  //    was originally authorized.
+  const useIgDirect = !channel.page_id && Boolean(channel.ig_business_account_id);
+
+  const url = useIgDirect
+    ? `https://graph.instagram.com/${IG_GRAPH_VERSION}/${channel.ig_business_account_id}/messages`
+    : `https://graph.facebook.com/${IG_GRAPH_VERSION}/${channel.page_id}/messages`;
+
   const messagePayload: Record<string, unknown> = imageUrl
     ? { attachment: { type: "image", payload: { url: imageUrl, is_reusable: false } } }
     : { text: content!.trim() };
@@ -130,7 +139,7 @@ export async function POST(req: Request) {
 
   const igMessageId = metaJson?.message_id ?? null;
 
-  // 6. Save outbound row locally for the inbox to render immediately.
+  // 6. Save outbound row locally so the inbox renders immediately.
   const { data: stored, error: insertErr } = await admin
     .from("messages")
     .insert({

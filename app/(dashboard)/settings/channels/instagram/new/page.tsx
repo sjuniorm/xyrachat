@@ -16,9 +16,10 @@ async function createInstagramChannelAction(
   const igUsername = String(formData.get("ig_username") ?? "").trim();
 
   if (!name) return { error: "Channel name is required." };
-  if (!pageId) return { error: "Facebook Page ID is required." };
   if (!igAccountId) return { error: "Instagram Business Account ID is required." };
-  if (!accessToken) return { error: "Page access token is required." };
+  if (!accessToken) return { error: "Access token is required." };
+  // page_id is optional: IG-direct (Instagram Business Login) connections
+  // don't go through a Facebook Page, so there's nothing to enter.
 
   const supabase = await createClient();
   const {
@@ -55,7 +56,7 @@ async function createInstagramChannelAction(
     org_id: orgId,
     type: "instagram",
     name,
-    page_id: pageId,
+    page_id: pageId || null,
     ig_business_account_id: igAccountId,
     access_token_vault_id: vaultId,
     active: true,
@@ -88,8 +89,8 @@ export default async function NewInstagramChannelPage() {
             Connect Instagram DM
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Use Sign in with Facebook for the smooth path, or paste credentials
-            from your Meta App Dashboard if you're testing.
+            Use Continue with Instagram for the one-click path, or paste
+            credentials from your Meta App Dashboard if you&apos;re testing.
           </p>
         </header>
 

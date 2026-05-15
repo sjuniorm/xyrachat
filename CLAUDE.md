@@ -453,18 +453,32 @@ insert. Echoes (`is_echo`) are dropped to avoid double-storing our own outbound.
   `message.metadata.ig_reactions`), delivery + read receipts, story replies,
   and the `story_mention` / `share` / `ig_reel` attachment types. Echo
   messages are skipped.
-- `app/api/channels/instagram/send/route.ts` — POSTs to
-  `https://graph.facebook.com/v22.0/{page_id}/messages` with
-  `messaging_type: "RESPONSE"`. Recipient is the contact's `instagram_id`
-  (IGSID). Token comes from Vault via `vaultReadSecret()`.
-- `app/api/auth/instagram/start/route.ts` + `.../callback/route.ts` — OAuth
-  flow ("Continue with Facebook"). Start sets a httpOnly state cookie and
-  redirects to Meta's dialog. Callback verifies state, exchanges code for a
-  short-lived user token, upgrades to a 60-day long-lived token, lists pages
-  via `/me/accounts?fields=…,instagram_business_account`, picks the first
-  IG-linked page, stores its long-lived **page** token in Vault, and inserts
-  a `type='instagram'` channel. Auto-pulls IG username + profile pic into
-  `channel.metadata`.
+- `app/api/channels/instagram/send/route.ts` — picks one of two send URLs:
+  - IG-direct (channel.page_id IS NULL): POST
+    `https://graph.instagram.com/v22.0/{ig_user_id}/messages` with the IG
+    user access token from Vault.
+  - Page-linked (channel.page_id IS NOT NULL): POST
+    `https://graph.facebook.com/v22.0/{page_id}/messages` with the Page
+    access token from Vault.
+  Both paths use the same body (`recipient.id` = contact.instagram_id,
+  `messaging_type: "RESPONSE"`).
+- `app/api/auth/instagram/start/route.ts` + `.../callback/route.ts` — **Instagram
+  Business Login** OAuth flow (the IG-direct path, NOT Facebook Login).
+  Start sets a httpOnly state cookie and redirects to
+  `https://www.instagram.com/oauth/authorize`. Callback verifies state,
+  exchanges code at `api.instagram.com/oauth/access_token` for a short-lived
+  (1h) IG user access token, upgrades to ~60-day long-lived via
+  `graph.instagram.com/access_token?grant_type=ig_exchange_token`, reads
+  `/me` for `id`/`username`/`profile_picture_url`, stores the token in Vault,
+  and inserts a `type='instagram'` channel with `page_id=NULL` and
+  `ig_business_account_id` set to the IG user id.
+  - **Redirect URI to register in Meta** (Xyra Chat-IG → Instagram → API
+    Setup → "Set up Instagram business login" → Redirect URL):
+    `https://xyra-chat.vercel.app/api/auth/instagram/callback`
+    (plus `http://localhost:3000/api/auth/instagram/callback` for local dev).
+  - Was originally built against Facebook Login but pivoted to IG-direct
+    because the Xyra Chat-IG Meta app is Instagram-only — `facebook.com/dialog/oauth`
+    rejects the App ID with "Invalid app ID" for IG-only apps.
 
 **Settings UI**
 - [`app/(dashboard)/settings/channels/add-channel-button.tsx`](app/(dashboard)/settings/channels/add-channel-button.tsx)
@@ -500,17 +514,32 @@ insert. Echoes (`is_echo`) are dropped to avoid double-storing our own outbound.
   against `INSTAGRAM_APP_SECRET`. The IG OAuth flow uses `INSTAGRAM_APP_ID`
   + `INSTAGRAM_APP_SECRET`.
 
-**Meta setup walkthrough** (for the next session)
-1. Meta App Dashboard → Add Products → Instagram + Webhooks (or "Instagram
-   Graph API").
-2. Webhooks → Instagram → Callback URL = `https://<host>/api/webhooks/instagram`,
-   Verify Token = value of `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`.
-3. Subscribe to fields: `messages`, `messaging_postbacks`, `messaging_referral`,
-   `message_reactions`.
-4. For OAuth: Settings → Basic → copy App ID into `META_APP_ID`.
-5. Until App Review is passed, only Test Users (added in
-   App Roles → Roles → Add Testers) can authorize. The connected Instagram
-   account must be a Business or Creator account linked to a Facebook Page.
+**Meta setup walkthrough** (Xyra Chat-IG app, IG-only)
+1. **App Dashboard → Xyra Chat-IG → Add Products**:
+   - Add **Instagram** (the messaging/posting product)
+   - Add **Instagram Login** (the OAuth product — separate from "Instagram",
+     and required for the Continue-with-Instagram flow to work)
+   - Add **Webhooks**
+2. **Instagram → API Setup**:
+   - Add the IG account as an **Instagram Tester** (App Roles → Roles → tab
+     "Instagram Testers" → Add). The IG account owner must accept the
+     invite at `instagram.com/accounts/manage_access/` before Meta will let
+     you add the account here.
+   - Add the linked FB Page (only if you're using the Page-linked path —
+     IG-direct doesn't need this).
+3. **Instagram → API Setup → "Set up Instagram business login"**:
+   - **Redirect URL**: `https://xyra-chat.vercel.app/api/auth/instagram/callback`
+   - Also add the same URL under **Valid OAuth Redirect URIs**.
+   - For local dev, also add `http://localhost:3000/api/auth/instagram/callback`.
+4. **Webhooks → Instagram**:
+   - Callback URL: `https://xyra-chat.vercel.app/api/webhooks/instagram`
+   - Verify Token: value of `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`
+   - Subscribe to fields: `messages`, `messaging_postbacks`,
+     `message_reactions`, `messaging_seen` (optional).
+5. **Settings → Basic** → copy App ID into `INSTAGRAM_APP_ID`, App Secret
+   into `INSTAGRAM_APP_SECRET`.
+6. **App Mode**: stays in Development until App Review. In Development mode,
+   only Instagram Testers can authorize — exactly what you want for now.
 
 ## Roadmap snapshot (what's next — Week 6)
 

@@ -4,21 +4,19 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-// Scopes for the Instagram Messaging API (riding on the Messenger Platform).
-// Each one is reviewable by Meta — until App Review is passed we can only
-// connect accounts that are Test Users on our Meta App.
+// Instagram Business Login scopes. These are NOT the same as the legacy
+// Facebook Login scopes that we tried first — they live under the
+// "Instagram Login" product, not "Facebook Login for Business".
 const SCOPES = [
-  "instagram_basic",
-  "instagram_manage_messages",
-  "pages_messaging",
-  "pages_show_list",
-  "pages_manage_metadata",
+  "instagram_business_basic",
+  "instagram_business_manage_messages",
+  "instagram_business_manage_comments",
 ].join(",");
 
-// Kicks off the Facebook OAuth flow. We set a short-lived state cookie so the
-// callback can verify the request originated from us (CSRF protection), then
-// redirect the user to Facebook's OAuth dialog. After they authorize, Meta
-// hits our /callback with ?code=...&state=... .
+// Kicks off Instagram Business Login. Meta hosts the authorize page on
+// instagram.com itself (NOT facebook.com) — this is the modern direct
+// path that works for Instagram-only Meta apps with no linked Facebook
+// Page. We set a state cookie for CSRF and redirect to the IG dialog.
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const {
@@ -28,8 +26,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  // Use the Instagram-specific Meta app ID. META_APP_ID is reserved for the
-  // WhatsApp app (future Embedded Signup), so it can't substitute here.
   const appId = process.env.INSTAGRAM_APP_ID;
   if (!appId) {
     return NextResponse.redirect(
@@ -40,7 +36,7 @@ export async function GET(req: NextRequest) {
   const state = randomBytes(24).toString("hex");
   const redirectUri = absoluteUrl(req, "/api/auth/instagram/callback");
 
-  const dialog = new URL("https://www.facebook.com/v22.0/dialog/oauth");
+  const dialog = new URL("https://www.instagram.com/oauth/authorize");
   dialog.searchParams.set("client_id", appId);
   dialog.searchParams.set("redirect_uri", redirectUri);
   dialog.searchParams.set("scope", SCOPES);
