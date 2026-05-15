@@ -113,7 +113,7 @@ export function NewInstagramChannelForm({
           <CardHeader>
             <CardTitle className="text-base">Manual setup only (for now)</CardTitle>
             <CardDescription>
-              One-click connect needs <code>META_APP_ID</code> set in your
+              One-click connect needs <code>INSTAGRAM_APP_ID</code> set in your
               environment. Until then, paste credentials below.
             </CardDescription>
           </CardHeader>

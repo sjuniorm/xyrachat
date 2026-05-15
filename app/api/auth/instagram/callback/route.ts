@@ -45,10 +45,13 @@ export async function GET(req: NextRequest) {
     return redirectWithError(req, "OAuth state mismatch — please retry.");
   }
 
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
+  // Both the App ID and secret here come from the IG-specific Meta app
+  // ("Xyra Chat-IG"). The WhatsApp app's META_APP_ID / META_APP_SECRET are
+  // a different pair and would fail token exchange.
+  const appId = process.env.INSTAGRAM_APP_ID;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET;
   if (!appId || !appSecret) {
-    return redirectWithError(req, "Meta OAuth is not configured.");
+    return redirectWithError(req, "Instagram OAuth is not configured.");
   }
 
   const redirectUri = absoluteUrl(req, "/api/auth/instagram/callback");

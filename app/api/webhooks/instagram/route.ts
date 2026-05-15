@@ -84,11 +84,14 @@ export async function POST(req: NextRequest) {
 }
 
 // =====================================================================
-// HMAC verification — same shared Meta App secret as WhatsApp.
+// HMAC verification — uses the Instagram-specific app's secret, since
+// the IG product lives in its own Meta app ("Xyra Chat-IG"), not the
+// original WhatsApp app. Falls back to META_APP_SECRET only as a temporary
+// bridge for any preview env that hasn't moved the secret yet.
 // =====================================================================
 function verifyMetaSignature(rawBody: string, header: string | null): boolean {
   if (!header || !header.startsWith("sha256=")) return false;
-  const secret = process.env.META_APP_SECRET;
+  const secret = process.env.INSTAGRAM_APP_SECRET ?? process.env.META_APP_SECRET;
   if (!secret) return false;
   const provided = header.slice("sha256=".length);
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");

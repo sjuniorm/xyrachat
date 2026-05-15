@@ -52,7 +52,11 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("host") ?? "xyra-chat.vercel.app";
-  const redirectTo = `${proto}://${host}/dashboard`;
+  // Land invitees on /accept-invite so they set a password before reaching
+  // the dashboard. Without this, they're stuck: Supabase logs them in via
+  // magic link, they have no password, and "Forgot password" is the only
+  // way back in once the session expires.
+  const redirectTo = `${proto}://${host}/accept-invite`;
 
   const admin = createAdminClient();
   const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {

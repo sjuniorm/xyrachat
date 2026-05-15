@@ -1,8 +1,20 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/", "/privacy", "/terms"];
-const AUTH_PATHS = ["/login", "/signup"];
+const PUBLIC_PATHS = [
+  "/",
+  "/privacy",
+  "/terms",
+  // /reset-password is reached via a recovery link that signs the user in
+  // first — we must let them through whether or not a session exists, so it
+  // can't go in AUTH_PATHS (which redirects authed users away).
+  "/reset-password",
+  // /accept-invite is the landing page for someone who just clicked an
+  // invite magic-link — they're already signed in but have no password yet,
+  // so we don't want middleware to redirect them to /dashboard.
+  "/accept-invite",
+];
+const AUTH_PATHS = ["/login", "/signup", "/forgot-password"];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;

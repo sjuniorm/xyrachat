@@ -65,8 +65,10 @@ update Vercel + `.env.local` with the new value.
 | `NEXT_PUBLIC_POSTHOG_HOST` | client + server | `https://eu.i.posthog.com` (GDPR — EU hosting) |
 | `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | server only | Random secret; user pastes the same value into Meta App Dashboard → WhatsApp → Configuration → Webhook → Verify Token |
 | `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` | server only | Same idea as the WA one but used for `/api/webhooks/instagram` GET handshake. Keep distinct so each can be rotated independently. |
-| `META_APP_SECRET` | server only | Meta App Dashboard → Settings → Basic → App secret. Used for `X-Hub-Signature-256` HMAC verification on inbound webhooks. Shared across WhatsApp, Instagram, Messenger (same Meta app). |
-| `META_APP_ID` | server only | Meta App ID. Only needed for the "Continue with Facebook" Instagram OAuth flow — manual entry still works without it. |
+| `INSTAGRAM_APP_ID` | server only | App ID of the **Xyra Chat-IG** Meta app (the IG-specific one, separate from the WhatsApp app). Used for the Continue-with-Facebook OAuth flow on `/settings/channels/instagram/new`. Manual entry still works without it. |
+| `INSTAGRAM_APP_SECRET` | server only | App secret of the **Xyra Chat-IG** Meta app. Used (a) to verify `X-Hub-Signature-256` on `/api/webhooks/instagram` (the IG webhook is signed with THIS secret, not `META_APP_SECRET`), and (b) to exchange the OAuth code for an access token. |
+| `META_APP_SECRET` | server only | App secret of the **original** (WhatsApp) Meta app. Used for `X-Hub-Signature-256` HMAC verification on `/api/webhooks/whatsapp`. |
+| `META_APP_ID` | server only | App ID of the original (WhatsApp) Meta app. Reserved for future WhatsApp Embedded Signup (Week 9). |
 
 WhatsApp + Instagram channel access tokens are NOT in env — they're stored
 per-channel in Supabase Vault. Only the vault UUID lives in
@@ -80,8 +82,11 @@ Local dev: copy `.env.example` → `.env.local`. Production: set in Vercel proje
 app/
   (auth)/
     layout.tsx              # Centered card, Xyra logo, gradient backdrop
-    login/page.tsx          # Email + password sign-in
+    login/page.tsx          # Email + password sign-in (+ "Forgot password?" link)
     signup/page.tsx         # Name + email + password sign-up
+    forgot-password/page.tsx # Request password reset email
+    reset-password/page.tsx  # Set new password from recovery link
+    accept-invite/page.tsx   # First-time invitees set password before /dashboard
     onboarding/page.tsx     # Create org, set self as owner
   (dashboard)/
     layout.tsx              # Branded sidebar (260px) + mobile header + content area (`h-dvh`)
@@ -186,8 +191,12 @@ To apply: paste the SQL into Supabase SQL Editor, OR run `supabase db push` if S
 ## Route protection rules (middleware)
 
 - Unauthenticated visiting `/dashboard/*` → redirect `/login`
-- Authenticated visiting `/login` or `/signup` → redirect `/dashboard`
-- Public: `/`, `/privacy`, `/terms`, `/api/gdpr/*` (which do their own auth)
+- Authenticated visiting `/login`, `/signup`, or `/forgot-password` → redirect `/dashboard`
+- Public: `/`, `/privacy`, `/terms`, `/reset-password`, `/accept-invite`,
+  `/api/gdpr/*` and `/api/webhooks/*` (which do their own auth)
+- `/reset-password` and `/accept-invite` must stay public — both are landed
+  on via a magic link that signs the user in, so an "authed → /dashboard"
+  redirect would skip the password-setting step they're there for
 
 ## PostHog GDPR-safe configuration (locked decision)
 
@@ -369,7 +378,10 @@ profiles via `raw_user_meta_data.invited_org_id` + `invited_role`.
 - `getTeamSnapshot()` — me + members + pending invites in one call
 - `getOrgMembers()` — light version for the AssignMenu
 - `inviteTeamMember()` — `supabase.auth.admin.inviteUserByEmail` with our
-  metadata payload. Owners + admins only
+  metadata payload. Owners + admins only. `redirectTo` is `/accept-invite`
+  (NOT `/dashboard`) so the invitee sets a password before landing in the
+  product — without that they'd be locked out after the magic-link session
+  expires
 - `removeTeamMember()` — clears `org_id` + `role`, unassigns any conversations
   they owned. Role checks: owners can't be removed, admins can't remove other
   admins, agents can't remove anyone
@@ -483,7 +495,10 @@ insert. Echoes (`is_echo`) are dropped to avoid double-storing our own outbound.
 - New: `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (required for the webhook handshake),
   `META_APP_ID` (only required for the OAuth flow — manual entry works
   without it).
-- `META_APP_SECRET` is reused — same Meta app handles WhatsApp + Instagram.
+- The original Meta app and the Instagram-specific app are **separate**.
+  WhatsApp webhooks HMAC against `META_APP_SECRET`; Instagram webhooks HMAC
+  against `INSTAGRAM_APP_SECRET`. The IG OAuth flow uses `INSTAGRAM_APP_ID`
+  + `INSTAGRAM_APP_SECRET`.
 
 **Meta setup walkthrough** (for the next session)
 1. Meta App Dashboard → Add Products → Instagram + Webhooks (or "Instagram

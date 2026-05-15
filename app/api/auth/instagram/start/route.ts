@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  const appId = process.env.META_APP_ID;
+  // Use the Instagram-specific Meta app ID. META_APP_ID is reserved for the
+  // WhatsApp app (future Embedded Signup), so it can't substitute here.
+  const appId = process.env.INSTAGRAM_APP_ID;
   if (!appId) {
     return NextResponse.redirect(
       new URL("/settings/channels/instagram/new?reason=no-oauth", req.url),

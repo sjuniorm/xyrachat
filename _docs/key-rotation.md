@@ -31,6 +31,33 @@ the app still works locally before moving on.
   `/api/webhooks/whatsapp` accepts the new HMAC signature (look in
   `webhook_log` table for `signature_ok = true` rows from after the rotation)
 
+## 2b. Instagram App Secret
+
+Lives in its own Meta app ("Xyra Chat-IG"), separate from the WhatsApp app
+above. Used for HMAC verification on `/api/webhooks/instagram` AND for the
+Continue-with-Facebook OAuth flow.
+
+- **Rotate at**: Meta App Dashboard → **Xyra Chat-IG** → Settings → Basic →
+  **Reset App Secret**
+- **Update**:
+  - `.env.local` → `INSTAGRAM_APP_SECRET`
+  - Vercel: `vercel env rm INSTAGRAM_APP_SECRET` + add for all 3 envs
+- **Verify**: send a real DM to the connected IG test account; check
+  `webhook_log` table for `signature_ok = true` rows from after the rotation
+
+## 2c. Instagram Webhook Verify Token
+
+- **Rotate at**: just generate a new random hex
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  ```
+- **Update**:
+  - `.env.local` → `INSTAGRAM_WEBHOOK_VERIFY_TOKEN`
+  - Vercel: rm + add for all 3 envs
+  - **Meta App Dashboard → Xyra Chat-IG → Webhooks → Instagram → Edit →
+    paste new Verify Token → Verify and save**
+- **Verify**: Meta's "Verify and save" returns success
+
 ## 3. WhatsApp Webhook Verify Token
 
 - **Rotate at**: just generate a new random hex
