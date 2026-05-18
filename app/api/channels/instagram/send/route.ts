@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   const [{ data: channel }, { data: contact }] = await Promise.all([
     admin
       .from("channels")
-      .select("id, type, page_id, ig_business_account_id, access_token_vault_id")
+      .select("id, type, page_id, ig_business_account_id, access_token_vault_id, metadata")
       .eq("id", conv.channel_id)
       .maybeSingle(),
     admin
@@ -92,12 +92,18 @@ export async function POST(req: Request) {
   //      user access token, send via graph.instagram.com/{ig_user_id}/messages
   //    - Facebook Login (Page-linked IG): page_id set, token is a Page
   //      access token, send via graph.facebook.com/{page_id}/messages
-  //    Both are official Meta send paths; the distinction is how the channel
-  //    was originally authorized.
+  //
+  //    For IG-direct, the send endpoint expects the IG-Login user_id (what
+  //    /me returns), NOT the IG Business Account ID that arrives in webhook
+  //    payloads. After auto-heal, channels.ig_business_account_id holds the
+  //    webhook-side ID, so we prefer metadata.ig_login_user_id when present.
   const useIgDirect = !channel.page_id && Boolean(channel.ig_business_account_id);
+  const igLoginUserId =
+    (channel.metadata as { ig_login_user_id?: string } | null)?.ig_login_user_id ??
+    channel.ig_business_account_id;
 
   const url = useIgDirect
-    ? `https://graph.instagram.com/${IG_GRAPH_VERSION}/${channel.ig_business_account_id}/messages`
+    ? `https://graph.instagram.com/${IG_GRAPH_VERSION}/${igLoginUserId}/messages`
     : `https://graph.facebook.com/${IG_GRAPH_VERSION}/${channel.page_id}/messages`;
 
   const messagePayload: Record<string, unknown> = imageUrl

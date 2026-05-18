@@ -106,6 +106,12 @@ export async function GET(req: NextRequest) {
   // 6. Insert the channel. page_id stays NULL for IG-direct connections —
   //    we send via graph.instagram.com/{ig_user_id}/messages instead of
   //    going through a Facebook Page.
+  //
+  //    Caveat: Meta's webhook payload uses a DIFFERENT ID format for
+  //    `entry.id` than what `graph.instagram.com/me` returns. We store the
+  //    /me id in both `ig_business_account_id` AND `metadata.ig_login_user_id`
+  //    so the webhook can fall back to the metadata key and self-heal the
+  //    primary column on the first inbound event.
   const admin = createAdminClient();
   const { error: insertErr } = await admin.from("channels").insert({
     org_id: orgId,
@@ -118,6 +124,7 @@ export async function GET(req: NextRequest) {
     metadata: {
       ig_username: profile?.username,
       ig_profile_pic_url: profile?.profile_picture_url,
+      ig_login_user_id: igUserId,
       oauth: {
         connected_at: new Date().toISOString(),
         user_id: user.id,

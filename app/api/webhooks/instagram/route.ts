@@ -178,14 +178,37 @@ async function processPayload(payload: IgWebhookPayload) {
 
 async function findChannelByIgAccountId(igAccountId: string) {
   const admin = createAdminClient();
-  const { data } = await admin
+  // Primary lookup: webhook-side IG Business Account ID matches what we stored.
+  const direct = await admin
     .from("channels")
     .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id")
     .eq("ig_business_account_id", igAccountId)
     .eq("type", "instagram")
     .is("deleted_at", null)
     .maybeSingle();
-  return data;
+  if (direct.data) return direct.data;
+
+  // Fallback: Instagram Business Login's /me returns an ID in a DIFFERENT
+  // format than what Meta sends in webhook payloads. We stash the /me id
+  // in metadata.ig_login_user_id during OAuth; the FIRST webhook teaches us
+  // the mapping. We migrate the channel in place so future lookups are
+  // O(1) on the primary column.
+  const fallback = await admin
+    .from("channels")
+    .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id, metadata")
+    .eq("metadata->>ig_login_user_id", igAccountId)
+    .eq("type", "instagram")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (fallback.data) {
+    await admin
+      .from("channels")
+      .update({ ig_business_account_id: igAccountId })
+      .eq("id", fallback.data.id);
+    return fallback.data;
+  }
+
+  return null;
 }
 
 type IgChannel = NonNullable<Awaited<ReturnType<typeof findChannelByIgAccountId>>>;
