@@ -81,6 +81,8 @@ export default async function ChannelsPage({
                         {c.type === "whatsapp" && c.phone_number_id && ` · ID ${c.phone_number_id}`}
                         {c.type === "instagram" && c.metadata?.ig_username && ` · @${c.metadata.ig_username}`}
                         {c.type === "instagram" && !c.metadata?.ig_username && c.ig_business_account_id && ` · IG ${c.ig_business_account_id}`}
+                        {c.type === "telegram" && c.bot_username && ` · @${c.bot_username}`}
+                        {c.type === "email" && c.inbox_email && ` · ${c.inbox_email}`}
                       </p>
                     </div>
                     {c.access_token_vault_id && (

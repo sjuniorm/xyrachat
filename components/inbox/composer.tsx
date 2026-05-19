@@ -116,7 +116,11 @@ export function Composer({
           ? "/api/channels/instagram/send"
           : conversation.channel === "whatsapp"
             ? "/api/channels/whatsapp/send"
-            : null;
+            : conversation.channel === "telegram"
+              ? "/api/channels/telegram/send"
+              : conversation.channel === "email"
+                ? "/api/channels/email/send"
+                : null;
       if (!endpoint) {
         toast.error(
           `Sending on ${conversation.channel} isn't wired up yet.`,

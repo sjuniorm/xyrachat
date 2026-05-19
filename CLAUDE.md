@@ -69,6 +69,10 @@ update Vercel + `.env.local` with the new value.
 | `INSTAGRAM_APP_SECRET` | server only | App secret of the **Xyra Chat-IG** Meta app. Used (a) to verify `X-Hub-Signature-256` on `/api/webhooks/instagram` (the IG webhook is signed with THIS secret, not `META_APP_SECRET`), and (b) to exchange the OAuth code for an access token. |
 | `META_APP_SECRET` | server only | App secret of the **original** (WhatsApp) Meta app. Used for `X-Hub-Signature-256` HMAC verification on `/api/webhooks/whatsapp`. |
 | `META_APP_ID` | server only | App ID of the original (WhatsApp) Meta app. Reserved for future WhatsApp Embedded Signup (Week 9). |
+| `RESEND_API_KEY` | server only | Resend Dashboard → API Keys. Used for inbound webhook lookup + outbound `resend.emails.send()`. |
+| `RESEND_WEBHOOK_SECRET` | server only | Resend Dashboard → Webhooks → Signing Secret (`whsec_<base64>` form). Verifies the Svix-format signature on inbound email webhooks. |
+| `INBOUND_EMAIL_DOMAIN` | server only | Domain customers email — defaults to `mail.xyrachat.com`. MX records on this subdomain must point at Resend. |
+| `EMAIL_FROM_ADDRESS` | server only | Fallback `From:` for outbound when a channel doesn't have its own `inbox_email`. Defaults to `support@xyrachat.com`. |
 
 WhatsApp + Instagram channel access tokens are NOT in env — they're stored
 per-channel in Supabase Vault. Only the vault UUID lives in
@@ -107,9 +111,13 @@ app/
     channels/
       whatsapp/send/route.ts     # POST text/template via Graph API
       instagram/send/route.ts    # POST text/image DM via Graph API
+      telegram/send/route.ts     # POST text/photo via Telegram Bot API
+      email/send/route.ts        # Outbound via Resend SDK + threading headers
     webhooks/
       whatsapp/route.ts          # Meta WA inbound + delivery webhooks
       instagram/route.ts         # Meta IG inbound + reactions + receipts
+      telegram/route.ts          # Telegram inbound (header secret_token verify)
+      email/route.ts             # Resend Inbound (Svix signature verify)
     gdpr/
       export/route.ts       # GET — JSON export of user/org data
       delete/route.ts       # POST — soft-delete user + org cascade
@@ -541,10 +549,81 @@ insert. Echoes (`is_echo`) are dropped to avoid double-storing our own outbound.
 6. **App Mode**: stays in Development until App Review. In Development mode,
    only Instagram Testers can authorize — exactly what you want for now.
 
-## Roadmap snapshot (what's next — Week 6)
+## Week 6 — Telegram + Email channels (DONE)
 
-Week 6: **Telegram + Email channels**. Telegram via bot API
-(`api.telegram.org`), email via Resend Inbound + IMAP.
+Two new inbound surfaces, both lower-friction than Meta:
+
+**Telegram** (`api.telegram.org` bot API)
+- [`014_…`](supabase/migrations/) … wait, Telegram bits live in
+  [`015_telegram_email.sql`](supabase/migrations/015_telegram_email.sql):
+  adds `channels.bot_username`, `messages.telegram_message_id` (composite
+  `<chat_id>:<message_id>`), partial unique index for idempotency, and
+  `insert_inbound_telegram_message()` SECURITY DEFINER fn.
+- [`app/api/webhooks/telegram/route.ts`](app/api/webhooks/telegram/route.ts):
+  POST only. Telegram identifies the channel by echoing a per-channel
+  `secret_token` in the `X-Telegram-Bot-Api-Secret-Token` header (stored
+  in the existing `channels.webhook_secret` column). Handles `message.text`,
+  `photo`, `document`, `audio`, `voice`, `video`, `sticker`. Idempotent
+  on `<chat_id>:<message_id>`. Always returns `{ ok: true }`.
+- [`app/api/channels/telegram/send/route.ts`](app/api/channels/telegram/send/route.ts):
+  POSTs to `api.telegram.org/bot{token}/sendMessage` or `/sendPhoto`. Token
+  decrypted from Vault per request.
+- [`app/(dashboard)/settings/channels/telegram/new/`](app/(dashboard)/settings/channels/telegram/new/):
+  Bot Token field. On submit: `getMe` to validate + capture bot username,
+  generate a random `secret_token`, call `setWebhook` to register our
+  endpoint, stash the raw token in Vault. Done.
+
+**Email** (Resend Inbound + outbound)
+- [`app/api/webhooks/email/route.ts`](app/api/webhooks/email/route.ts):
+  Resend uses Svix for webhook delivery. Verify via `svix-id` + `svix-timestamp` +
+  `svix-signature` headers, HMAC-SHA256 against `RESEND_WEBHOOK_SECRET`
+  (strip `whsec_` prefix, base64-decode, then sign
+  `${svixId}.${svixTs}.${rawBody}`). Threading: resolve which conversation
+  an inbound belongs to via `In-Reply-To` / `References` headers — both
+  reference Message-Ids of emails we stored earlier in
+  `messages.email_message_id`. Falls back to "open conversation with this
+  contact" then "create new."
+- [`app/api/channels/email/send/route.ts`](app/api/channels/email/send/route.ts):
+  Uses the Resend SDK (`resend` npm package). When `repliedToMessageId` is
+  set, copies the inbound subject (prefixes `Re:` if missing) and emits
+  `In-Reply-To` + `References` headers so the customer's mail client
+  threads it correctly.
+- [`app/(dashboard)/settings/channels/email/new/`](app/(dashboard)/settings/channels/email/new/):
+  Form lets the user pick an inbox prefix (validated `a-z0-9._-`), shows
+  the full address `<prefix>@<INBOUND_EMAIL_DOMAIN>` live with a copy
+  button, optional From-name override. After save, surfaces "use directly
+  OR forward to it" guidance.
+
+**Shared plumbing**
+- `lib/db-types.ts` grew `ChannelRow.bot_username`, `inbox_email`, and a
+  bigger `ChannelMetadata` (bot_id, from_name). `MessageMetadata` gets an
+  `email` sub-record with subject + addresses + html_body + threading
+  headers; `MessageRow` gets `telegram_message_id` + `email_message_id`.
+- [`components/inbox/composer.tsx`](components/inbox/composer.tsx) now
+  routes to the matching `/api/channels/{provider}/send` for whatsapp / 
+  instagram / telegram / email.
+- [`components/inbox/message-bubble.tsx`](components/inbox/message-bubble.tsx)
+  renders an email's subject as a bold line above the body when
+  `metadata.email.subject` is set.
+- [Add-channel dropdown](app/(dashboard)/settings/channels/add-channel-button.tsx)
+  now offers four: WhatsApp / Instagram / Telegram / Email.
+
+**Environment** (additions)
+- `RESEND_API_KEY` — verifies inbound + sends outbound.
+- `RESEND_WEBHOOK_SECRET` — `whsec_<base64>` from Resend → Webhooks.
+- `INBOUND_EMAIL_DOMAIN` — e.g. `mail.xyrachat.com`. Must have MX records
+  pointing at Resend.
+- `EMAIL_FROM_ADDRESS` — fallback From: when a channel has no inbox_email.
+
+**Out-of-the-box advantage**: Telegram has zero dev-mode restrictions, so
+once a bot is connected via BotFather and webhooks register, real DMs
+flow immediately. Use this as the channel that proves the end-to-end
+inbox pipeline while Instagram waits in App Review.
+
+## Roadmap snapshot (what's next — Week 7)
+
+Week 7: **Real AI integration** — Claude for translate / suggest / assist.
+Replaces the stubs in `app/api/ai/*` with real `claude-opus-4-7` calls.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
@@ -553,6 +632,8 @@ Also queued:
 - Saved replies CRUD
 - Chooser UI when an OAuth-connected Facebook account has multiple
   IG-linked Pages (currently we auto-pick the first).
+- Messenger channel (likely Week 8 — bundles into the same Meta App
+  Review submission as Instagram).
 
 ## Conventions
 

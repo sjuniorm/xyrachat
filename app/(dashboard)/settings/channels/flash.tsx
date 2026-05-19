@@ -17,6 +17,10 @@ export function ChannelsFlash({
   useEffect(() => {
     if (connected === "instagram") {
       toast.success("Instagram channel connected.");
+    } else if (connected === "telegram") {
+      toast.success("Telegram bot connected.");
+    } else if (connected === "email") {
+      toast.success("Email channel ready.");
     } else if (error) {
       toast.error(error);
     }

@@ -56,6 +56,16 @@ export type Message = {
     };
     ig_story?: { id: string; url: string | null };
     ig_reactions?: Array<{ from: string; emoji: string }>;
+    email?: {
+      subject?: string;
+      from_address?: string;
+      from_name?: string;
+      to_addresses?: string[];
+      cc_addresses?: string[];
+      html_body?: string;
+      in_reply_to?: string;
+      references?: string[];
+    };
   };
 };
 

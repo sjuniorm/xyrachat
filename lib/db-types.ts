@@ -19,6 +19,12 @@ export type ChannelMetadata = {
   // Instagram
   ig_username?: string;
   ig_profile_pic_url?: string;
+  ig_login_user_id?: string;
+  // Telegram
+  bot_id?: number;
+  bot_first_name?: string;
+  // Email
+  from_name?: string;
   // Set when the channel was connected via OAuth rather than manual entry.
   oauth?: { connected_at: string; user_id: string };
 };
@@ -32,6 +38,8 @@ export type ChannelRow = {
   wa_business_account_id: string | null;
   page_id: string | null;
   ig_business_account_id: string | null;
+  bot_username: string | null;
+  inbox_email: string | null;
   access_token_vault_id: string | null;
   webhook_secret: string | null;
   active: boolean;
@@ -77,6 +85,21 @@ export type MessageMetadata = {
   // Inbound context echoes from Meta — kept for debugging if we ever miss
   // resolving replied_to_message_id.
   wa_context?: { id: string };
+  // Instagram-specific
+  ig_story?: { id: string; url: string | null };
+  ig_reactions?: Array<{ from: string; emoji: string }>;
+  // Email-specific — stored on every inbound email message so the UI can
+  // render the subject line and surface the original HTML body.
+  email?: {
+    subject?: string;
+    from_address?: string;
+    from_name?: string;
+    to_addresses?: string[];
+    cc_addresses?: string[];
+    html_body?: string;
+    in_reply_to?: string;
+    references?: string[];
+  };
 };
 
 export type MessageRow = {
@@ -92,6 +115,8 @@ export type MessageRow = {
   replied_to_message_id: string | null;
   wa_message_id: string | null;
   ig_message_id: string | null;
+  telegram_message_id: string | null;
+  email_message_id: string | null;
   metadata: MessageMetadata;
   deleted_at: string | null;
   created_at: string;

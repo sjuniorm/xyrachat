@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Camera, MessageCircle, ChevronDown } from "lucide-react";
+import {
+  Plus,
+  Camera,
+  MessageCircle,
+  Send,
+  Mail,
+  ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -41,6 +48,22 @@ export function AddChannelButton({ size = "md" }: { size?: "md" | "lg" }) {
               <Camera className="size-3 text-white" />
             </span>
             Instagram DM
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/channels/telegram/new" className="cursor-pointer">
+            <span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-[#0088cc]">
+              <Send className="size-3 text-white" />
+            </span>
+            Telegram bot
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/channels/email/new" className="cursor-pointer">
+            <span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-[#6b7280]">
+              <Mail className="size-3 text-white" />
+            </span>
+            Email inbox
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

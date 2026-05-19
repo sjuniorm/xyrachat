@@ -175,6 +175,18 @@ export function MessageBubble({
                   </div>
                 )}
 
+                {message.metadata?.email?.subject && (
+                  <div
+                    className={cn(
+                      "mb-1.5 border-b pb-1.5 text-xs font-semibold",
+                      isOutbound
+                        ? "border-white/30 text-white/90"
+                        : "border-white/15 text-white/80",
+                    )}
+                  >
+                    {message.metadata.email.subject}
+                  </div>
+                )}
                 {message.metadata?.ig_story && (
                   <div
                     className={cn(
