@@ -73,6 +73,8 @@ update Vercel + `.env.local` with the new value.
 | `RESEND_WEBHOOK_SECRET` | server only | Resend Dashboard → Webhooks → Signing Secret (`whsec_<base64>` form). Verifies the Svix-format signature on inbound email webhooks. |
 | `INBOUND_EMAIL_DOMAIN` | server only | Domain customers email — defaults to `mail.xyrachat.com`. MX records on this subdomain must point at Resend. |
 | `EMAIL_FROM_ADDRESS` | server only | Fallback `From:` for outbound when a channel doesn't have its own `inbox_email`. Defaults to `support@xyrachat.com`. |
+| `ANTHROPIC_API_KEY` | server only | Anthropic Console → API Keys. Powers bot replies (claude-sonnet-4-6), Message Assist + translate (claude-haiku-4-5-20251001), and the auto-translate background job. |
+| `OPENAI_API_KEY` | server only | OpenAI Dashboard → API Keys. Used for RAG embeddings (text-embedding-3-small, 1536 dims) and future Whisper voice-note transcription. |
 
 WhatsApp + Instagram channel access tokens are NOT in env — they're stored
 per-channel in Supabase Vault. Only the vault UUID lives in
@@ -620,10 +622,117 @@ once a bot is connected via BotFather and webhooks register, real DMs
 flow immediately. Use this as the channel that proves the end-to-end
 inbox pipeline while Instagram waits in App Review.
 
-## Roadmap snapshot (what's next — Week 7)
+## Week 7 — AI Chatbot Engine + RAG (DONE)
 
-Week 7: **Real AI integration** — Claude for translate / suggest / assist.
-Replaces the stubs in `app/api/ai/*` with real `claude-opus-4-7` calls.
+The /api/ai/* stubs from Week 2 are now real Claude calls, and webhook
+handlers run an automated bot reply gate on every inbound.
+
+**Schema** — [`016_bots_rag.sql`](supabase/migrations/016_bots_rag.sql)
+- `bots` — per-org AI assistant config (objective, tone, personality,
+  business_hours, knowledge_threshold, behavior_rules, handoff_triggers,
+  greeting_message, off_hours_message). RLS via `current_user_org_id()`
+  helper from migration 010.
+- `bot_sources` — uploaded text / urls / documents, status field for
+  embedding pipeline progress.
+- `bot_embeddings` — chunked text + `vector(1536)` for OpenAI
+  text-embedding-3-small. ivfflat index on cosine similarity.
+- `bot_assignments` — channel→bot, UNIQUE on channel_id (MVP one bot per
+  channel).
+- `bot_outcomes` — KPI rows for the Week 8 analytics page
+  (lead_captured, link_clicked, qualified, handoff,
+  fallback_no_knowledge, etc.).
+- `match_embeddings()` SECURITY DEFINER RPC for vector search.
+- `channels.auto_translate_inbound` + `auto_translate_target_lang` —
+  per-channel zero-click translation toggle.
+- `contacts.detected_language` + `detected_language_confidence` —
+  caches franc-detected language to skip detection on stable customers.
+
+**AI library** ([`lib/ai/`](lib/ai/))
+- `clients.ts` — lazy `getAnthropic()` / `getOpenAI()` singletons,
+  `MODELS` enum (generation: `claude-sonnet-4-6`, rewrite:
+  `claude-haiku-4-5-20251001`, embedding: `text-embedding-3-small`,
+  transcription: `whisper-1`).
+- `embeddings.ts` — `chunkText()` sentence-aware splitter with 500-token
+  chunks + 50-token overlap (chars-per-token approximation, no
+  tokenizer dep), `embedChunks()` batches OpenAI embed calls and
+  updates `bot_sources.embedding_status`, `ingestText()` convenience.
+- `retrieval.ts` — `retrieveContext(query, botId)` returns chunks +
+  maxSimilarity for the caller's threshold check.
+- `chatbot.ts` — `generateBotResponse()` with **Anthropic prompt
+  caching**: system prompt and RAG chunks each get
+  `cache_control: { type: "ephemeral" }` (5-min TTL). Reports
+  `cache_read_input_tokens` / `cache_creation_input_tokens` per call
+  for cost visibility. Builds objective-specific guidance for all 7
+  objectives (support / lead_generation / website_traffic / sales /
+  booking / qualification / custom). Parses `[HANDOFF_REQUESTED]` from
+  the model output AND keyword triggers from `bot.handoff_triggers`.
+- `language-detect.ts` — `detectLanguage()` wraps franc with ISO 639-3
+  → 639-1 normalisation + a length-based confidence heuristic.
+- `bot-gate.ts` — the central gate runner called from every webhook.
+  Six sequential gates:
+  1. Bot assigned to this channel?
+  2. Auto-pause: did a human agent reply in the last 6h? Stay quiet.
+  3. Conversation status: must be 'bot' or 'open' AND unassigned.
+  4. Business hours: respects per-bot timezone + day windows via Intl
+     (no tz dep). Off-hours either sends `off_hours_message` or skips
+     silently.
+  5. WhatsApp 24h customer-service window (WA channels only).
+  6. Voice transcription (Whisper) — currently logged-and-skipped
+     placeholder; flip to active when ready.
+  Gate 7 (token budget) deferred — needs a `subscriptions` table
+  which doesn't exist yet. When it does, hook in here. Greeting
+  message sent before the first generated reply when
+  `bot.greeting_message` is set AND it's the first turn.
+  All outcome rows logged to `bot_outcomes` for analytics.
+- `auto-translate.ts` — `maybeAutoTranslate()` runs after the inbound
+  is stored, before the bot gate. Detects language (cached on contact),
+  Haiku-translates to channel's target, writes to
+  `messages.metadata.translation_cache[target]` AND
+  `messages.metadata.auto_translation = { source, target, text }`.
+
+**Endpoints — real Claude wired in**
+- `/api/ai/message-assist` — per-action system prompts, optional prior
+  conversation context (last 5 messages), per-channel max-length clamp
+  with sentence-boundary truncation, Haiku by default.
+- `/api/ai/suggest-reply` — resolves the assigned bot via
+  `bot_assignments`, runs the same RAG + Claude pipeline as the live
+  bot but returns to the agent. Surfaces `sources_used` so the UI can
+  show provenance.
+- `/api/ai/translate-inbound` — Haiku translation with per-target cache
+  in `messages.metadata.translation_cache`. Skips the API call when the
+  detected source matches the target.
+
+**Webhook integration**
+- WhatsApp + Instagram + Telegram webhook handlers now call
+  `maybeAutoTranslate()` + `runBotGate()` after the idempotent insert
+  + last_message_at bump. Both run sequentially (not Promise.all) so
+  the bot reply ordering is deterministic and we don't double-charge
+  on auto-translate + greeting.
+- Outbound bot replies write directly to provider APIs via in-file
+  helpers in `bot-gate.ts` (Telegram: api.telegram.org/sendMessage;
+  WA: graph.facebook.com/{phone_number_id}/messages; IG: branches IG-
+  direct vs Page-linked the same as the agent send endpoint). Stored
+  with `sender_type='bot'` + full usage metadata
+  (`{ model, input_tokens, output_tokens, cache_read_input_tokens,
+    cache_creation_input_tokens, sources_used, max_similarity }`).
+
+**What's NOT shipped this week (deferred)**
+- Voice transcription (Whisper) — webhook gate logs + skips audio
+  inbound. Hook up when needed.
+- Token budget gate — needs `subscriptions` table. Marked in
+  `bot-gate.ts` as the spot to wire it.
+- Bot CRUD UI — Week 8 explicitly owns the training-screen surfaces.
+  For now, bots and sources can be created via SQL (or via Week 8 UI
+  when it lands).
+- Conversation language auto-detect for the agent's UI (cached on
+  `contacts.detected_language` but not yet surfaced in the
+  inbox/sidebar).
+
+## Roadmap snapshot (what's next — Week 8)
+
+Week 8: **Bot training UI** — `/bots` CRUD, source upload (text +
+file + URL), embedding-status indicator, knowledge_threshold slider,
+analytics tiles powered by `bot_outcomes`.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

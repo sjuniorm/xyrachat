@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runBotGate } from "@/lib/ai/bot-gate";
+import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 
 export const runtime = "nodejs";
 
@@ -108,7 +110,7 @@ async function findChannelBySecret(secret: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("channels")
-    .select("id, org_id, type, webhook_secret, access_token_vault_id, bot_username")
+    .select("id, org_id, type, webhook_secret, access_token_vault_id, bot_username, auto_translate_inbound, auto_translate_target_lang")
     .eq("webhook_secret", secret)
     .eq("type", "telegram")
     .is("deleted_at", null)
@@ -263,4 +265,31 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  // Auto-translate + bot gate. Run sequentially so the bot sees the
+  // translated content if auto-translate flipped it (though we don't
+  // overwrite original content — bot still operates on the original).
+  if (extracted.content) {
+    await maybeAutoTranslate({
+      channel: {
+        id: channel.id,
+        type: channel.type,
+        auto_translate_inbound: channel.auto_translate_inbound,
+        auto_translate_target_lang: channel.auto_translate_target_lang,
+      },
+      contactId,
+      messageId: insertedId,
+      content: extracted.content,
+    });
+  }
+  await runBotGate({
+    channel: { id: channel.id, type: channel.type, org_id: channel.org_id },
+    conversationId,
+    contactId,
+    newMessage: {
+      content: extracted.content,
+      media_type: extracted.media_type,
+      isFirstFromContact: false, // computed at higher cost; defer to greeting logic
+    },
+  });
 }

@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import type { MessageStatus } from "@/lib/db-types";
+import { runBotGate } from "@/lib/ai/bot-gate";
+import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 
 // Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -181,7 +183,7 @@ async function findChannelByIgAccountId(igAccountId: string) {
   // Primary lookup: webhook-side IG Business Account ID matches what we stored.
   const direct = await admin
     .from("channels")
-    .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id")
+    .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id, auto_translate_inbound, auto_translate_target_lang")
     .eq("ig_business_account_id", igAccountId)
     .eq("type", "instagram")
     .is("deleted_at", null)
@@ -195,7 +197,7 @@ async function findChannelByIgAccountId(igAccountId: string) {
   // O(1) on the primary column.
   const fallback = await admin
     .from("channels")
-    .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id, metadata")
+    .select("id, org_id, type, page_id, ig_business_account_id, access_token_vault_id, metadata, auto_translate_inbound, auto_translate_target_lang")
     .eq("metadata->>ig_login_user_id", igAccountId)
     .eq("type", "instagram")
     .is("deleted_at", null)
@@ -416,6 +418,30 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  if (extracted.content) {
+    await maybeAutoTranslate({
+      channel: {
+        id: channel.id,
+        type: channel.type,
+        auto_translate_inbound: (channel as { auto_translate_inbound?: boolean | null }).auto_translate_inbound,
+        auto_translate_target_lang: (channel as { auto_translate_target_lang?: string | null }).auto_translate_target_lang,
+      },
+      contactId,
+      messageId: insertedId,
+      content: extracted.content,
+    });
+  }
+  await runBotGate({
+    channel: { id: channel.id, type: channel.type, org_id: channel.org_id },
+    conversationId,
+    contactId,
+    newMessage: {
+      content: extracted.content,
+      media_type: extracted.media_type,
+      isFirstFromContact: false,
+    },
+  });
 }
 
 async function handleReaction(ev: IgMessagingEvent) {

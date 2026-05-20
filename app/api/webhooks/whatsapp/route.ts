@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { MessageStatus } from "@/lib/db-types";
+import { runBotGate } from "@/lib/ai/bot-gate";
+import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -188,7 +190,7 @@ async function findChannelByPhoneNumberId(phoneNumberId: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("channels")
-    .select("id, org_id, type")
+    .select("id, org_id, type, auto_translate_inbound, auto_translate_target_lang")
     .eq("phone_number_id", phoneNumberId)
     .eq("type", "whatsapp")
     .is("deleted_at", null)
@@ -293,7 +295,13 @@ function extractContent(msg: WaInboundMessage): {
 }
 
 async function handleInbound(
-  channel: { id: string; org_id: string },
+  channel: {
+    id: string;
+    org_id: string;
+    type?: string;
+    auto_translate_inbound?: boolean | null;
+    auto_translate_target_lang?: string | null;
+  },
   msg: WaInboundMessage,
   contactProfileName: string | null,
 ) {
@@ -367,6 +375,30 @@ async function handleInbound(
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  if (extracted.content) {
+    await maybeAutoTranslate({
+      channel: {
+        id: channel.id,
+        type: channel.type ?? "whatsapp",
+        auto_translate_inbound: channel.auto_translate_inbound ?? null,
+        auto_translate_target_lang: channel.auto_translate_target_lang ?? null,
+      },
+      contactId,
+      messageId: insertedId,
+      content: extracted.content,
+    });
+  }
+  await runBotGate({
+    channel: { id: channel.id, type: channel.type ?? "whatsapp", org_id: channel.org_id },
+    conversationId,
+    contactId,
+    newMessage: {
+      content: extracted.content,
+      media_type: extracted.media_type,
+      isFirstFromContact: false,
+    },
+  });
 }
 
 async function handleStatus(status: WaStatus) {
