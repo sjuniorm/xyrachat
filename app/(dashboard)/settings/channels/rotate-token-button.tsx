@@ -17,17 +17,46 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { rotateChannelToken } from "@/lib/channels/actions";
 
+const ROTATE_HELP: Record<
+  string,
+  { description: string; placeholder: string }
+> = {
+  whatsapp: {
+    description:
+      "Generate a fresh access token in Meta (Business Settings → System Users for a permanent one, or WhatsApp → API Setup for a temporary 24-hour one), then paste it here.",
+    placeholder: "EAA…",
+  },
+  instagram: {
+    description:
+      "If your Instagram token expired, the cleanest fix is to disconnect and reconnect via OAuth. Manual rotation only works if you have a fresh IG user access token from Meta API Setup.",
+    placeholder: "IGAA…",
+  },
+  telegram: {
+    description:
+      "In @BotFather, send /token and pick this bot to get a fresh token. Paste it here — the old token stops working immediately on Telegram's side.",
+    placeholder: "123456789:ABCdef…",
+  },
+};
+
 export function RotateTokenButton({
   channelId,
   channelName,
+  channelType,
 }: {
   channelId: string;
   channelName: string;
+  channelType: string;
 }) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [show, setShow] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  const help = ROTATE_HELP[channelType] ?? {
+    description:
+      "Paste the new access token. It replaces the secret in Supabase Vault.",
+    placeholder: "new token…",
+  };
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -61,10 +90,8 @@ export function RotateTokenButton({
         <DialogHeader>
           <DialogTitle>Rotate token for {channelName}</DialogTitle>
           <DialogDescription>
-            Generate a fresh access token in Meta (Business Settings → System
-            Users for a permanent one, or WhatsApp → API Setup for a temporary
-            24-hour one), then paste it here. The new value replaces the secret
-            in Supabase Vault — old token stops working immediately.
+            {help.description} The new value replaces the secret in Supabase
+            Vault — old token stops working immediately.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
@@ -76,12 +103,12 @@ export function RotateTokenButton({
                 name="access_token"
                 type={show ? "text" : "password"}
                 autoComplete="off"
-                placeholder="EAA…"
+                placeholder={help.placeholder}
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 required
                 autoFocus
-                className="pr-10"
+                className="pr-10 font-mono text-xs"
               />
               <button
                 type="button"

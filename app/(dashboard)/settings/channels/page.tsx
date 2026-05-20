@@ -5,6 +5,7 @@ import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import { createClient } from "@/lib/supabase/server";
 import type { ChannelRow } from "@/lib/db-types";
 import { RotateTokenButton } from "./rotate-token-button";
+import { DisconnectChannelButton } from "./disconnect-channel-button";
 import { AddChannelButton } from "./add-channel-button";
 import { ChannelsFlash } from "./flash";
 
@@ -85,12 +86,20 @@ export default async function ChannelsPage({
                         {c.type === "email" && c.inbox_email && ` · ${c.inbox_email}`}
                       </p>
                     </div>
-                    {c.access_token_vault_id && (
-                      <RotateTokenButton
+                    <div className="flex items-center gap-1">
+                      {c.access_token_vault_id && c.type !== "email" && (
+                        <RotateTokenButton
+                          channelId={c.id}
+                          channelName={c.name}
+                          channelType={c.type}
+                        />
+                      )}
+                      <DisconnectChannelButton
                         channelId={c.id}
                         channelName={c.name}
+                        channelType={c.type}
                       />
-                    )}
+                    </div>
                   </CardContent>
                 </Card>
               </li>
