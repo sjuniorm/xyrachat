@@ -384,6 +384,7 @@ async function handleInbound(
         auto_translate_inbound: channel.auto_translate_inbound ?? null,
         auto_translate_target_lang: channel.auto_translate_target_lang ?? null,
       },
+      orgId: channel.org_id,
       contactId,
       messageId: insertedId,
       content: extracted.content,

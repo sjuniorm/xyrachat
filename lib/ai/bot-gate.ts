@@ -6,6 +6,7 @@ import {
   type ConversationMessage,
 } from "@/lib/ai/chatbot";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
@@ -152,12 +153,20 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     return { skipped: true, reason: "no_text_to_respond_to" };
   }
 
-  // ---- GATE 7: token budget (deferred — needs subscriptions table) ---
-  // The user prompt references subscriptions.tokens_used_this_month +
-  // monthly_ai_tokens_limit. We haven't built the billing/subscription
-  // surface yet (parked for the launch sprint), so this gate is open
-  // for now. Log a marker so future-us knows where to wire it.
-  // -------------------------------------------------------------------
+  // ---- GATE 7: per-org monthly AI token budget -----------------------
+  // Pre-flight check (consume amount=0). If exhausted, log + skip.
+  // Real consumption happens AFTER the provider call so we charge the
+  // exact tokens billed.
+  const quota = await checkAiQuota(input.channel.org_id);
+  if (!quota.ok) {
+    await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
+      reason: "token_budget_exhausted",
+      plan: quota.plan,
+      tokens_used: quota.tokens_used_this_month,
+      limit: quota.monthly_ai_tokens_limit,
+    });
+    return { skipped: true, reason: "token_budget_exhausted" };
+  }
 
   if (!isAnthropicConfigured()) {
     await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
@@ -239,6 +248,14 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       max_similarity: result.maxSimilarity,
     });
   }
+
+  // Charge the exact tokens billed. Even if this overshoots the cap
+  // slightly on a race (two concurrent inbounds both passing the pre-
+  // flight), we'd rather charge an honest amount than refuse mid-call.
+  await consumeAiTokens(
+    input.channel.org_id,
+    result.usage.input_tokens + result.usage.output_tokens,
+  );
 
   await sendOutbound(input.channel.type, {
     conversationId: input.conversationId,

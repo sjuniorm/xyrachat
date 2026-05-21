@@ -277,6 +277,7 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
         auto_translate_inbound: channel.auto_translate_inbound,
         auto_translate_target_lang: channel.auto_translate_target_lang,
       },
+      orgId: channel.org_id,
       contactId,
       messageId: insertedId,
       content: extracted.content,

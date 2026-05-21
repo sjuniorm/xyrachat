@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
 import { detectLanguage } from "@/lib/ai/language-detect";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // POST /api/ai/translate-inbound
 // Body: { message_id, target_language? }
@@ -74,6 +75,18 @@ export async function POST(req: Request) {
     );
   }
 
+  const quota = await checkAiQuota(profile.org_id);
+  if (!quota.ok) {
+    return NextResponse.json(
+      {
+        error: "AI_QUOTA_EXCEEDED",
+        message: "Your workspace has used all of its AI tokens for this month.",
+        plan: quota.plan,
+      },
+      { status: 402 },
+    );
+  }
+
   const detected = detectLanguage(msg.content);
   // Skip the API hop if the message is already in the target language.
   if (detected.iso === target) {
@@ -90,6 +103,8 @@ export async function POST(req: Request) {
   }
 
   let translated: string;
+  let inputTokens = 0;
+  let outputTokens = 0;
   try {
     const anthropic = getAnthropic();
     const completion = await anthropic.messages.create({
@@ -103,12 +118,16 @@ export async function POST(req: Request) {
       .map((c) => (c as { type: "text"; text: string }).text)
       .join("")
       .trim();
+    inputTokens = completion.usage.input_tokens;
+    outputTokens = completion.usage.output_tokens;
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Translate failed" },
       { status: 502 },
     );
   }
+
+  await consumeAiTokens(profile.org_id, inputTokens + outputTokens);
 
   // Write back to the cache under metadata.translation_cache[target].
   // Use admin client so the JSONB merge doesn't fight RLS — we already

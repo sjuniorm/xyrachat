@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { generateBotResponse, type BotRow, type ConversationMessage } from "@/lib/ai/chatbot";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // POST /api/ai/suggest-reply
 // Body: { conversation_id, extra_instruction? }
@@ -104,6 +105,20 @@ export async function POST(req: Request) {
     );
   }
 
+  const quota = await checkAiQuota(profile.org_id);
+  if (!quota.ok) {
+    return NextResponse.json(
+      {
+        error: "AI_QUOTA_EXCEEDED",
+        message: "Your workspace has used all of its AI tokens for this month. Upgrade your plan to keep using Suggest Reply.",
+        plan: quota.plan,
+        tokens_used: quota.tokens_used_this_month,
+        limit: quota.monthly_ai_tokens_limit,
+      },
+      { status: 402 },
+    );
+  }
+
   try {
     const result = await generateBotResponse({
       bot: bot as BotRow,
@@ -114,6 +129,11 @@ export async function POST(req: Request) {
           ? `${lastInbound.content}\n\n[Agent note for you: ${body.extra_instruction}]`
           : lastInbound.content,
     });
+
+    await consumeAiTokens(
+      profile.org_id,
+      result.usage.input_tokens + result.usage.output_tokens,
+    );
 
     return NextResponse.json({
       text: result.response,

@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOpenAI, MODELS } from "@/lib/ai/clients";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // Roughly 500-token chunks with 50-token overlap. We approximate tokens as
 // 4 chars (OpenAI's rough heuristic) so we don't need a tokenizer dep —
@@ -49,6 +50,8 @@ export function chunkText(text: string): string[] {
 
 // Embed an array of chunks and persist them. Marks the source row's
 // embedding_status. Caller passes sourceId so we can attach chunks to it.
+// Quota: looks up the source's bot.org_id and gates against the same
+// monthly AI budget — embedding tokens count alongside chat tokens.
 export async function embedChunks(
   chunks: string[],
   sourceId: string,
@@ -56,6 +59,27 @@ export async function embedChunks(
   if (chunks.length === 0) return { inserted: 0 };
   const admin = createAdminClient();
   const openai = getOpenAI();
+
+  // Resolve org_id for budget checks via the source's bot.
+  const { data: source } = await admin
+    .from("bot_sources")
+    .select("bot_id, bots:bots!bot_sources_bot_id_fkey(org_id)")
+    .eq("id", sourceId)
+    .maybeSingle();
+  const orgId = (source?.bots as { org_id?: string } | null)?.org_id ?? null;
+  if (!orgId) throw new Error("Could not resolve org for source");
+
+  const quota = await checkAiQuota(orgId);
+  if (!quota.ok) {
+    await admin
+      .from("bot_sources")
+      .update({
+        embedding_status: "failed",
+        embedding_error: "AI_QUOTA_EXCEEDED",
+      })
+      .eq("id", sourceId);
+    throw new Error("AI_QUOTA_EXCEEDED");
+  }
 
   await admin
     .from("bot_sources")
@@ -67,12 +91,14 @@ export async function embedChunks(
     // of 96 to keep payload size reasonable.
     const batchSize = 96;
     let inserted = 0;
+    let totalTokens = 0;
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
       const res = await openai.embeddings.create({
         model: MODELS.embedding,
         input: batch,
       });
+      totalTokens += res.usage?.total_tokens ?? 0;
       const rows = batch.map((chunk, j) => ({
         source_id: sourceId,
         chunk_text: chunk,
@@ -86,6 +112,11 @@ export async function embedChunks(
       if (insertErr) throw new Error(insertErr.message);
       inserted += rows.length;
     }
+
+    // Charge against the monthly budget. Embedding tokens are way cheaper
+    // than chat tokens dollar-for-dollar, but we still want them counted
+    // so a runaway 10-MB doc upload doesn't slip past the cap.
+    await consumeAiTokens(orgId, totalTokens);
 
     await admin
       .from("bot_sources")

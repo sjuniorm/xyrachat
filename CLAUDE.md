@@ -719,8 +719,7 @@ handlers run an automated bot reply gate on every inbound.
 **What's NOT shipped this week (deferred)**
 - Voice transcription (Whisper) — webhook gate logs + skips audio
   inbound. Hook up when needed.
-- Token budget gate — needs `subscriptions` table. Marked in
-  `bot-gate.ts` as the spot to wire it.
+- ~~Token budget gate~~ — landed in migration 017 (see below).
 - Bot CRUD UI — Week 8 explicitly owns the training-screen surfaces.
   For now, bots and sources can be created via SQL (or via Week 8 UI
   when it lands).
@@ -728,11 +727,57 @@ handlers run an automated bot reply gate on every inbound.
   `contacts.detected_language` but not yet surfaced in the
   inbox/sidebar).
 
+## Week 7.5 — Per-org AI token budget (Gate 7, DONE)
+
+Closes the gap that Week 7 deferred: every AI call now charges against
+the org's monthly budget, and the bot stops responding (gracefully,
+logged) when the budget runs out.
+
+**Schema** — [`017_subscriptions.sql`](supabase/migrations/017_subscriptions.sql)
+- `subscriptions(org_id UNIQUE, plan, monthly_ai_tokens_limit BIGINT,
+  tokens_used_this_month BIGINT, billing_cycle_start)` — one per org.
+- Trigger `create_subscription_on_org_insert` auto-creates a free row
+  (50,000 tokens/month) for every new org. Backfilled for existing orgs.
+- `consume_ai_tokens(p_org_id, p_amount)` SECURITY DEFINER RPC: atomic
+  monthly rollover (every 30 days from billing_cycle_start) +
+  check + increment. Returns the post-mutation row so callers can
+  surface tokens-remaining in error responses. `p_amount=0` lets
+  callers do a pre-flight check without spending.
+- RLS: agents in the org can SELECT their subscription (used by the
+  Week 8+ usage indicator); all writes go through the RPC under
+  service_role.
+
+**Code**
+- [`lib/billing/plans.ts`](lib/billing/plans.ts) — five tiers in code
+  (free / starter / pro / scale / custom). Pricing is illustrative
+  pending Stripe wiring at launch.
+- [`lib/billing/usage.ts`](lib/billing/usage.ts) — `checkAiQuota(orgId)`
+  (pre-flight, no spend) and `consumeAiTokens(orgId, amount)` (atomic
+  check + spend). Both return rich state — plan, tokens_used,
+  tokens_remaining, percent_used — so the UI can show good upgrade
+  prompts. Fails OPEN on RPC error (better to over-serve once than
+  break a customer on a billing glitch).
+- All AI call sites gated:
+  - Bot gate (Gate 7) pre-flight + post-call consume.
+  - `/api/ai/message-assist`, `/api/ai/suggest-reply`,
+    `/api/ai/translate-inbound` return HTTP 402 + `AI_QUOTA_EXCEEDED`
+    body when exhausted.
+  - `lib/ai/auto-translate.ts` skips silently when exhausted (avoids
+    spamming the UI on every inbound).
+  - `lib/ai/embeddings.ts` refuses + marks the source `failed` with
+    error `AI_QUOTA_EXCEEDED` so the user gets visible feedback rather
+    than a stuck "running" indicator.
+
+**Free plan defaults**: 50,000 tokens/month (~250 bot replies +
+~500,000 translated messages). When a client outgrows it, the UI
+should surface the upgrade path (Week 8+).
+
 ## Roadmap snapshot (what's next — Week 8)
 
 Week 8: **Bot training UI** — `/bots` CRUD, source upload (text +
 file + URL), embedding-status indicator, knowledge_threshold slider,
-analytics tiles powered by `bot_outcomes`.
+analytics tiles powered by `bot_outcomes`, and a Plan & Usage card
+in `/settings` driven by the new subscriptions table.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectLanguage } from "@/lib/ai/language-detect";
 import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // Called from webhook handlers fire-and-forget after the inbound is stored
 // AND BEFORE we ack the provider. Per-channel toggle:
@@ -14,6 +15,7 @@ import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
 // the cache and skip detection until the cache is invalidated by a mismatch.
 export async function maybeAutoTranslate(args: {
   channel: { id: string; type: string; auto_translate_inbound?: boolean | null; auto_translate_target_lang?: string | null };
+  orgId: string;
   contactId: string;
   messageId: string;
   content: string;
@@ -21,6 +23,13 @@ export async function maybeAutoTranslate(args: {
   if (!args.channel.auto_translate_inbound) return;
   if (!args.content || args.content.length < 4) return;
   if (!isAnthropicConfigured()) return;
+
+  // Skip silently when the org has burned its monthly token budget. The
+  // user prompted that auto-translate cost should be guarded — better to
+  // stop translating new messages than to keep racking up tokens after
+  // the cap.
+  const quota = await checkAiQuota(args.orgId);
+  if (!quota.ok) return;
 
   const target = (args.channel.auto_translate_target_lang ?? "en").toLowerCase();
   const admin = createAdminClient();
@@ -102,6 +111,10 @@ export async function maybeAutoTranslate(args: {
       .join("")
       .trim();
     if (!translated) return;
+    await consumeAiTokens(
+      args.orgId,
+      completion.usage.input_tokens + completion.usage.output_tokens,
+    );
     const newCache = { ...(cache ?? {}), [target]: translated };
     const newMetadata = {
       ...(msg?.metadata ?? {}),

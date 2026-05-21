@@ -427,6 +427,7 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
         auto_translate_inbound: (channel as { auto_translate_inbound?: boolean | null }).auto_translate_inbound,
         auto_translate_target_lang: (channel as { auto_translate_target_lang?: string | null }).auto_translate_target_lang,
       },
+      orgId: channel.org_id,
       contactId,
       messageId: insertedId,
       content: extracted.content,

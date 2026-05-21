@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 
 // Per-action system prompts. Each one is intentionally tight so the model
 // returns just the rewrite — no preamble, no commentary.
@@ -130,6 +131,22 @@ export async function POST(req: Request) {
     );
   }
 
+  // AI quota gate. 402 ("Payment Required") is the conventional status
+  // for billing-driven refusals — the UI can show an upgrade CTA.
+  const quota = await checkAiQuota(profile.org_id);
+  if (!quota.ok) {
+    return NextResponse.json(
+      {
+        error: "AI_QUOTA_EXCEEDED",
+        message: "Your workspace has used all of its AI tokens for this month. Upgrade your plan to keep using AI Assist.",
+        plan: quota.plan,
+        tokens_used: quota.tokens_used_this_month,
+        limit: quota.monthly_ai_tokens_limit,
+      },
+      { status: 402 },
+    );
+  }
+
   const systemPrompt =
     priorContext +
     ACTION_PROMPTS[action](body.language) +
@@ -165,6 +182,9 @@ export async function POST(req: Request) {
       { status: 502 },
     );
   }
+
+  // Charge the org's monthly budget for the tokens we just spent.
+  await consumeAiTokens(profile.org_id, inputTokens + outputTokens);
 
   // Channel-length clamp. Cut at the last sentence boundary so the
   // truncation doesn't dangle mid-word.
