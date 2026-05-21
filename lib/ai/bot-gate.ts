@@ -167,14 +167,36 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   }
 
   // ---- Greeting: first message ever from this contact ---------------
-  if (input.newMessage.isFirstFromContact && bot.greeting_message) {
-    await sendOutbound(input.channel.type, {
-      conversationId: input.conversationId,
-      content: bot.greeting_message,
-      botMetadata: { greeting: true },
-      channelId: input.channel.id,
-      contactId: input.contactId,
-    });
+  // The caller doesn't always know this cheaply (find-or-create-contact
+  // races), so we double-check here: count prior inbound messages for
+  // this contact. If this is genuinely the first, send the greeting
+  // first as a separate bot message.
+  if (bot.greeting_message) {
+    const { count: priorInboundCount } = await admin
+      .from("messages")
+      .select("id", { count: "exact", head: true })
+      .eq("conversation_id", input.conversationId)
+      .eq("direction", "inbound");
+    // The current inbound just landed → 1 inbound row means it's the first.
+    if (input.newMessage.isFirstFromContact || (priorInboundCount ?? 0) <= 1) {
+      // Don't send the greeting twice on retries / repeated inbound. Check
+      // for an existing bot message marked greeting=true on this thread.
+      const { count: greetingCount } = await admin
+        .from("messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", input.conversationId)
+        .eq("sender_type", "bot")
+        .filter("metadata->>greeting", "eq", "true");
+      if ((greetingCount ?? 0) === 0) {
+        await sendOutbound(input.channel.type, {
+          conversationId: input.conversationId,
+          content: bot.greeting_message,
+          botMetadata: { greeting: true },
+          channelId: input.channel.id,
+          contactId: input.contactId,
+        });
+      }
+    }
   }
 
   // ---- Fetch context + generate -----------------------------------
