@@ -772,12 +772,79 @@ logged) when the budget runs out.
 ~500,000 translated messages). When a client outgrows it, the UI
 should surface the upgrade path (Week 8+).
 
-## Roadmap snapshot (what's next — Week 8)
+## Week 8 — Bot training UI (DONE)
 
-Week 8: **Bot training UI** — `/bots` CRUD, source upload (text +
-file + URL), embedding-status indicator, knowledge_threshold slider,
-analytics tiles powered by `bot_outcomes`, and a Plan & Usage card
-in `/settings` driven by the new subscriptions table.
+End-to-end loop for creating + training + assigning bots through the UI
+instead of SQL.
+
+**New routes**
+- `/bots` — grid of bot cards (objective + source count + active channel
+  count + status badge).
+- `/bots/new` — two-step wizard:
+  - Step 1: pick objective (7 cards) + bot name. Picking an objective
+    seeds defaults (instructions, greeting, handoff triggers) only when
+    fields are empty so you don't lose typed work.
+  - Step 2: instructions, greeting, tone (5 cards with example phrases),
+    language, emoji usage, response length, knowledge_threshold slider,
+    handoff triggers (pill add/remove).
+- `/bots/[id]` — five tabs:
+  - **Overview**: count tiles (sources, active channels, handoffs,
+    resolved %), plus an objective-specific KPI card (leads captured /
+    link clicks / booking clicks / qualified leads / knowledge gaps).
+  - **Knowledge**: add text source (paste + embed), add URL (cheerio
+    scrape + embed), source list with embedding_status badges + delete +
+    a "Refresh status" button (true Realtime subscription deferred —
+    refresh is enough for now). File upload deferred with a "soon" pill.
+  - **Test**: ephemeral chat against `testBot()` server action, NOT
+    written to the inbox or `bot_outcomes`. Shows `sources_used` chips
+    + similarity score (highlighted red below threshold) so you can
+    tune `knowledge_threshold` empirically. AI tokens still count
+    against the org budget.
+  - **Assign**: per-channel toggle. Flipping a channel ON automatically
+    replaces any previous bot on that channel (UNIQUE(channel_id)
+    constraint).
+  - **Settings**: full edit form for everything in the wizard + behavior
+    rules (never_say / always_do textareas) + handoff message +
+    business-hours active toggle + off-hours message. Delete bot button
+    soft-deletes + unassigns + redirects.
+- `/settings/billing` — Plan & Usage card with progress bar, days-to-reset,
+  side-by-side plan grid (free / starter / pro / scale). Stripe checkout
+  deferred to launch prep.
+
+**Code**
+- [`lib/bots/actions.ts`](lib/bots/actions.ts) — `createBot()`,
+  `updateBot()` (whitelisted columns to stop client-side org_id
+  injection), soft `deleteBot()`, `setChannelAssignment()`,
+  `addTextSource()` / `addUrlSource()` / `deleteSource()`, and
+  `testBot()` (ephemeral run-through with quota gate).
+- [`lib/ai/scraper.ts`](lib/ai/scraper.ts) — cheerio-based URL fetch:
+  10s timeout, 1MB body cap, strips script/style/nav/footer, prefers
+  `<main>`/`<article>`, walks h1-h4/p/li/blockquote in document order,
+  falls back to div-text for SPA-heavy pages. Returns `{title, text,
+  description}` — title goes into the source row, text into the embed
+  pipeline.
+
+**Deferred (with markers)**
+- File upload for documents (PDF/DOCX) — the form shows a "soon"
+  disabled button. Once we wire `pdf-parse` + `mammoth` + Supabase
+  Storage, the same `process-source` path handles them.
+- Realtime embedding status — currently polled via a "Refresh status"
+  button. The schema already supports Supabase Realtime subscriptions;
+  hooking it in is a small follow-up.
+- Live preview panel in the wizard (calls a `/api/bots/preview-greeting`
+  endpoint with Haiku) — defer until the static defaults prove not
+  expressive enough.
+- "Suggested for this goal" panel in Settings with per-section Apply
+  buttons — deferred. For now the wizard seeds defaults at creation
+  only.
+- Per-day business-hours UI editor — the active toggle works, day/
+  window JSON edit still requires SQL.
+- Voice note test ("Send a voice note" file picker in Test tab) —
+  deferred with Whisper transcription.
+
+## Roadmap snapshot (what's next — Week 9)
+
+Week 9: **WhatsApp Embedded Signup + WA Templates + Broadcast campaigns**.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

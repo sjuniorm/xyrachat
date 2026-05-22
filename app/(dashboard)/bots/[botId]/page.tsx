@@ -1,0 +1,149 @@
+import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import { createClient } from "@/lib/supabase/server";
+import { OverviewTab } from "./overview-tab";
+import { KnowledgeTab } from "./knowledge-tab";
+import { SettingsTab } from "./settings-tab";
+import { TestTab } from "./test-tab";
+import { AssignTab } from "./assign-tab";
+
+export default async function BotDetailPage({
+  params,
+}: {
+  params: Promise<{ botId: string }>;
+}) {
+  const { botId } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: bot } = await supabase
+    .from("bots")
+    .select("*")
+    .eq("id", botId)
+    .maybeSingle();
+  if (!bot) notFound();
+
+  const [
+    { data: sources },
+    { data: assignments },
+    { data: channels },
+    { data: outcomeRows },
+  ] = await Promise.all([
+    supabase
+      .from("bot_sources")
+      .select("*")
+      .eq("bot_id", botId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("bot_assignments")
+      .select("channel_id, active")
+      .eq("bot_id", botId),
+    supabase
+      .from("channels")
+      .select("id, type, name")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("bot_outcomes")
+      .select("type, created_at")
+      .eq("bot_id", botId)
+      .order("created_at", { ascending: false })
+      .limit(500),
+  ]);
+
+  return (
+    <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
+      <div className="mx-auto max-w-5xl">
+        <Link
+          href="/bots"
+          className="mb-4 inline-flex items-center gap-1 text-xs text-white/60 hover:text-white"
+        >
+          <ChevronLeft className="size-3.5" />
+          All bots
+        </Link>
+        <header className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{bot.name}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {bot.objective.replaceAll("_", " ")} · {bot.language} ·
+              {" "}threshold {Number(bot.knowledge_threshold).toFixed(2)}
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className={
+              bot.active
+                ? "h-6 border-emerald-400/30 bg-emerald-400/15 px-2 text-xs text-emerald-300"
+                : "h-6 border-zinc-500/30 bg-zinc-500/20 px-2 text-xs text-zinc-300"
+            }
+          >
+            {bot.active ? "Active" : "Paused"}
+          </Badge>
+        </header>
+
+        <Tabs defaultValue="overview">
+          <TabsList className="grid w-full grid-cols-5 bg-white/5">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
+            <TabsTrigger value="test">Test</TabsTrigger>
+            <TabsTrigger value="assign">Assign</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="mt-6">
+            <OverviewTab
+              bot={bot}
+              sourceCount={(sources ?? []).length}
+              activeChannelCount={
+                (assignments ?? []).filter((a) => a.active).length
+              }
+              outcomes={(outcomeRows ?? []) as Array<{ type: string; created_at: string }>}
+            />
+          </TabsContent>
+          <TabsContent value="knowledge" className="mt-6">
+            <KnowledgeTab
+              botId={bot.id}
+              sources={(sources ?? []) as KnowledgeSource[]}
+            />
+          </TabsContent>
+          <TabsContent value="test" className="mt-6">
+            <TestTab botId={bot.id} botName={bot.name} threshold={bot.knowledge_threshold} />
+          </TabsContent>
+          <TabsContent value="assign" className="mt-6">
+            <AssignTab
+              botId={bot.id}
+              channels={(channels ?? []) as Channel[]}
+              assignments={(assignments ?? []) as Array<{ channel_id: string; active: boolean }>}
+            />
+          </TabsContent>
+          <TabsContent value="settings" className="mt-6">
+            <SettingsTab bot={bot} />
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
+
+export type KnowledgeSource = {
+  id: string;
+  type: "document" | "url" | "text";
+  title: string | null;
+  url: string | null;
+  embedding_status: "pending" | "running" | "done" | "failed";
+  embedding_error: string | null;
+  created_at: string;
+};
+export type Channel = { id: string; type: string; name: string };

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/settings/channels", label: "Channels" },
   { href: "/settings/team", label: "Team" },
+  { href: "/settings/billing", label: "Plan & Usage" },
 ] as const;
 
 export function SettingsNav() {
