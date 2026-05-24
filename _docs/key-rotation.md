@@ -95,6 +95,33 @@ reset emails from `team@xyrachat.com`.
 - **Verify**: send yourself a fresh invite from `/settings/team`; email
   arrives from `team@xyrachat.com` within ~30s.
 
+## 5b. Anthropic API key
+
+- **Rotate at**: https://console.anthropic.com/settings/keys →
+  delete the existing key + create a new one. There's no "rotate" verb
+  — Anthropic invalidates the old one when you delete it.
+- **Update**:
+  - `.env.local` → `ANTHROPIC_API_KEY`
+  - Vercel: `vercel env rm ANTHROPIC_API_KEY` + add for all 3 envs
+- **Verify**: open `/bots/[id]` Test tab on prod, send any message.
+  Expect a reply within 3s and a tick on `/settings/billing` tokens
+  counter.
+- **Before rotating**: confirm a hard monthly cap is set at
+  https://console.anthropic.com/settings/limits → Spend Limits.
+
+## 5c. OpenAI API key
+
+- **Rotate at**: https://platform.openai.com/api-keys → revoke the
+  existing one + create a new one (project-scoped recommended).
+- **Update**:
+  - `.env.local` → `OPENAI_API_KEY`
+  - Vercel: rm + add for all 3 envs
+- **Verify**: upload a piece of text in `/bots/[id]/Knowledge`. Source
+  row should flip pending → running → done within ~10s. If it goes to
+  failed with "AI_QUOTA_EXCEEDED", that's the per-org gate, not the key.
+- **Before rotating**: confirm a hard cap at https://platform.openai.com
+  → Settings → Billing → Usage limits → Hard limit.
+
 ## 6. PostHog project API key
 
 - **Rotate at**: PostHog → Project Settings → Project → **Rotate Project API key**
