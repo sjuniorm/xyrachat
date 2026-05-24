@@ -62,10 +62,17 @@ export async function generateBotResponse(params: {
   // 1. Retrieve relevant knowledge.
   const retrieval = await retrieveContext(newMessage, bot.id, 5);
 
-  // 2. Knowledge-gap handoff. If nothing in the knowledge base looks
-  //    relevant, escalate instead of risking a hallucination. The bot
-  //    gate caller logs this to bot_outcomes.fallback_no_knowledge.
-  if (retrieval.maxSimilarity < bot.knowledge_threshold) {
+  // 2. Knowledge-gap handoff. If the bot HAS knowledge but none of it
+  //    looks relevant to the question, escalate instead of risking a
+  //    hallucination. If the bot has NO knowledge at all, we trust the
+  //    system prompt + instructions to drive behavior — bots configured
+  //    for chitchat / objective-driven flows don't always need a KB.
+  //    Bot gate caller logs this to bot_outcomes.fallback_no_knowledge
+  //    so analytics still catch the pattern.
+  if (
+    retrieval.chunks.length > 0 &&
+    retrieval.maxSimilarity < bot.knowledge_threshold
+  ) {
     const handoff =
       typeof bot.behavior_rules?.handoff_message === "string"
         ? (bot.behavior_rules.handoff_message as string)

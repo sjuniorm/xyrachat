@@ -154,17 +154,26 @@ async function findOrCreateConversation(
   contactId: string,
 ): Promise<string | null> {
   const admin = createAdminClient();
+  // Reopen closed/snoozed threads on new inbound — see WA webhook for
+  // the rationale (continuous conversation history per contact).
   const existing = await admin
     .from("conversations")
-    .select("id")
+    .select("id, status")
     .eq("channel_id", channelId)
     .eq("contact_id", contactId)
     .is("deleted_at", null)
-    .neq("status", "closed")
     .order("last_message_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (existing.data) return existing.data.id;
+  if (existing.data) {
+    if (existing.data.status === "closed" || existing.data.status === "snoozed") {
+      await admin
+        .from("conversations")
+        .update({ status: "open", snooze_until: null })
+        .eq("id", existing.data.id);
+    }
+    return existing.data.id;
+  }
   const { data } = await admin
     .from("conversations")
     .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
