@@ -9,6 +9,7 @@ import {
   Bot,
   Settings,
   Sparkles,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,7 @@ const ITEMS: NavItem[] = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/bots", label: "Bots", icon: Bot },
+  { href: "/templates", label: "Templates", icon: FileText },
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },
   { href: "/automations", label: "Automations", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },

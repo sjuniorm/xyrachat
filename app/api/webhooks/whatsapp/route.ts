@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
+import { applyOptOutAction } from "@/lib/contacts/opt-out";
+import { vaultReadSecret } from "@/lib/supabase/vault";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -190,7 +192,9 @@ async function findChannelByPhoneNumberId(phoneNumberId: string) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("channels")
-    .select("id, org_id, type, auto_translate_inbound, auto_translate_target_lang")
+    .select(
+      "id, org_id, type, phone_number_id, access_token_vault_id, auto_translate_inbound, auto_translate_target_lang",
+    )
     .eq("phone_number_id", phoneNumberId)
     .eq("type", "whatsapp")
     .is("deleted_at", null)
@@ -387,6 +391,51 @@ async function handleInbound(
     })
     .eq("id", conversationId);
 
+  // STOP / START keyword detection — Meta requires it for MARKETING
+  // templates. We run BEFORE the bot gate so a 'STOP' doesn't get a chatbot
+  // reply on top of the unsubscribe confirmation.
+  let optedOutNow = false;
+  if (extracted.content) {
+    const opt = await applyOptOutAction({
+      orgId: channel.org_id,
+      contactId,
+      channelType: "whatsapp",
+      content: extracted.content,
+    });
+    if (opt.action === "opt_out") optedOutNow = true;
+    if (opt.confirmation && "phone_number_id" in channel && channel.phone_number_id && "access_token_vault_id" in channel && channel.access_token_vault_id) {
+      try {
+        const wa = channel as {
+          phone_number_id: string | null;
+          access_token_vault_id: string | null;
+        };
+        if (wa.phone_number_id && wa.access_token_vault_id) {
+          const token = await vaultReadSecret(wa.access_token_vault_id);
+          if (token) {
+            await fetch(
+              `https://graph.facebook.com/v22.0/${wa.phone_number_id}/messages`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  messaging_product: "whatsapp",
+                  to: msg.from,
+                  type: "text",
+                  text: { body: opt.confirmation },
+                }),
+              },
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[wa webhook] opt-out confirm send failed", err);
+      }
+    }
+  }
+
   if (extracted.content) {
     await maybeAutoTranslate({
       channel: {
@@ -401,16 +450,21 @@ async function handleInbound(
       content: extracted.content,
     });
   }
-  await runBotGate({
-    channel: { id: channel.id, type: channel.type ?? "whatsapp", org_id: channel.org_id },
-    conversationId,
-    contactId,
-    newMessage: {
-      content: extracted.content,
-      media_type: extracted.media_type,
-      isFirstFromContact: false,
-    },
-  });
+  // Don't run the bot gate when the contact just unsubscribed — the auto
+  // confirm message is the appropriate response and a bot reply on top
+  // would be jarring.
+  if (!optedOutNow) {
+    await runBotGate({
+      channel: { id: channel.id, type: channel.type ?? "whatsapp", org_id: channel.org_id },
+      conversationId,
+      contactId,
+      newMessage: {
+        content: extracted.content,
+        media_type: extracted.media_type,
+        isFirstFromContact: false,
+      },
+    });
+  }
 }
 
 async function handleStatus(status: WaStatus) {

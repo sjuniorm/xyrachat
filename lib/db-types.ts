@@ -59,6 +59,39 @@ export type ContactRow = {
   avatar_url: string | null;
   tags: string[];
   notes: string | null;
+  opted_out: boolean;
+  opted_out_at: string | null;
+  opt_out_reason: string | null;
+  deleted_at: string | null;
+  created_at: string;
+};
+
+export type BroadcastStatus =
+  | "draft"
+  | "scheduled"
+  | "sending"
+  | "done"
+  | "failed"
+  | "cancelled";
+
+export type BroadcastRow = {
+  id: string;
+  org_id: string;
+  channel_id: string | null;
+  template_id: string | null;
+  name: string;
+  variable_mapping: Record<string, unknown>;
+  audience_filter: Record<string, unknown>;
+  status: BroadcastStatus;
+  scheduled_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  total_count: number;
+  sent_count: number;
+  failed_count: number;
+  skipped_opt_out_count: number;
+  last_error: string | null;
+  created_by: string | null;
   deleted_at: string | null;
   created_at: string;
 };
@@ -88,6 +121,9 @@ export type MessageMetadata = {
   // Instagram-specific
   ig_story?: { id: string; url: string | null };
   ig_reactions?: Array<{ from: string; emoji: string }>;
+  // Tagged on outbound rows created by broadcast runs so the inbox can
+  // surface "sent as part of Broadcast X" if we add that later.
+  broadcast_id?: string;
   // Email-specific — stored on every inbound email message so the UI can
   // render the subject line and surface the original HTML body.
   email?: {

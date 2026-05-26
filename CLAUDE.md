@@ -75,6 +75,7 @@ update Vercel + `.env.local` with the new value.
 | `EMAIL_FROM_ADDRESS` | server only | Fallback `From:` for outbound when a channel doesn't have its own `inbox_email`. Defaults to `support@xyrachat.com`. |
 | `ANTHROPIC_API_KEY` | server only | Anthropic Console → API Keys. Powers bot replies (claude-sonnet-4-6), Message Assist + translate (claude-haiku-4-5-20251001), and the auto-translate background job. |
 | `OPENAI_API_KEY` | server only | OpenAI Dashboard → API Keys. Used for RAG embeddings (text-embedding-3-small, 1536 dims) and future Whisper voice-note transcription. |
+| `CRON_SECRET` | server only | Long random string (`openssl rand -hex 32`). Sent as `Authorization: Bearer <value>` by Vercel Cron when invoking `/api/cron/broadcasts` every 5 minutes to launch scheduled broadcasts. Also gates the internal-only `/api/broadcasts/send-internal` endpoint that the cron dispatches to. |
 
 WhatsApp + Instagram channel access tokens are NOT in env — they're stored
 per-channel in Supabase Vault. Only the vault UUID lives in
@@ -842,9 +843,144 @@ instead of SQL.
 - Voice note test ("Send a voice note" file picker in Test tab) —
   deferred with Whisper transcription.
 
-## Roadmap snapshot (what's next — Week 9)
+## Week 9 — WhatsApp Templates + Broadcasts + Opt-out (DONE)
 
-Week 9: **WhatsApp Embedded Signup + WA Templates + Broadcast campaigns**.
+End-to-end loop for submitting pre-approved WhatsApp templates to Meta
+and using them in audience-targeted broadcast campaigns, with STOP/START
+opt-out handling baked into inbound flow.
+
+**Schema** — [`018_templates_broadcasts.sql`](supabase/migrations/018_templates_broadcasts.sql)
+- `wa_templates` — local mirror of Meta templates. Stores `name`,
+  `language`, `category` (MARKETING / UTILITY / AUTHENTICATION), `components`
+  (Meta's JSONB shape verbatim), `meta_template_id`, `meta_status`
+  (PENDING / APPROVED / REJECTED / DISABLED / PAUSED / IN_APPEAL /
+  LIMIT_EXCEEDED), `meta_rejection_reason`, `example_values`. Unique
+  `(channel_id, name, language)` while not deleted.
+- `broadcasts` — campaign rows. Status: draft / scheduled / sending /
+  done / failed / cancelled. Tracks `variable_mapping` (per-{{N}} mapping
+  to contact_name | fixed value), `audience_filter` (all / tags /
+  lastActiveAfter), live counts (`total_count`, `sent_count`,
+  `failed_count`, `skipped_opt_out_count`), and timing
+  (`started_at`, `finished_at`).
+- `broadcast_recipients` — one row per (broadcast, contact) with
+  send-time `wa_message_id`, `error_message`, `delivery_status`. Unique
+  `(broadcast_id, contact_id)` so accidental reruns can't double-send.
+- `contacts` gains `opted_out` / `opted_out_at` / `opt_out_reason`.
+- `opt_out_log` — audit trail of opt-out + opt-in events with keyword,
+  message content, channel type. Read-only via RLS; service-role writes.
+- `touch_updated_at()` trigger on `wa_templates` so the table reflects
+  the last Meta sync timestamp.
+
+**Templates library** ([`lib/templates/`](lib/templates/))
+- `types.ts` — Meta component shapes (HEADER text + IMAGE/VIDEO/DOCUMENT,
+  BODY, FOOTER, BUTTONS: QUICK_REPLY / URL / PHONE_NUMBER) +
+  `countVariables` / `applyVariables` / `isValidTemplateName` /
+  `normalizeTemplateName` helpers.
+- `actions.ts` — `createTemplate()` submits to Meta + writes the local
+  row on success (no row on Meta error so the user can fix + retry).
+  Auto-injects `example.body_text` / `example.header_text` arrays into the
+  Meta payload from the UI's example values so reviews pass.
+  `syncTemplates()` loops every WA channel in the org, pulls Meta's
+  `message_templates` list, upserts `meta_status` / `meta_template_id` /
+  `meta_rejection_reason` locally. `deleteTemplate()` soft-deletes (Meta
+  keeps its copy for reporting).
+
+**Broadcasts library** ([`lib/broadcasts/`](lib/broadcasts/))
+- `actions.ts` — `previewAudience()` returns `{total, eligible,
+  skipped_no_phone, skipped_opt_out}` for the wizard's live count.
+  `createBroadcast()` validates template approval state +
+  channel match, snapshots audience size at draft time. `deleteBroadcast()`
+  refuses to delete a `sending` row. `reSubscribeContact()` flips
+  `opted_out → false` + logs to `opt_out_log`. `fetchAudience()` is the
+  shared helper used by preview, create, and the send endpoint — applies
+  tag overlap + `lastActiveAfter` cutoff via the conversations table.
+
+**Opt-out detection** ([`lib/contacts/opt-out.ts`](lib/contacts/opt-out.ts))
+- `classifyOptOut()` matches multilingual STOP / START keywords on
+  trimmed, stripped-punctuation, lowercased equals — "if you stop the
+  car" doesn't unsubscribe; "STOP" does.
+- `applyOptOutAction()` updates `contacts.opted_out`, inserts an
+  `opt_out_log` row, returns the auto-confirmation copy. WA webhook
+  reads it and sends the confirmation via the WA Graph API and *skips*
+  the bot gate so a chatbot reply doesn't pile on the unsubscribe ack.
+
+**Routes**
+- `/templates` — list with status badges (Approved / Pending review /
+  Rejected with reason / etc), Sync-from-Meta button, body preview, and
+  empty state pointing at WA channel setup when no WA channel exists.
+- `/templates/new` — two-column builder. Left: setup (channel + name
+  with auto-normalize to `lowercase_snake_case` + category cards +
+  language) → Header (None / Text / Media) → Body (with variable
+  insertion + `{{N}}` counter + example-value inputs) → Footer →
+  Buttons (max 3, Quick reply / URL / Phone). Right: live WhatsApp-bubble
+  preview with example values substituted. Submits to Meta then redirects.
+- `/broadcasts` — list with progress bars (sent/failed/total %), status
+  badges, "Launch now" CTA inline for draft rows. Blocks on missing WA
+  channel or zero approved templates with a guided CTA.
+- `/broadcasts/new` — three-step wizard:
+  - Step 1 (Setup): channel → template (filtered to approved, on this
+    channel) → sample render preview → per-variable mapping rows
+    (contact_name | fixed value).
+  - Step 2 (Audience): All contacts | By tag (multi-select from
+    workspace tags) + optional "Active since" date. Live preview card
+    shows `X will receive · Y matched · Z opted out · A no phone` and
+    warns above 1,000 recipients.
+  - Step 3 (Schedule): Send now (saves as draft → Launch now button) |
+    Schedule for later (datetime-local input).
+
+**Send endpoints**
+- `app/api/broadcasts/send/route.ts` — user-auth manual launch. Re-runs
+  `fetchAudience` at send time (opt-outs may have changed since draft),
+  pre-creates `broadcast_recipients` rows via upsert + ON CONFLICT IGNORE,
+  POSTs to Meta with a 15 ms gap (~67/sec, well under Meta's 80/sec WA
+  rate limit), persists progress every 50 sends, then marks `done` with
+  finals. Mirrors every successful send into a conversation + outbound
+  message so it shows up in the inbox. Refuses audiences >15 k for a
+  single invocation.
+- `app/api/cron/broadcasts/route.ts` — Vercel Cron / pg_cron / VPS
+  trigger every 5 min (`vercel.json` configured). Picks up scheduled
+  broadcasts due now, pessimistically flips status to `sending` to
+  prevent double-fire, then dispatches to
+  `app/api/broadcasts/send-internal/route.ts` (twin of `/send` but
+  CRON_SECRET-auth instead of user-auth — duplicated rather than
+  refactored so the two auth surfaces are reviewable independently).
+
+**Webhook integration**
+- WA webhook (`app/api/webhooks/whatsapp/route.ts`) now runs the opt-out
+  classifier on every inbound text, applies the action, sends the auto
+  confirmation via the WA Graph API, and skips the bot gate when the
+  contact just unsubscribed.
+
+**Environment** (new)
+- `CRON_SECRET` — long-lived bearer the Vercel Cron job (and any external
+  trigger) sends in the `Authorization` header to `/api/cron/broadcasts`
+  and `/api/broadcasts/send-internal`. Generate one and set it in Vercel
+  Project Settings + `.env.local`.
+
+**Sidebar** — added `Templates` between `Bots` and `Broadcasts` in
+[components/app/sidebar-nav.tsx](components/app/sidebar-nav.tsx).
+
+**Deferred (intentionally) for later**
+- Template media-sample upload (IMAGE/VIDEO/DOCUMENT headers): the UI
+  collects the format but doesn't upload a `header_handle` yet. Meta
+  may auto-approve IMAGE without one but commonly rejects VIDEO/DOC —
+  add the upload UI when the first rejection lands.
+- Template editing — Meta doesn't support editing pending templates;
+  for approved ones you can edit body/category. Today the UI does
+  delete + recreate; an edit form is straightforward when wanted.
+- Button parameters (dynamic URL, copy-code) — buttons render in
+  preview but the send-time `buttons` parameter array isn't built.
+  Add when a template needs them.
+- Cancel a scheduled broadcast pre-launch + cancel mid-send — schema
+  has `cancelled` status; need the UI + a check in the send loop.
+- Per-day per-channel scheduling for broadcasts (e.g. "send Mon-Fri
+  9 am only").
+- Contact list page (`/contacts`) still placeholder — Week 12 territory.
+
+## Roadmap snapshot (what's next — Week 10)
+
+Week 10: **Instagram Automations** (story-reply automations, comment
+auto-replies, IG-specific quick replies).
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
@@ -853,8 +989,11 @@ Also queued:
 - Saved replies CRUD
 - Chooser UI when an OAuth-connected Facebook account has multiple
   IG-linked Pages (currently we auto-pick the first).
-- Messenger channel (likely Week 8 — bundles into the same Meta App
-  Review submission as Instagram).
+- Messenger channel (bundles into the same Meta App Review submission as
+  Instagram).
+- **WhatsApp Embedded Signup** — explicitly deferred from Week 9's scope.
+  Manual entry still works fine for adding new WA channels; ESU is a
+  client-onboarding polish item once the marketing site is live.
 
 ## Conventions
 
