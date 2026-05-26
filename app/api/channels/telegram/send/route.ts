@@ -109,6 +109,18 @@ export async function POST(req: Request) {
     ? `${tgJson.result.chat.id}:${tgJson.result.message_id}`
     : null;
 
+  // Verify replied_to belongs to this conversation before FK'ing to it.
+  let safeRepliedToId: string | null = null;
+  if (body.repliedToMessageId) {
+    const { data: replied } = await admin
+      .from("messages")
+      .select("id")
+      .eq("id", body.repliedToMessageId)
+      .eq("conversation_id", conv.id)
+      .maybeSingle();
+    safeRepliedToId = replied?.id ?? null;
+  }
+
   const { data: stored, error: insertErr } = await admin
     .from("messages")
     .insert({
@@ -121,7 +133,7 @@ export async function POST(req: Request) {
       sender_id: user.id,
       status: "sent",
       telegram_message_id: tgKey,
-      replied_to_message_id: body.repliedToMessageId ?? null,
+      replied_to_message_id: safeRepliedToId,
       metadata: {},
     })
     .select("*")

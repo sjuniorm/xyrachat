@@ -94,7 +94,7 @@ export async function POST(req: Request) {
           type: "text",
           text: { body: content!.trim() },
           ...(body.repliedToMessageId
-            ? await buildContextFromRepliedTo(admin, body.repliedToMessageId)
+            ? await buildContextFromRepliedTo(admin, body.repliedToMessageId, conv.id)
             : {}),
         }
       : {
@@ -175,11 +175,15 @@ export async function POST(req: Request) {
 async function buildContextFromRepliedTo(
   admin: ReturnType<typeof createAdminClient>,
   repliedToId: string,
+  conversationId: string,
 ): Promise<Record<string, unknown>> {
+  // Scope through the caller's conversation so a guessed UUID from
+  // another org can't be reflected as a Meta context.message_id.
   const { data: replied } = await admin
     .from("messages")
     .select("wa_message_id")
     .eq("id", repliedToId)
+    .eq("conversation_id", conversationId)
     .maybeSingle();
   if (!replied?.wa_message_id) return {};
   return { context: { message_id: replied.wa_message_id } };

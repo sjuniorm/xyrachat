@@ -2,11 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
-import {
-  fetchAudience,
-  type AudienceFilter,
-  type VariableMapping,
-} from "@/lib/broadcasts/actions";
+import { fetchAudience } from "@/lib/broadcasts/audience";
+import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
 import { applyVariables, type TemplateComponent } from "@/lib/templates/types";
 
 export const runtime = "nodejs";
@@ -81,17 +78,26 @@ export async function POST(req: NextRequest) {
   const [{ data: tpl }, { data: channel }] = await Promise.all([
     admin
       .from("wa_templates")
-      .select("id, name, language, channel_id, components, meta_status")
+      .select("id, org_id, name, language, channel_id, components, meta_status")
       .eq("id", bc.template_id)
       .maybeSingle(),
     admin
       .from("channels")
-      .select("id, type, phone_number_id, access_token_vault_id")
+      .select("id, org_id, type, phone_number_id, access_token_vault_id")
       .eq("id", bc.channel_id)
       .maybeSingle(),
   ]);
   if (!tpl) {
     return failBroadcast(admin, bc.id, "Template not found");
+  }
+  // Defensive tenant guard: even though createBroadcast() verifies org
+  // alignment at creation time, an old draft + a since-modified template/
+  // channel could drift. Refuse to send when org_ids don't line up.
+  if (tpl.org_id !== bc.org_id) {
+    return failBroadcast(admin, bc.id, "Template org mismatch — refusing to send");
+  }
+  if (channel && channel.org_id !== bc.org_id) {
+    return failBroadcast(admin, bc.id, "Channel org mismatch — refusing to send");
   }
   if (tpl.meta_status !== "APPROVED") {
     return failBroadcast(admin, bc.id, `Template no longer approved (${tpl.meta_status})`);

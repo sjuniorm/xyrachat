@@ -77,10 +77,14 @@ export async function POST(req: Request) {
   let references: string[] | undefined;
   let subject = `Re: ${channel.name}`;
   if (body.repliedToMessageId) {
+    // Scope through the caller's conversation so a guessed message UUID
+    // from another org can't leak its email subject / Message-Id /
+    // References (and can't hijack another org's email thread either).
     const { data: replied } = await admin
       .from("messages")
       .select("email_message_id, metadata")
       .eq("id", body.repliedToMessageId)
+      .eq("conversation_id", conv.id)
       .maybeSingle();
     if (replied?.email_message_id) {
       inReplyTo = replied.email_message_id;

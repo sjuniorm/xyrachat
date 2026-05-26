@@ -3,27 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAudience } from "./audience";
+import type { AudienceFilter, VariableMapping } from "./types";
+
+// Re-export type-only so existing imports from the actions module keep
+// working without dragging the runtime value across the boundary.
+export type { AudienceFilter, VariableMapping } from "./types";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
-
-type VariableMappingEntry =
-  | { source: "contact_name"; fallback?: string }
-  | { source: "fixed"; value: string };
-
-export type VariableMapping = {
-  header?: VariableMappingEntry[];
-  body?: VariableMappingEntry[];
-};
-
-export type AudienceFilter = {
-  all?: boolean;
-  tags?: string[];
-  // ISO date — include only contacts whose last conversation activity is
-  // after this date. Cheap filter; we do it inline rather than via SQL view.
-  lastActiveAfter?: string;
-};
 
 type AuthSuccess = {
   user: { id: string };
@@ -260,54 +249,7 @@ export async function reSubscribeContact(
   return { ok: true };
 }
 
-// =====================================================================
-// Shared: fetch the audience for an org + filter.
-// Used by previewAudience, createBroadcast, and the send endpoint.
-// Returns contact rows with the columns we need to send templates.
-// =====================================================================
-export async function fetchAudience(
-  orgId: string,
-  filter: AudienceFilter,
-): Promise<
-  Array<{
-    id: string;
-    name: string | null;
-    phone: string | null;
-    opted_out: boolean;
-    tags: string[];
-  }>
-> {
-  const admin = createAdminClient();
-  let q = admin
-    .from("contacts")
-    .select("id, name, phone, opted_out, tags")
-    .eq("org_id", orgId)
-    .is("deleted_at", null);
-
-  if (filter.tags && filter.tags.length > 0) {
-    q = q.overlaps("tags", filter.tags);
-  }
-
-  const { data: contacts } = await q;
-  let rows = (contacts ?? []) as Array<{
-    id: string;
-    name: string | null;
-    phone: string | null;
-    opted_out: boolean;
-    tags: string[];
-  }>;
-
-  if (filter.lastActiveAfter) {
-    // Second query: contact ids with conversations after the cutoff.
-    const { data: active } = await admin
-      .from("conversations")
-      .select("contact_id")
-      .eq("org_id", orgId)
-      .gte("last_message_at", filter.lastActiveAfter)
-      .is("deleted_at", null);
-    const ids = new Set((active ?? []).map((r) => r.contact_id));
-    rows = rows.filter((c) => ids.has(c.id));
-  }
-
-  return rows;
-}
+// fetchAudience() now lives in ./audience.ts as a `server-only` module.
+// It MUST NOT be re-exported from this file — anything in a "use server"
+// file becomes a client-callable server action, and fetchAudience trusts
+// its caller's orgId. Imported above for internal use only.

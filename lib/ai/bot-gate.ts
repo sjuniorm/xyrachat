@@ -60,6 +60,23 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     .maybeSingle();
   if (!bot) return { skipped: true, reason: "bot_inactive_or_deleted" };
 
+  // ---- TENANT-ISOLATION GUARD ----------------------------------------
+  // The setChannelAssignment() server action verifies bot.org_id ===
+  // channel.org_id before inserting. Migration 019 also installs a
+  // BEFORE INSERT/UPDATE trigger that refuses cross-org rows at the DB
+  // level. This third check is belt-and-suspenders: if either layer
+  // somehow fails (manual SQL, restore from an old backup, future bug),
+  // the bot still refuses to run and we never leak one org's knowledge
+  // base into another org's conversation. Fail loudly to bot_outcomes
+  // so the support tool can flag the assignment.
+  if (bot.org_id !== input.channel.org_id) {
+    console.error(
+      "[bot-gate] cross-org assignment detected — refusing to run",
+      { bot_id: bot.id, bot_org: bot.org_id, channel_org: input.channel.org_id },
+    );
+    return { skipped: true, reason: "cross_org_assignment_refused" };
+  }
+
   // ---- GATE 2: auto-pause when a human just replied -------------------
   // If an agent (not a bot) wrote outbound in the last 6 hours, the human
   // has taken over. Don't talk on top of them.

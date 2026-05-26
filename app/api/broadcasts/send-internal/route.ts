@@ -1,11 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
-import {
-  fetchAudience,
-  type AudienceFilter,
-  type VariableMapping,
-} from "@/lib/broadcasts/actions";
+import { fetchAudience } from "@/lib/broadcasts/audience";
+import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
 import { applyVariables, type TemplateComponent } from "@/lib/templates/types";
 
 export const runtime = "nodejs";
@@ -54,12 +51,12 @@ export async function POST(req: NextRequest) {
   const [{ data: tpl }, { data: channel }] = await Promise.all([
     admin
       .from("wa_templates")
-      .select("id, name, language, components, meta_status, channel_id")
+      .select("id, org_id, name, language, components, meta_status, channel_id")
       .eq("id", bc.template_id)
       .maybeSingle(),
     admin
       .from("channels")
-      .select("id, type, phone_number_id, access_token_vault_id")
+      .select("id, org_id, type, phone_number_id, access_token_vault_id")
       .eq("id", bc.channel_id)
       .maybeSingle(),
   ]);
@@ -68,6 +65,16 @@ export async function POST(req: NextRequest) {
   }
   if (!channel || channel.type !== "whatsapp" || !channel.phone_number_id || !channel.access_token_vault_id) {
     return await fail(admin, bc.id, "Channel not ready");
+  }
+  // Defensive tenant guard — refuse to fire a broadcast against a
+  // template or channel that doesn't belong to the same org as the
+  // broadcast row itself. Stops cross-org drift cold even if a buggy
+  // create path or manual SQL ever produced a mismatch.
+  if (tpl.org_id !== bc.org_id) {
+    return await fail(admin, bc.id, "Template org mismatch — refusing to send");
+  }
+  if (channel.org_id !== bc.org_id) {
+    return await fail(admin, bc.id, "Channel org mismatch — refusing to send");
   }
   const token = await vaultReadSecret(channel.access_token_vault_id);
   if (!token) return await fail(admin, bc.id, "Channel token missing from vault");

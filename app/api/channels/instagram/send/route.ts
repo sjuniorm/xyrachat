@@ -145,6 +145,20 @@ export async function POST(req: Request) {
 
   const igMessageId = metaJson?.message_id ?? null;
 
+  // Verify replied_to belongs to this conversation before we FK to it —
+  // prevents a guessed UUID from another conversation poisoning the
+  // thread structure.
+  let safeRepliedToId: string | null = null;
+  if (body.repliedToMessageId) {
+    const { data: replied } = await admin
+      .from("messages")
+      .select("id")
+      .eq("id", body.repliedToMessageId)
+      .eq("conversation_id", conv.id)
+      .maybeSingle();
+    safeRepliedToId = replied?.id ?? null;
+  }
+
   // 6. Save outbound row locally so the inbox renders immediately.
   const { data: stored, error: insertErr } = await admin
     .from("messages")
@@ -158,7 +172,7 @@ export async function POST(req: Request) {
       sender_id: user.id,
       status: "sent",
       ig_message_id: igMessageId,
-      replied_to_message_id: body.repliedToMessageId ?? null,
+      replied_to_message_id: safeRepliedToId,
       metadata: {},
     })
     .select("*")

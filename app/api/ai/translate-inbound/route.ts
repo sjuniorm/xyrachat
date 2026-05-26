@@ -135,10 +135,15 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   const newCache = { ...(cache ?? {}), [target]: translated };
   const newMetadata = { ...(msg.metadata ?? {}), translation_cache: newCache };
+  // Belt-and-suspenders: also scope by conversation_id. RLS already gated
+  // the SELECT above so msg.conversation_id is already in this org, but
+  // pinning the UPDATE keeps it true even if `mid` were ever supplied
+  // independently of the SELECT.
   await admin
     .from("messages")
     .update({ metadata: newMetadata })
-    .eq("id", mid);
+    .eq("id", mid)
+    .eq("conversation_id", msg.conversation_id);
 
   return NextResponse.json({
     translation: {
