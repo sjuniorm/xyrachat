@@ -14,6 +14,7 @@ import { MessageBubble } from "@/components/inbox/message-bubble";
 import { Composer } from "@/components/inbox/composer";
 import { AssignMenu } from "@/components/inbox/assign-menu";
 import { StatusMenu } from "@/components/inbox/status-menu";
+import { WhatsAppWindowTimer } from "@/components/inbox/whatsapp-window-timer";
 import type { Conversation, Message } from "@/lib/mock-data";
 import type { ConversationStatus, MessageRow } from "@/lib/db-types";
 import { adaptMessage } from "@/lib/inbox/adapt";
@@ -53,6 +54,7 @@ export function MessageThread({
   status,
   members,
   currentUserId,
+  lastInboundAt,
 }: {
   conversation: Conversation;
   initialMessageRows: MessageRow[];
@@ -60,6 +62,7 @@ export function MessageThread({
   status: ConversationStatus;
   members: TeamMember[];
   currentUserId: string;
+  lastInboundAt: string | null;
 }) {
   const router = useRouter();
   const [closing, startClosing] = useTransition();
@@ -155,6 +158,9 @@ export function MessageThread({
           <div className="flex items-center gap-1.5 text-xs text-white/60">
             <ChannelIcon channel={conversation.channel} size="sm" withRing={false} />
             <span>{channelLabel(conversation.channel)}</span>
+            {conversation.channel === "whatsapp" && (
+              <WhatsAppWindowTimer lastInboundAt={lastInboundAt} />
+            )}
             {conversation.status === "snoozed" && conversation.snooze_until && (
               <span
                 suppressHydrationWarning

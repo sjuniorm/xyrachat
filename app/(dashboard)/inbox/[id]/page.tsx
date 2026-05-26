@@ -40,6 +40,7 @@ export default async function InboxConversationPage({
           status={detail.status}
           members={members}
           currentUserId={user.id}
+          lastInboundAt={detail.last_inbound_at}
         />
       </div>
       <ContactPanel conversation={conversation} />
