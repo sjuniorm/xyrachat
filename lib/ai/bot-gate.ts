@@ -79,7 +79,8 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
 
   // ---- GATE 2: auto-pause when a human just replied -------------------
   // If an agent (not a bot) wrote outbound in the last 6 hours, the human
-  // has taken over. Don't talk on top of them.
+  // has taken over. Don't talk on top of them. Internal notes don't count
+  // — they never reach the customer, so they shouldn't suppress the bot.
   const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   const { data: recentAgent } = await admin
     .from("messages")
@@ -87,6 +88,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     .eq("conversation_id", input.conversationId)
     .eq("direction", "outbound")
     .eq("sender_type", "agent")
+    .eq("is_internal_note", false)
     .gte("created_at", sixHoursAgo)
     .order("created_at", { ascending: false })
     .limit(1)

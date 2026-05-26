@@ -100,14 +100,32 @@ export function Composer({
   async function send() {
     if (!text.trim() || pending) return;
     setPending(true);
-    // Internal notes don't hit a provider — they're org-only and ship in Week 5.
+    // Internal notes don't hit a provider — they're org-only. Stored in
+    // the messages table with is_internal_note=true so they appear in
+    // the thread (via Realtime) but never reach the customer.
     if (internal) {
-      setTimeout(() => {
-        toast.success("Internal note saved (stored locally — Week 5 wires DB)");
+      try {
+        const res = await fetch("/api/inbox/internal-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: conversation.id,
+            content: text.trim(),
+          }),
+        });
+        if (!res.ok) {
+          const err = (await res.json().catch(() => null)) as { error?: string } | null;
+          toast.error(err?.error ?? "Couldn't save the note.");
+          return;
+        }
+        toast.success("Internal note saved");
         setText("");
         onClearQuote();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Network error");
+      } finally {
         setPending(false);
-      }, 200);
+      }
       return;
     }
     try {
@@ -418,7 +436,7 @@ export function Composer({
             variant="ghost"
             size="icon"
             className="size-8 text-white/60 hover:text-white"
-            onClick={() => toast.message("Attachment picker — Week 4")}
+            onClick={() => toast.message("Attachments coming soon")}
             aria-label="Attach file"
           >
             <Paperclip className="size-4" />
@@ -431,7 +449,7 @@ export function Composer({
             variant="ghost"
             size="sm"
             className="h-8 gap-1.5 px-2 text-xs text-white/70 hover:text-white"
-            onClick={() => toast.message("Saved replies — Week 5")}
+            onClick={() => toast.message("Saved replies coming soon")}
           >
             <StickyNote className="size-3.5" />
             <span className="hidden sm:inline">Saved replies</span>

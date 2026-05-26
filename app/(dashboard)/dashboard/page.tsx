@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Bot, Inbox, Megaphone, MessageCircle, Users } from "lucide-react";
+import { ArrowRight, Bot, FileText, Inbox, Megaphone, MessageCircle, Users } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -7,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function DashboardPage() {
@@ -69,40 +71,64 @@ export default async function DashboardPage() {
         <StatCard icon={Bot} label="Bot conversations" value={botConvos} />
       </div>
 
-      <div className="mt-10 grid gap-4 lg:grid-cols-2">
-        <Card className="border-white/10 bg-card/60">
-          <CardHeader>
-            <CardTitle>Broadcasts</CardTitle>
-            <CardDescription>
-              Send WhatsApp template messages to thousands of contacts at once,
-              with segmentation and delivery tracking.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-white/40">
-              <Megaphone className="mr-1.5 inline size-3.5" />
-              Ships Week 8.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-white/10 bg-card/60">
-          <CardHeader>
-            <CardTitle>Automations</CardTitle>
-            <CardDescription>
-              AI bots that answer customer questions from your knowledge base,
-              route conversations and trigger workflows.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-white/40">
-              <Bot className="mr-1.5 inline size-3.5" />
-              Ships Week 6.
-            </p>
-          </CardContent>
-        </Card>
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        <FeatureCard
+          icon={Bot}
+          title="AI Chatbots"
+          blurb="Train assistants on your knowledge base. Pick an objective, drop in URLs or text, assign to a channel."
+          href="/bots"
+          cta="Open Bots"
+        />
+        <FeatureCard
+          icon={FileText}
+          title="WhatsApp templates"
+          blurb="Pre-approved messages required to start conversations outside the 24-hour reply window."
+          href="/templates"
+          cta="Open Templates"
+        />
+        <FeatureCard
+          icon={Megaphone}
+          title="Broadcasts"
+          blurb="Send a template to filtered audiences with variable substitution and delivery tracking."
+          href="/broadcasts"
+          cta="Open Broadcasts"
+        />
       </div>
     </div>
+  );
+}
+
+function FeatureCard({
+  icon: Icon,
+  title,
+  blurb,
+  href,
+  cta,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  blurb: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <Card className="border-white/10 bg-card/60">
+      <CardHeader>
+        <div className="mb-1 inline-flex size-8 items-center justify-center rounded-lg xyra-gradient">
+          <Icon className="size-4 text-white" />
+        </div>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{blurb}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button asChild variant="outline" className="border-white/10 bg-white/5 hover:bg-white/10">
+          <Link href={href}>
+            {cta}
+            <ArrowRight className="ml-1 size-3.5" />
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

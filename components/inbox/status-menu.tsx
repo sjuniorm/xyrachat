@@ -139,13 +139,13 @@ export function StatusMenu({
 
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => toast.message("Mark unread — Week 5")}
+          onClick={() => toast.message("Mark unread coming soon")}
           className="text-white/60"
         >
           Mark as unread
         </DropdownMenuItem>
         <DropdownMenuItem
-          onClick={() => toast.message("Tag editor — Week 5")}
+          onClick={() => toast.message("Tag editor coming soon")}
           className="text-white/60"
         >
           Add tag…

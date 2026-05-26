@@ -153,6 +153,7 @@ export type MessageRow = {
   ig_message_id: string | null;
   telegram_message_id: string | null;
   email_message_id: string | null;
+  is_internal_note: boolean;
   metadata: MessageMetadata;
   deleted_at: string | null;
   created_at: string;

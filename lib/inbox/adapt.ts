@@ -57,6 +57,7 @@ export function adaptMessage(row: MessageRow): UiMessage {
     replied_to_message_id: row.replied_to_message_id ?? undefined,
     created_at: row.created_at,
     delivery_status: row.direction === "outbound" ? row.status : undefined,
+    is_internal_note: row.is_internal_note ?? false,
     metadata: row.metadata,
   };
 }
