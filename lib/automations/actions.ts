@@ -194,6 +194,11 @@ function validateAction(action: Action): string | null {
     case "assign_agent":
       // agent_id null is valid (clears assignment).
       return null;
+    case "assign_smart":
+      if (action.strategy !== "round_robin" && action.strategy !== "least_busy") {
+        return "Smart assignment needs a valid strategy.";
+      }
+      return null;
     case "webhook":
       try {
         new URL(action.url);

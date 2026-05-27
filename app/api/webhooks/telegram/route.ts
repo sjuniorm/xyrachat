@@ -304,9 +304,24 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
     },
   });
 
-  // Automation triggers — Telegram supports conversation_opened (one-shot
-  // welcome flow per contact). Keyword triggers are WA/IG-only for now;
-  // add tg_keyword later if customers ask for it.
+  // Automation triggers — keyword match + conversation_opened (one-shot
+  // per (automation, contact); the dispatcher enforces dedupe via
+  // automation_fires).
+  if (extracted.content) {
+    void dispatchTrigger({
+      channel: {
+        id: channel.id,
+        type: channel.type,
+        org_id: channel.org_id,
+        access_token_vault_id: (channel as { access_token_vault_id?: string | null }).access_token_vault_id ?? null,
+      },
+      contactId,
+      triggerType: "tg_keyword",
+      matchText: extracted.content,
+      conversationId,
+      triggerData: { telegram_message_id: tgKey, text: extracted.content },
+    });
+  }
   void dispatchTrigger({
     channel: {
       id: channel.id,

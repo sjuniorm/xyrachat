@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
-  Camera, AtSign, MessageCircle,
+  Camera, AtSign, MessageCircle, Mail, Shuffle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,8 @@ const TRIGGER_OPTIONS: Array<{
   { value: "ig_story_mention", label: "IG story mention", blurb: "Fires when someone mentions your account in a story.", icon: AtSign, needsKeywords: false },
   { value: "ig_new_follower", label: "New IG follower", blurb: "Fires when someone follows your IG account.", icon: UserPlus2, needsKeywords: false },
   { value: "wa_keyword", label: "WhatsApp keyword", blurb: "Fires on inbound WA messages containing your keywords.", icon: MessageSquare, needsKeywords: true },
+  { value: "tg_keyword", label: "Telegram keyword", blurb: "Fires on inbound Telegram messages containing your keywords.", icon: MessageSquare, needsKeywords: true },
+  { value: "email_keyword", label: "Email keyword", blurb: "Fires on inbound emails — matches subject + body.", icon: Mail, needsKeywords: true },
   { value: "conversation_opened", label: "First message", blurb: "Fires once on the contact's first message in this channel.", icon: MessageCircle, needsKeywords: false },
   { value: "webhook", label: "External webhook", blurb: "Fires when /api/automations/<id>/trigger is hit.", icon: Webhook, needsKeywords: false },
 ];
@@ -53,6 +55,7 @@ const ACTION_OPTIONS: Array<{
   { type: "send_dm", label: "Send DM", icon: MessageSquare, available: true },
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
+  { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
 ];
 
@@ -134,6 +137,9 @@ export function AutomationBuilder({
         break;
       case "assign_agent":
         fresh = { type, agent_id: members[0]?.id ?? null };
+        break;
+      case "assign_smart":
+        fresh = { type, strategy: "round_robin", only_online: true };
         break;
       case "webhook":
         fresh = { type, url: "" };
@@ -525,6 +531,45 @@ function ActionRow({
             </option>
           ))}
         </select>
+      )}
+
+      {action.type === "assign_smart" && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {(["round_robin", "least_busy"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onChange({ ...action, strategy: s })}
+                className={`rounded-md border p-2 text-left text-[11px] ${
+                  action.strategy === s
+                    ? "border-[color:var(--xyra-glow)]/60 bg-[color:var(--xyra-glow)]/10 text-white"
+                    : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10"
+                }`}
+              >
+                <div className="font-medium text-white">
+                  {s === "round_robin" ? "Round-robin" : "Least busy"}
+                </div>
+                <div className="mt-0.5 text-white/60">
+                  {s === "round_robin"
+                    ? "Rotate evenly through agents."
+                    : "Pick the agent with fewest open chats."}
+                </div>
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-white/70">
+            <input
+              type="checkbox"
+              checked={action.only_online ?? false}
+              onChange={(e) =>
+                onChange({ ...action, only_online: e.target.checked })
+              }
+              className="accent-[color:var(--xyra-purple)]"
+            />
+            Only consider agents marked online (falls back to all when nobody is online)
+          </label>
+        </div>
       )}
 
       {action.type === "webhook" && (

@@ -129,6 +129,42 @@ export async function executeAutomation(input: {
           steps.push({ type: action.type, ok: true });
           break;
         }
+        case "assign_smart": {
+          if (!conversationId) {
+            conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+          }
+          if (!conversationId) {
+            steps.push({ type: action.type, ok: false, error: "No conversation" });
+            firstFailure ??= "No conversation";
+            break;
+          }
+          const picked = await pickSmartAgent({
+            admin,
+            orgId: automation.org_id,
+            strategy: action.strategy,
+            onlyOnline: action.only_online ?? false,
+            lastAssignedAgentId: automation.last_assigned_agent_id ?? null,
+          });
+          if (!picked) {
+            steps.push({ type: action.type, ok: false, error: "No eligible agents" });
+            firstFailure ??= "No eligible agents";
+            break;
+          }
+          await admin
+            .from("conversations")
+            .update({ assigned_to: picked })
+            .eq("id", conversationId);
+          // Persist round-robin cursor on the automation row so the
+          // next fire picks the agent AFTER this one.
+          if (action.strategy === "round_robin") {
+            await admin
+              .from("automations")
+              .update({ last_assigned_agent_id: picked })
+              .eq("id", automation.id);
+          }
+          steps.push({ type: action.type, ok: true });
+          break;
+        }
         case "webhook": {
           // POST a JSON payload to the configured URL. Optional bearer
           // token via `secret` (caller-supplied, stored on the row).
@@ -374,6 +410,79 @@ function pickRecipient(
     default:
       return "";
   }
+}
+
+// Smart-assignment helper. Strategies:
+// - least_busy: agent with fewest currently-open conversations (ties
+//   broken by name for determinism).
+// - round_robin: next agent (alphabetically by id) AFTER the last one
+//   this automation assigned to, wrapping around. Cold-start picks the
+//   first agent.
+// `only_online` filters to availability='online' first; falls back to
+// the same strategy across all agents if nobody is online (better to
+// land on someone vs leave the contact dangling).
+async function pickSmartAgent(params: {
+  admin: ReturnType<typeof createAdminClient>;
+  orgId: string;
+  strategy: "round_robin" | "least_busy";
+  onlyOnline: boolean;
+  lastAssignedAgentId: string | null;
+}): Promise<string | null> {
+  const { admin, orgId, strategy, onlyOnline, lastAssignedAgentId } = params;
+  // Pull all active agents in the org (any role can be assigned).
+  const { data: profiles } = await admin
+    .from("profiles")
+    .select("id, full_name, availability")
+    .eq("org_id", orgId)
+    .is("deleted_at", null)
+    .order("id", { ascending: true });
+  let pool = (profiles ?? []) as Array<{
+    id: string;
+    full_name: string | null;
+    availability: string | null;
+  }>;
+  if (pool.length === 0) return null;
+
+  if (onlyOnline) {
+    const online = pool.filter((p) => p.availability === "online");
+    // Fall back to the full pool when nobody is online so the contact
+    // still lands on a human rather than disappearing into a queue.
+    if (online.length > 0) pool = online;
+  }
+
+  if (strategy === "round_robin") {
+    if (!lastAssignedAgentId) return pool[0].id;
+    const idx = pool.findIndex((p) => p.id === lastAssignedAgentId);
+    if (idx < 0) return pool[0].id; // last agent left the org
+    return pool[(idx + 1) % pool.length].id;
+  }
+
+  // least_busy: count open conversations per agent in this org.
+  const { data: convs } = await admin
+    .from("conversations")
+    .select("assigned_to")
+    .eq("org_id", orgId)
+    .eq("status", "open")
+    .is("deleted_at", null)
+    .not("assigned_to", "is", null);
+  const load = new Map<string, number>();
+  for (const c of convs ?? []) {
+    const a = c.assigned_to as string | null;
+    if (a) load.set(a, (load.get(a) ?? 0) + 1);
+  }
+  // Pick the agent in pool with min load; ties resolved by sort order
+  // (id ascending), which matches the round-robin order so behaviour
+  // is consistent across strategies.
+  let best = pool[0];
+  let bestLoad = load.get(best.id) ?? 0;
+  for (const p of pool.slice(1)) {
+    const l = load.get(p.id) ?? 0;
+    if (l < bestLoad) {
+      best = p;
+      bestLoad = l;
+    }
+  }
+  return best.id;
 }
 
 async function ensureConversation(

@@ -58,7 +58,9 @@ export async function dispatchTrigger(input: {
     if (
       input.triggerType === "ig_comment_keyword" ||
       input.triggerType === "ig_dm_keyword" ||
-      input.triggerType === "wa_keyword"
+      input.triggerType === "wa_keyword" ||
+      input.triggerType === "tg_keyword" ||
+      input.triggerType === "email_keyword"
     ) {
       if (!matchesKeywords(input.matchText ?? null, automation.trigger_config ?? {})) {
         continue;

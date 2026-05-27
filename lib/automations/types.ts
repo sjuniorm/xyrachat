@@ -8,6 +8,8 @@ export type TriggerType =
   | "ig_story_mention"
   | "ig_dm_keyword"
   | "wa_keyword"
+  | "tg_keyword"
+  | "email_keyword"
   | "conversation_opened"
   | "webhook";
 
@@ -26,6 +28,14 @@ export type Action =
   | { type: "send_dm"; text: string }
   | { type: "tag_contact"; tag: string }
   | { type: "assign_agent"; agent_id: string | null }
+  | {
+      type: "assign_smart";
+      strategy: "round_robin" | "least_busy";
+      // When true, only consider agents marked availability='online'.
+      // Falls back to the same strategy across all agents if nobody is
+      // online — beats failing silently when the team's off the clock.
+      only_online?: boolean;
+    }
   | { type: "webhook"; url: string; secret?: string }
   | { type: "add_to_sequence"; sequence_id: string } // placeholder
   | { type: "wait"; ms: number }; // deferred — see executor
@@ -44,6 +54,8 @@ export type AutomationRow = {
   success_count: number;
   failure_count: number;
   last_triggered_at: string | null;
+  // Round-robin cursor for assign_smart with strategy='round_robin'.
+  last_assigned_agent_id: string | null;
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
@@ -98,9 +110,9 @@ export function allowedTriggersForChannel(channelType: string): TriggerType[] {
     case "whatsapp":
       return ["wa_keyword", "conversation_opened", "webhook"];
     case "telegram":
-      return ["conversation_opened", "webhook"];
+      return ["tg_keyword", "conversation_opened", "webhook"];
     case "email":
-      return ["conversation_opened", "webhook"];
+      return ["email_keyword", "conversation_opened", "webhook"];
     default:
       return ["conversation_opened", "webhook"];
   }

@@ -1,4 +1,4 @@
-import { Camera, MessageSquare, AtSign, UserPlus, Webhook, MessageCircle } from "lucide-react";
+import { Camera, MessageSquare, AtSign, UserPlus, Webhook, MessageCircle, Mail, Send } from "lucide-react";
 import type { TriggerType } from "@/lib/automations/types";
 
 const TRIGGER_META: Record<
@@ -10,6 +10,8 @@ const TRIGGER_META: Record<
   ig_story_mention: { label: "IG story mention", icon: AtSign },
   ig_dm_keyword: { label: "IG DM keyword", icon: Camera },
   wa_keyword: { label: "WhatsApp keyword", icon: MessageSquare },
+  tg_keyword: { label: "Telegram keyword", icon: Send },
+  email_keyword: { label: "Email keyword", icon: Mail },
   conversation_opened: { label: "Conversation opened", icon: MessageCircle },
   webhook: { label: "External webhook", icon: Webhook },
 };

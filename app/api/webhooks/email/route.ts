@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -236,6 +237,38 @@ async function handleInbound(email: ResendInboundEmail) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  // Automation triggers — email_keyword (matches against subject + body)
+  // + conversation_opened (one-shot per (automation, contact)).
+  const matchText = `${email.subject ?? ""}\n${content}`.trim();
+  if (matchText) {
+    void dispatchTrigger({
+      channel: {
+        id: channel.id,
+        type: channel.type,
+        org_id: channel.org_id,
+      },
+      contactId,
+      triggerType: "email_keyword",
+      matchText,
+      conversationId,
+      triggerData: {
+        email_message_id: messageId,
+        subject: email.subject,
+      },
+    });
+  }
+  void dispatchTrigger({
+    channel: {
+      id: channel.id,
+      type: channel.type,
+      org_id: channel.org_id,
+    },
+    contactId,
+    triggerType: "conversation_opened",
+    conversationId,
+    triggerData: { email_message_id: messageId },
+  });
 }
 
 // =====================================================================
