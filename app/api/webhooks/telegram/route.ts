@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 
 export const runtime = "nodejs";
 
@@ -301,5 +302,21 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
       media_type: extracted.media_type,
       isFirstFromContact: false, // computed at higher cost; defer to greeting logic
     },
+  });
+
+  // Automation triggers — Telegram supports conversation_opened (one-shot
+  // welcome flow per contact). Keyword triggers are WA/IG-only for now;
+  // add tg_keyword later if customers ask for it.
+  void dispatchTrigger({
+    channel: {
+      id: channel.id,
+      type: channel.type,
+      org_id: channel.org_id,
+      access_token_vault_id: (channel as { access_token_vault_id?: string | null }).access_token_vault_id ?? null,
+    },
+    contactId,
+    triggerType: "conversation_opened",
+    conversationId,
+    triggerData: { telegram_message_id: tgKey },
   });
 }

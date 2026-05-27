@@ -977,10 +977,102 @@ opt-out handling baked into inbound flow.
   9 am only").
 - Contact list page (`/contacts`) still placeholder — Week 12 territory.
 
-## Roadmap snapshot (what's next — Week 10)
+## Week 10 — Trigger-based automations (DONE)
 
-Week 10: **Instagram Automations** (story-reply automations, comment
-auto-replies, IG-specific quick replies).
+ManyChat-style automations: a channel-scoped trigger (IG DM keyword, IG
+comment keyword, IG story mention, WA keyword, conversation_opened,
+external webhook) fires an ordered list of actions (send DM, tag contact,
+assign agent, POST webhook). Lives alongside the Week 7 bot — they're
+complementary: the bot handles open-ended chat, automations handle
+deterministic flows.
+
+**Schema** — [`021_automations.sql`](supabase/migrations/021_automations.sql)
+- `automations` — per-channel row with `trigger_type`, `trigger_config`
+  (keywords + match mode + optional post_id), `actions` (JSONB array
+  processed in order). Counters maintained by the executor:
+  `run_count`, `success_count`, `failure_count`, `last_triggered_at`.
+- `automation_logs` — last-N audit rows for the analytics panel. Per-step
+  outcome stored in `steps` JSONB so partial successes are introspectable.
+- `automation_fires` — service-role-only dedupe table for one-shot
+  triggers (`ig_new_follower`, `conversation_opened`). Primary key
+  `(automation_id, contact_id)` so the second fire is a constraint
+  violation we swallow silently.
+
+**Library** ([`lib/automations/`](lib/automations/))
+- `types.ts` — pure types + `renderTemplate()` (`{{contact_name}}`,
+  `{{first_name}}`, `{{contact_phone}}`, `{{contact_email}}`,
+  `{{username}}`, plus any extras) + `matchesKeywords()`
+  (word-boundary or whole-message match) + `allowedTriggersForChannel()`.
+  Pure module — safe to import from client + server.
+- `executor.ts` — `executeAutomation()` runs the actions array against
+  a contact + channel. Inline provider sends (WA / IG IG-direct +
+  Page-linked / Telegram). Tags written with dedupe. `assign_agent`
+  flips `conversations.assigned_to`. Webhook action POSTs JSON +
+  optional bearer. Records per-step outcomes + bumps counters.
+  Tenant guard: refuses cross-org execution outright. Outbound goes
+  in with `sender_type='bot'` and `metadata.automation=true` so the
+  inbox shows it as automation, not agent.
+- `triggers.ts` — `dispatchTrigger()` is the entry point called from
+  webhooks. Loads matching active automations, filters by trigger_config,
+  enforces one-shot dedupe via `automation_fires`, fires the executor
+  fire-and-forget so a slow Meta call doesn't block the webhook 200.
+- `actions.ts` — `createAutomation()` / `updateAutomation()` /
+  `deleteAutomation()` / `setAutomationActive()`. Per-channel trigger
+  validation (no IG triggers on a WA channel etc). Whitelisted update
+  columns. RBAC: owners + admins + supervisors can edit; only owners +
+  admins can delete.
+
+**Routes**
+- `/automations` — list with on/off badge, run counts, success/failure
+  ratio. Empty state when no channels exist.
+- `/automations/new` — single-page builder: Setup (name + channel) →
+  Trigger (card grid filtered to channel-allowed triggers, with
+  keyword + match-mode inputs when relevant + optional IG post_id
+  pin) → Actions (add Send DM / Tag contact / Assign agent / Webhook
+  POST; reorder with arrows, remove with trash). The `ig_new_follower`
+  card is shown but disabled with an explanation — Meta doesn't push
+  follower events; needs a polling worker that lands later.
+- `/automations/[id]` — detail. Counters tiles + last 20 runs
+  (per-row contact + status badge) + the same builder pre-filled for
+  edits. Active toggle in the header. Delete button (owners/admins).
+
+**Webhook integration**
+- IG webhook now handles `entry.changes` for `comments` field —
+  resolves the commenter to a contact (auto-creating if new) and
+  fires `ig_comment_keyword` triggers. Inbound DMs fire
+  `ig_dm_keyword` triggers. Story-mention attachments fire
+  `ig_story_mention`. All dispatched after the existing bot gate so
+  the gate's auto-pause / tenant-guard runs first.
+- WA webhook fires `wa_keyword` on every inbound text (not on STOP
+  unsubscribes — opt-out path short-circuits before reaching the
+  dispatcher) + `conversation_opened` once per (automation, contact).
+- Telegram webhook fires `conversation_opened` once per (automation,
+  contact). Keyword triggers are WA/IG only for MVP.
+
+**Deferred (intentionally) for later**
+- **Visual flow canvas** — current builder is a linear list. Drag-drop
+  branching can come when customers ask.
+- **Wait / delay actions** — the executor logs+skips them today. Needs
+  a `delayed_actions` table + a runner (pg_cron when we're ready). UI
+  doesn't surface the action.
+- **Sequences** — `add_to_sequence` is a placeholder action that logs
+  failed with `sequences not built yet`.
+- **Conditional branching** — single linear flow only.
+- **IG new-follower trigger** — Meta doesn't push these. Needs a
+  poller (Week 11+ infra). The trigger type is in the schema for
+  forward-compat; the UI shows it disabled.
+- **Tag editor in inbox** — automations write tags; surfacing them
+  for manual edit is queued (placeholder in StatusMenu).
+- **External-webhook trigger UI** — schema + `webhook` trigger type
+  ready; the inbound trigger endpoint
+  (`/api/automations/<id>/trigger`) lands with Week 11's webhook layer.
+
+## Roadmap snapshot (what's next — Week 11)
+
+Week 11: **n8n / webhook external automations** — public inbound
+trigger endpoints per automation, outbound webhook events for
+inbox state changes (message received / conversation closed / etc),
+official n8n nodes / Zapier app shape.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

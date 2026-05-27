@@ -5,6 +5,7 @@ import { vaultReadSecret } from "@/lib/supabase/vault";
 import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 
 // Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -175,7 +176,72 @@ async function processPayload(payload: IgWebhookPayload) {
         }
       }
     }
+
+    // Non-messaging changes — comments, mentions, story_insights.
+    // Subscribed via the Instagram webhook configuration in Meta App.
+    for (const change of entry.changes ?? []) {
+      try {
+        await handleChange(channel, change);
+      } catch (err) {
+        console.error("[ig webhook] change handler failed", err);
+      }
+    }
   }
+}
+
+// =====================================================================
+// Comment / mention events — trigger surface for automations.
+// Meta sends these under `entry.changes` when the IG webhook is
+// subscribed to `comments` / `mentions` fields on the app. Comment
+// authors are external IG users; we treat them as contacts the same
+// way DMs do so the inbox + automations have a consistent target.
+// =====================================================================
+type IgCommentChange = {
+  field: "comments";
+  value: {
+    id: string; // comment id
+    from?: { id: string; username?: string };
+    text?: string;
+    media?: { id: string; media_product_type?: string };
+  };
+};
+
+type IgMentionChange = {
+  field: "mentions";
+  value: {
+    media_id?: string;
+    comment_id?: string;
+  };
+};
+
+async function handleChange(
+  channel: IgChannel,
+  change: { field: string; value: unknown },
+) {
+  if (change.field === "comments") {
+    const v = (change as IgCommentChange).value;
+    const senderId = v.from?.id;
+    if (!senderId || !v.text) return;
+    const contactId = await findOrCreateContact(channel, senderId);
+    if (!contactId) return;
+    void dispatchTrigger({
+      channel,
+      contactId,
+      triggerType: "ig_comment_keyword",
+      matchText: v.text,
+      postId: v.media?.id ?? null,
+      triggerData: {
+        comment_id: v.id,
+        comment_text: v.text,
+        post_id: v.media?.id,
+        username: v.from?.username,
+      },
+    });
+    return;
+  }
+  // Other change types (mentions, story_insights) are no-ops for now —
+  // story mentions still come through the messaging path with
+  // attachment.type === 'story_mention', and we dispatch there.
 }
 
 async function findChannelByIgAccountId(igAccountId: string) {
@@ -452,6 +518,28 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       isFirstFromContact: false,
     },
   });
+
+  // Automation triggers — fire-and-forget after bot gate so a slow
+  // automation can't pin the webhook response.
+  if (extracted.content) {
+    void dispatchTrigger({
+      channel,
+      contactId,
+      triggerType: "ig_dm_keyword",
+      matchText: extracted.content,
+      conversationId,
+      triggerData: { ig_message_id: msg.mid, text: extracted.content },
+    });
+  }
+  if (extracted.media_type === "story_mention") {
+    void dispatchTrigger({
+      channel,
+      contactId,
+      triggerType: "ig_story_mention",
+      conversationId,
+      triggerData: { ig_message_id: msg.mid },
+    });
+  }
 }
 
 async function handleReaction(ev: IgMessagingEvent) {

@@ -6,6 +6,7 @@ import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { applyOptOutAction } from "@/lib/contacts/opt-out";
 import { vaultReadSecret } from "@/lib/supabase/vault";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -463,6 +464,39 @@ async function handleInbound(
         media_type: extracted.media_type,
         isFirstFromContact: false,
       },
+    });
+
+    // Automation triggers — wa_keyword + conversation_opened (one-shot
+    // per (automation, contact); the dispatcher enforces dedupe via
+    // automation_fires).
+    if (extracted.content) {
+      void dispatchTrigger({
+        channel: {
+          id: channel.id,
+          type: channel.type ?? "whatsapp",
+          org_id: channel.org_id,
+          phone_number_id: (channel as { phone_number_id?: string | null }).phone_number_id ?? null,
+          access_token_vault_id: (channel as { access_token_vault_id?: string | null }).access_token_vault_id ?? null,
+        },
+        contactId,
+        triggerType: "wa_keyword",
+        matchText: extracted.content,
+        conversationId,
+        triggerData: { wa_message_id: msg.id, text: extracted.content },
+      });
+    }
+    void dispatchTrigger({
+      channel: {
+        id: channel.id,
+        type: channel.type ?? "whatsapp",
+        org_id: channel.org_id,
+        phone_number_id: (channel as { phone_number_id?: string | null }).phone_number_id ?? null,
+        access_token_vault_id: (channel as { access_token_vault_id?: string | null }).access_token_vault_id ?? null,
+      },
+      contactId,
+      triggerType: "conversation_opened",
+      conversationId,
+      triggerData: { wa_message_id: msg.id },
     });
   }
 }
