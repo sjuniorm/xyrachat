@@ -5,6 +5,21 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateApiKey, hashApiKey } from "./keys";
 import { SCOPES, type Scope } from "./scopes";
+import { PLANS, type PlanId } from "@/lib/billing/plans";
+
+// Scopes that count as "write" — gated to plans with apiAccess='full'.
+// Read-only access (apiAccess='read_only') is allowed everything ending
+// in :read plus /me whoami.
+const WRITE_SCOPES = new Set<Scope>([
+  "contacts:write",
+  "conversations:write",
+  "messages:write",
+  "bots:write",
+  "broadcasts:write",
+  "automations:write",
+  "webhooks:write",
+  "admin",
+]);
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -69,6 +84,34 @@ export async function createApiKey(input: {
     return { ok: false, error: "Pick at least one scope." };
   }
 
+  // Plan gate. Free can't create API keys; Starter can create read-only
+  // keys; Pro+ can create full-write keys. When the admin panel lands,
+  // these defaults stay as fallbacks while overrides live in the DB.
+  const admin0 = createAdminClient();
+  const { data: sub } = await admin0
+    .from("subscriptions")
+    .select("plan")
+    .eq("org_id", auth.orgId)
+    .maybeSingle();
+  const plan = PLANS[(sub?.plan as PlanId) ?? "free"] ?? PLANS.free;
+  if (plan.apiAccess === "none") {
+    return {
+      ok: false,
+      error:
+        "Public API access isn't included on your plan. Upgrade to Starter or Pro to generate keys.",
+    };
+  }
+  if (plan.apiAccess === "read_only") {
+    const hasWrite = input.scopes.some((s) => WRITE_SCOPES.has(s as Scope));
+    if (hasWrite) {
+      return {
+        ok: false,
+        error:
+          "Your plan is read-only API access. Upgrade to Pro to generate keys with write scopes (messages:write, conversations:write, etc).",
+      };
+    }
+  }
+
   const { plaintext, prefix } = generateApiKey();
   let hash: string;
   try {
@@ -85,8 +128,7 @@ export async function createApiKey(input: {
       ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
-  const admin = createAdminClient();
-  const { data, error } = await admin
+  const { data, error } = await admin0
     .from("api_keys")
     .insert({
       org_id: auth.orgId,

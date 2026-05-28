@@ -1149,22 +1149,51 @@ auto-gen + docs site land in Sessions 2-3 (see pre-launch checklist).
   event list, SSRF-validates the URL, returns the signing secret ONCE.
 - Quick-test snippet at the bottom of the page (curl /me).
 
-**Deferred to Session 2**
-- Remaining REST endpoints: PATCH/DELETE contacts, contacts/:id/tags,
-  contacts/:id/opt_out, GET single resources, GET messages list,
-  conversation status/assign/close/transfer, /bots, /templates,
-  /broadcasts CRUD, /automations/:id/run, /outcomes.
-- Webhook retry worker — drains `webhook_deliveries` where status
-  in (pending,retrying). Hobby tier blocks Vercel sub-daily crons, so
-  the worker lands as either pg_cron + http extension OR a VPS curl
-  loop. Until then, first attempt is the only attempt for 5xx /
-  timeout failures — but the row is recorded for manual replay from
-  the dashboard.
-- OpenAPI 3.1 spec auto-generation + Swagger UI at /docs/api.
-- Full `/docs/api/*` pages (quickstart, auth, idempotency, webhooks
-  signature verification with JS/Python/Go code samples, errors).
+**Session 2 — DONE (2026-05-28)**
+- Single-resource endpoints + actions: `GET/PATCH/DELETE
+  /api/v1/contacts/:id`, `POST /:id/tags`, `DELETE /:id/tags/:tag`,
+  `POST /:id/opt_out`, `GET /api/v1/conversations/:id`, `PATCH
+  /api/v1/conversations/:id`, `POST /:id/close`, `POST /:id/assign`,
+  `POST /:id/transfer_to_bot`, `GET /:id/messages`.
+- Read endpoints: `GET /api/v1/channels`, `GET /:id`,
+  `GET /api/v1/templates`, `GET /api/v1/bots`, `GET /api/v1/outcomes`,
+  `GET /api/v1/webhooks`, `GET /api/v1/webhooks/:id/deliveries`.
+- Mutating endpoints: `POST /api/v1/broadcasts`, `POST /:id/launch`,
+  `POST /api/v1/automations/:id/run`, `POST /api/v1/bots/:id/handoff`.
+- Plan gate on `createApiKey`: Free → no API access; Starter →
+  read-only keys only; Pro+ → full read+write. Five tiers now carry
+  `apiAccess`, `apiRequestsPerMin`, `webhookDeliveriesPerMonth` defaults
+  in [lib/billing/plans.ts](lib/billing/plans.ts).
+- Rate-limit headers (`X-RateLimit-Limit/Remaining/Reset`) stub on every
+  response via the shared `apiHandler()` wrapper — real per-key
+  enforcement via Upstash lands in the debug phase.
+- **OpenAPI 3.1 spec** — hand-maintained in
+  [lib/api/openapi.ts](lib/api/openapi.ts), served at
+  `GET /api/v1/openapi.json` (no auth, 5-min cache). Connector
+  packages introspect this.
+- **Swagger UI** at `/docs/api` (in-dashboard, behind login). Loads
+  swagger-ui-dist from CDN — no runtime dep.
+- **Docs pages** at `/docs/api/{quickstart,auth,idempotency,errors,webhooks}`
+  with curl + JS + Python + Go HMAC verification code samples.
+- **Webhook retry worker** — `POST/GET /api/internal/webhook-retry`
+  (CRON_SECRET-authed) drains `webhook_deliveries` where status
+  in (pending,retrying), HMAC-signs + SSRF re-checks each delivery,
+  applies exponential backoff `30s → 1m → 5m → 30m → 2h → 6h → 12h
+  → 24h` (8 attempts max → exhausted). Migration 024 schedules
+  `process_webhook_retries()` via pg_cron every minute; operator must
+  ENABLE the `http` extension in Supabase Dashboard → Database →
+  Extensions AND set Postgres config:
+  ```
+  SELECT set_config('xyra.webhook_retry_url',
+                    'https://xyra-chat.vercel.app/api/internal/webhook-retry',
+                    false);
+  SELECT set_config('xyra.cron_secret', '<your CRON_SECRET>', false);
+  ```
+- Shared infrastructure: `lib/api/handler.ts` (`apiHandler()` wrapper
+  for consistent auth + timing + rate-limit headers + error catching);
+  `lib/api/shapes.ts` (canonical JSON shapes per resource).
 
-**Deferred to Session 3 (external connector workstreams)**
+**Still deferred to Session 3 (external connector workstreams)**
 - Make.com Custom App (integrations/make/) — collected dotted-JSON
   app definition, submitted to developers.make.com for verification.
 - Zapier Platform CLI app (integrations/zapier/) — REST Hook triggers,
