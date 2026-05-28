@@ -30,11 +30,19 @@ END $$;
 -- settings so pg_cron can read them without us hardcoding production
 -- URLs in this migration.
 --
--- Set these once via Supabase SQL editor:
---   SELECT set_config('xyra.webhook_retry_url',
---                     'https://xyra-chat.vercel.app/api/internal/webhook-retry',
---                     false);
---   SELECT set_config('xyra.cron_secret', '<your CRON_SECRET>', false);
+-- IMPORTANT: use ALTER DATABASE (persists across sessions), NOT
+-- set_config() (which only persists for the current session — pg_cron
+-- spawns a fresh session each tick and would see an empty value).
+--
+-- Run once via Supabase SQL editor (the default database name on
+-- Supabase is `postgres`):
+--
+--   ALTER DATABASE postgres
+--     SET xyra.webhook_retry_url = 'https://xyra-chat.vercel.app/api/internal/webhook-retry';
+--   ALTER DATABASE postgres
+--     SET xyra.cron_secret = '<your CRON_SECRET from .env.local>';
+--
+-- Verify with:  SHOW xyra.webhook_retry_url;  SHOW xyra.cron_secret;
 
 CREATE OR REPLACE FUNCTION public.process_webhook_retries()
 RETURNS INTEGER
