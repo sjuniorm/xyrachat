@@ -76,6 +76,7 @@ update Vercel + `.env.local` with the new value.
 | `ANTHROPIC_API_KEY` | server only | Anthropic Console → API Keys. Powers bot replies (claude-sonnet-4-6), Message Assist + translate (claude-haiku-4-5-20251001), and the auto-translate background job. |
 | `OPENAI_API_KEY` | server only | OpenAI Dashboard → API Keys. Used for RAG embeddings (text-embedding-3-small, 1536 dims) and future Whisper voice-note transcription. |
 | `CRON_SECRET` | server only | Long random string (`openssl rand -hex 32`). Sent as `Authorization: Bearer <value>` by Vercel Cron when invoking `/api/cron/broadcasts` every 5 minutes to launch scheduled broadcasts. Also gates the internal-only `/api/broadcasts/send-internal` endpoint that the cron dispatches to. |
+| `APP_PEPPER` | server only | Long random string (`openssl rand -base64 32`). Mixed into the SHA-256 hash for every API key. A leaked DB without the pepper still can't validate keys. **Never rotate** without re-issuing every API key in the database. |
 
 WhatsApp + Instagram channel access tokens are NOT in env — they're stored
 per-channel in Supabase Vault. Only the vault UUID lives in
@@ -1067,12 +1068,127 @@ deterministic flows.
   ready; the inbound trigger endpoint
   (`/api/automations/<id>/trigger`) lands with Week 11's webhook layer.
 
-## Roadmap snapshot (what's next — Week 11)
+## Week 11 — Public REST API + Outbound Webhooks (Session 1 DONE)
 
-Week 11: **n8n / webhook external automations** — public inbound
-trigger endpoints per automation, outbound webhook events for
-inbox state changes (message received / conversation closed / etc),
-official n8n nodes / Zapier app shape.
+Foundation shipped today. Make/Zapier/n8n connector packages + OpenAPI
+auto-gen + docs site land in Sessions 2-3 (see pre-launch checklist).
+
+**Schema** — [`023_public_api.sql`](supabase/migrations/023_public_api.sql)
+- `api_keys` — bearer credentials with scopes + expiry + revocation +
+  last_used tracking. Stored as SHA-256(plaintext + APP_PEPPER); the
+  plaintext is shown once at creation and never persisted.
+- `webhook_endpoints` — per-org outbound URLs. Includes a `source`
+  column (manual / make / zapier / n8n / api) for the dashboard label,
+  consecutive_failures counter for health badge, GIN index on `events`
+  for fast per-event lookup.
+- `webhook_deliveries` — audit + retry state. Status: pending /
+  succeeded / failed / retrying / exhausted. event_id is stable across
+  retries so consumers can dedupe.
+- `api_request_log` — per-request audit (no bodies; PII-clean).
+- `api_idempotency_keys` — caches POST responses for 24h, keyed by
+  `${api_key_id}:${client_supplied_key}`.
+
+**Library** ([`lib/api/`](lib/api/))
+- `keys.ts` — `generateApiKey()` (`xyra_live_<24 url-safe chars>`) +
+  `hashApiKey()` (SHA-256 + APP_PEPPER).
+- `auth.ts` — `requireApiKey(req, ...scopes)`. Constant-time hash
+  compare. Best-effort last_used_at update fire-and-forget. Logs
+  request via `logApiRequest()` (no bodies).
+- `scopes.ts` — vocabulary (`contacts:read/write`, `messages:write`,
+  `webhooks:read/write`, `admin`, etc). `admin` is the meta-grants-all.
+- `errors.ts` — Stripe-like canonical shape:
+  `{ error: { type, code, message, param? } }` with HTTP statuses
+  400/401/403/404/409/422/429/500.
+- `pagination.ts` — cursor = base64url(JSON({id, created_at})). Sort
+  always (created_at DESC, id DESC). Limit clamped to 200.
+- `idempotency.ts` — get/store cached responses for Idempotency-Key.
+- `ssrf.ts` — `assertSafeOutboundUrl()`. Blocks RFC1918 / loopback /
+  link-local / cloud metadata / CGNAT / IPv6 ULA + non-http(s)
+  schemes + credentials-in-URL. Resolves DNS at validation time AND
+  before each delivery (rebinding defense).
+- `events.ts` — canonical event-type strings. Keep stable.
+- `emit.ts` — `emit({ type, orgId, data })`. Loads matching active
+  endpoints, applies optional filters, HMAC-signs the payload via the
+  Stripe scheme `t=<ts>,v1=<hmac>` where `hmac=HMAC-SHA256(secret,
+  "${ts}.${rawBody}")`, POSTs with 10s timeout. 2xx → succeeded; 410
+  → exhausted + deactivate endpoint; other 4xx → failed (no retry);
+  5xx/timeout → retrying + next_retry_at=+30s. Bumps consecutive_failures.
+- `key-actions.ts` + `webhook-actions.ts` — server actions for the
+  dashboard UI (create/revoke/delete keys; create/update/delete
+  endpoints + replay deliveries).
+
+**Routes**
+- `GET /api/v1/me` — whoami (returns key id, org id, name, scopes).
+- `GET /api/v1/contacts` — list with cursor pagination.
+- `POST /api/v1/contacts` — create or upsert by phone/email/instagram_id/telegram_id.
+  Honors `Idempotency-Key` header. Emits `contact.created` / `contact.updated`.
+- `GET /api/v1/conversations` — list with cursor pagination + status/channel filter.
+- `POST /api/v1/messages` — send text/template/image via the conversation's
+  channel. Honors WA 24h window (422 outside + type=text). Honors
+  Idempotency-Key. Emits `message.sent`. Provider routing: WA + IG
+  (IG-direct OR Page-linked) + Telegram.
+- `POST /api/v1/webhooks/subscribe` — Make/Zapier/n8n connectors call
+  this to register an outbound endpoint. Returns the secret ONCE.
+  `X-Xyra-Source` header tags the row (`manual`/`make`/`zapier`/`n8n`/`api`).
+- `DELETE /api/v1/webhooks/:id` — connector tear-down on Zap deactivation.
+
+**Webhook integration**
+- WA + IG + Telegram inbound handlers now call `emit({ type:
+  'message.received', ... })` after the message lands. Future events
+  (`conversation.opened`, `bot.handoff`, `bot.lead_captured`,
+  `broadcast.completed`, etc.) wire in during Session 2.
+
+**Dashboard** — `/settings/api` (Owners + Admins only)
+- API keys card: name, prefix, scopes, last-used, revoke/delete.
+  New-key modal collects scopes (grouped by resource), optional
+  expiry (30/90/365/never), shows the plaintext ONCE in a copy-card
+  with a red banner.
+- Webhook endpoints card: status badge (Healthy / Retrying / Failing /
+  Paused), source badge (manual / make / zapier / n8n / api),
+  pause/resume, delete. New-endpoint modal collects URL + name +
+  event list, SSRF-validates the URL, returns the signing secret ONCE.
+- Quick-test snippet at the bottom of the page (curl /me).
+
+**Deferred to Session 2**
+- Remaining REST endpoints: PATCH/DELETE contacts, contacts/:id/tags,
+  contacts/:id/opt_out, GET single resources, GET messages list,
+  conversation status/assign/close/transfer, /bots, /templates,
+  /broadcasts CRUD, /automations/:id/run, /outcomes.
+- Webhook retry worker — drains `webhook_deliveries` where status
+  in (pending,retrying). Hobby tier blocks Vercel sub-daily crons, so
+  the worker lands as either pg_cron + http extension OR a VPS curl
+  loop. Until then, first attempt is the only attempt for 5xx /
+  timeout failures — but the row is recorded for manual replay from
+  the dashboard.
+- OpenAPI 3.1 spec auto-generation + Swagger UI at /docs/api.
+- Full `/docs/api/*` pages (quickstart, auth, idempotency, webhooks
+  signature verification with JS/Python/Go code samples, errors).
+
+**Deferred to Session 3 (external connector workstreams)**
+- Make.com Custom App (integrations/make/) — collected dotted-JSON
+  app definition, submitted to developers.make.com for verification.
+- Zapier Platform CLI app (integrations/zapier/) — REST Hook triggers,
+  creates, searches; submitted via `zapier push` + `zapier promote`.
+- n8n community node (integrations/n8n/) — npm package
+  `@xyrachat/n8n-nodes-xyrachat` + register at n8n.io/integrations.
+- 6 recipe templates in the Integrations gallery.
+- `/integrations` dashboard page surfacing connectors + recipes.
+
+**Security notes**
+- API key plaintexts NEVER stored — SHA-256(plaintext + APP_PEPPER) only.
+- Constant-time hash comparison even though we look up by UNIQUE index.
+- SSRF guard on every outbound webhook URL at both subscribe time AND
+  delivery time (DNS rebinding defense).
+- Webhook signing secrets are 32 random bytes hex, shown ONCE.
+- API request log captures method/path/status/duration/ip/UA but
+  NEVER bodies (PII / secret safety).
+
+## Roadmap snapshot (what's next — Week 12)
+
+Week 12: **Stripe billing** — checkout for the five-tier plan model
+already defined in `lib/billing/plans.ts`, webhook handlers for
+subscription state, plan-tier rate limits on the public API,
+self-serve upgrade/downgrade.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { emit } from "@/lib/api/emit";
 
 export const runtime = "nodejs";
 
@@ -275,6 +276,22 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  void emit({
+    type: "message.received",
+    orgId: channel.org_id,
+    data: {
+      id: insertedId,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      channel_id: channel.id,
+      channel_type: channel.type,
+      direction: "inbound",
+      content: extracted.content,
+      media_type: extracted.media_type,
+      created_at: new Date(msg.date * 1000).toISOString(),
+    },
+  });
 
   // Auto-translate + bot gate. Run sequentially so the bot sees the
   // translated content if auto-translate flipped it (though we don't

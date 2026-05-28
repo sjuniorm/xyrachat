@@ -6,6 +6,7 @@ import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { emit } from "@/lib/api/emit";
 
 // Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -508,6 +509,22 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       content: extracted.content,
     });
   }
+
+  void emit({
+    type: "message.received",
+    orgId: channel.org_id,
+    data: {
+      id: insertedId,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      channel_id: channel.id,
+      channel_type: channel.type,
+      direction: "inbound",
+      content: extracted.content,
+      media_type: extracted.media_type,
+      created_at: new Date(ev.timestamp).toISOString(),
+    },
+  });
   await runBotGate({
     channel: { id: channel.id, type: channel.type, org_id: channel.org_id },
     conversationId,

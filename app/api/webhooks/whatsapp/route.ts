@@ -7,6 +7,7 @@ import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { applyOptOutAction } from "@/lib/contacts/opt-out";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { emit } from "@/lib/api/emit";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -451,6 +452,23 @@ async function handleInbound(
       content: extracted.content,
     });
   }
+
+  // Outbound event for external integrations subscribed via webhook_endpoints.
+  void emit({
+    type: "message.received",
+    orgId: channel.org_id,
+    data: {
+      id: insertedId,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      channel_id: channel.id,
+      channel_type: channel.type ?? "whatsapp",
+      direction: "inbound",
+      content: extracted.content,
+      media_type: extracted.media_type,
+      created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
+    },
+  });
   // Don't run the bot gate when the contact just unsubscribed — the auto
   // confirm message is the appropriate response and a bot reply on top
   // would be jarring.
