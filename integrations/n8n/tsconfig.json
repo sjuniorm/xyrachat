@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "noEmitOnError": false,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["credentials/**/*", "nodes/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

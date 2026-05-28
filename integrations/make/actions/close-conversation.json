@@ -1,0 +1,13 @@
+{
+  "label": "Close conversation",
+  "description": "Sets the conversation status to 'closed'.",
+  "type": "action",
+  "communication": {
+    "url": "/conversations/{{parameters.conversationId}}/close",
+    "method": "POST",
+    "response": { "output": "{{body}}" }
+  },
+  "parameters": [
+    { "name": "conversationId", "label": "Conversation id", "type": "uuid", "required": true }
+  ]
+}

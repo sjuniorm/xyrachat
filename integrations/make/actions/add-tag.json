@@ -1,0 +1,17 @@
+{
+  "label": "Add tag to contact",
+  "description": "Adds one or more tags to a contact. Idempotent — duplicate tags are deduped server-side.",
+  "type": "action",
+  "communication": {
+    "url": "/contacts/{{parameters.contactId}}/tags",
+    "method": "POST",
+    "body": {
+      "tags": "{{parameters.tags}}"
+    },
+    "response": { "output": "{{body}}" }
+  },
+  "parameters": [
+    { "name": "contactId", "label": "Contact id", "type": "uuid", "required": true },
+    { "name": "tags", "label": "Tags", "type": "array", "required": true, "spec": { "type": "text" } }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@xyrachat/n8n-nodes-xyrachat",
+  "version": "1.0.0",
+  "description": "n8n community node for Xyra Chat — multi-platform customer messaging.",
+  "license": "MIT",
+  "homepage": "https://xyrachat.com",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n",
+    "xyra",
+    "messaging",
+    "whatsapp",
+    "chatbot"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/XyraChatApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/XyraChat/XyraChat.node.js",
+      "dist/nodes/XyraChatTrigger/XyraChatTrigger.node.js"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "n8n-workflow": "^1.62.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

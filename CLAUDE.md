@@ -1193,15 +1193,37 @@ auto-gen + docs site land in Sessions 2-3 (see pre-launch checklist).
   for consistent auth + timing + rate-limit headers + error catching);
   `lib/api/shapes.ts` (canonical JSON shapes per resource).
 
-**Still deferred to Session 3 (external connector workstreams)**
-- Make.com Custom App (integrations/make/) — collected dotted-JSON
-  app definition, submitted to developers.make.com for verification.
-- Zapier Platform CLI app (integrations/zapier/) — REST Hook triggers,
-  creates, searches; submitted via `zapier push` + `zapier promote`.
-- n8n community node (integrations/n8n/) — npm package
-  `@xyrachat/n8n-nodes-xyrachat` + register at n8n.io/integrations.
-- 6 recipe templates in the Integrations gallery.
-- `/integrations` dashboard page surfacing connectors + recipes.
+**Session 3 — DONE (2026-05-28)**
+- **`/integrations` dashboard page** — hero, three connector tiles
+  (Make / Zapier / n8n), 6 recipe cards, build-your-own REST API CTA.
+  Sidebar gains "Integrations" between Automations and Settings.
+- **Make.com Custom App scaffold** — [`integrations/make/`](integrations/make/).
+  `app.json` manifest, `connection/` (api-key + /me test), 4 triggers
+  (instant via REST Hook) + 6 actions + 1 search. Each subscribes via
+  `POST /api/v1/webhooks/subscribe` with `X-Xyra-Source: make`.
+- **Zapier Platform CLI app** — [`integrations/zapier/`](integrations/zapier/).
+  `index.js`, `authentication.js`, `lib/webhook.js` (shared subscribe/
+  unsubscribe), 4 REST Hook triggers + 6 creates + 1 search. Global
+  beforeRequest/afterResponse middleware for auth + error mapping.
+- **n8n community node** — [`integrations/n8n/`](integrations/n8n/).
+  npm package `@xyrachat/n8n-nodes-xyrachat`. Standalone TypeScript
+  build (excluded from Next.js TS project). Single Resource/Operation
+  action node covering every documented endpoint + dedicated REST-Hook
+  Trigger node.
+- **Cookbook** at [`/docs/integrations/cookbook`](app/(dashboard)/docs/integrations/cookbook/page.tsx)
+  with 6 recipes (WA lead → HubSpot, handoff → Slack, conversation
+  → Notion, closed → Sheets, Stripe → WA receipt, Calendly → tag).
+- **Per-connector setup pages** at `/docs/integrations/{make,zapier,n8n}`
+  — install, credentials, triggers/actions, trigger lifecycle, test
+  snippets.
+- **tsconfig** excludes `integrations/` so the Next.js build doesn't
+  try to compile the standalone connector packages.
+
+**External submissions** (one-time, do before launch — see pre-launch checklist)
+- Submit Make.com app to developers.make.com → verification → public listing
+- `cd integrations/zapier && zapier register "Xyra Chat" && zapier push && zapier promote 1.0.0`
+- `cd integrations/n8n && npm install && npm run build && npm publish --access public` + register at n8n.io/integrations
+- Cookbook deep links resolve once those listings exist.
 
 **Security notes**
 - API key plaintexts NEVER stored — SHA-256(plaintext + APP_PEPPER) only.
@@ -1218,6 +1240,10 @@ Week 12: **Stripe billing** — checkout for the five-tier plan model
 already defined in `lib/billing/plans.ts`, webhook handlers for
 subscription state, plan-tier rate limits on the public API,
 self-serve upgrade/downgrade.
+
+The plan gate already enforces the `apiAccess` levels (none /
+read_only / full) per-org via `createApiKey()` — Stripe will set
+the subscription's `plan` column based on which price was purchased.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)

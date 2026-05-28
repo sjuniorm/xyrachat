@@ -1,0 +1,32 @@
+{
+  "label": "New contact created",
+  "description": "Fires when a contact is created — via inbound DM, API upsert, or imported.",
+  "type": "trigger",
+  "instant": true,
+  "communication": {
+    "subscribe": {
+      "url": "/webhooks/subscribe",
+      "method": "POST",
+      "headers": { "X-Xyra-Source": "make" },
+      "body": {
+        "url": "{{webhook.url}}",
+        "events": ["contact.created"],
+        "label": "Make.com — {{scenarioName}}"
+      },
+      "response": { "data": "{{body}}" }
+    },
+    "unsubscribe": {
+      "url": "/webhooks/{{webhook.id}}",
+      "method": "DELETE"
+    }
+  },
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Contact id" },
+    { "name": "name", "type": "text", "label": "Name" },
+    { "name": "phone", "type": "text", "label": "Phone" },
+    { "name": "email", "type": "text", "label": "Email" },
+    { "name": "instagram_id", "type": "text", "label": "Instagram id" },
+    { "name": "tags", "type": "array", "label": "Tags" },
+    { "name": "created_at", "type": "date", "label": "Created at" }
+  ]
+}

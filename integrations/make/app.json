@@ -1,0 +1,24 @@
+{
+  "name": "xyra-chat",
+  "label": "Xyra Chat",
+  "description": "Multi-platform customer messaging — WhatsApp, Instagram, Telegram, Email — with AI bots, broadcasts and automations.",
+  "version": "1.0.0",
+  "theme": "#9333EA",
+  "baseUrl": "https://xyra-chat.vercel.app/api/v1",
+  "base": {
+    "headers": {
+      "Authorization": "Bearer {{connection.apiKey}}",
+      "Content-Type": "application/json",
+      "User-Agent": "Make.com/XyraChat-Connector"
+    },
+    "response": {
+      "error": {
+        "type": "{{body.error.type}}",
+        "message": "{{body.error.message}} (code: {{body.error.code}})",
+        "valid": "{{not(body.error)}}"
+      }
+    }
+  },
+  "homepageUrl": "https://xyrachat.com",
+  "supportUrl": "https://xyrachat.com/support"
+}

@@ -1,0 +1,29 @@
+{
+  "label": "New conversation opened",
+  "description": "Fires once per contact when they first message any channel.",
+  "type": "trigger",
+  "instant": true,
+  "communication": {
+    "subscribe": {
+      "url": "/webhooks/subscribe",
+      "method": "POST",
+      "headers": { "X-Xyra-Source": "make" },
+      "body": {
+        "url": "{{webhook.url}}",
+        "events": ["conversation.opened"],
+        "label": "Make.com — {{scenarioName}}"
+      },
+      "response": { "data": "{{body}}" }
+    },
+    "unsubscribe": {
+      "url": "/webhooks/{{webhook.id}}",
+      "method": "DELETE"
+    }
+  },
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Conversation id" },
+    { "name": "contact_id", "type": "uuid", "label": "Contact id" },
+    { "name": "channel_id", "type": "uuid", "label": "Channel id" },
+    { "name": "created_at", "type": "date", "label": "Opened at" }
+  ]
+}

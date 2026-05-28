@@ -1,0 +1,10 @@
+{
+  "url": "/me",
+  "method": "GET",
+  "response": {
+    "valid": "{{if(body.org_id, true, false)}}",
+    "error": {
+      "message": "{{body.error.message}}"
+    }
+  }
+}

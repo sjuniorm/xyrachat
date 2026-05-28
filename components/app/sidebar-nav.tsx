@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   FileText,
+  Plug,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ const ITEMS: NavItem[] = [
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },
   { href: "/automations", label: "Automations", icon: Sparkles },
+  { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -1,0 +1,14 @@
+{
+  "name": "xyra-api-key",
+  "label": "Xyra Chat API key",
+  "type": "basic",
+  "parameters": [
+    {
+      "name": "apiKey",
+      "label": "API key",
+      "type": "password",
+      "required": true,
+      "help": "Generate a key at https://xyra-chat.vercel.app/settings/api. Needs at minimum the `contacts:read` + `messages:write` scopes for typical scenarios. Webhook triggers also need `webhooks:write`."
+    }
+  ]
+}

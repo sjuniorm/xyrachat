@@ -1,0 +1,37 @@
+{
+  "label": "New inbound message",
+  "description": "Fires every time a contact sends a message on any connected channel (WhatsApp, Instagram, Telegram, Email).",
+  "type": "trigger",
+  "instant": true,
+  "communication": {
+    "subscribe": {
+      "url": "/webhooks/subscribe",
+      "method": "POST",
+      "headers": {
+        "X-Xyra-Source": "make"
+      },
+      "body": {
+        "url": "{{webhook.url}}",
+        "events": ["message.received"],
+        "label": "Make.com — {{scenarioName}}"
+      },
+      "response": {
+        "data": "{{body}}"
+      }
+    },
+    "unsubscribe": {
+      "url": "/webhooks/{{webhook.id}}",
+      "method": "DELETE"
+    }
+  },
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Message id" },
+    { "name": "conversation_id", "type": "uuid", "label": "Conversation id" },
+    { "name": "contact_id", "type": "uuid", "label": "Contact id" },
+    { "name": "channel_id", "type": "uuid", "label": "Channel id" },
+    { "name": "channel_type", "type": "text", "label": "Channel type" },
+    { "name": "content", "type": "text", "label": "Content" },
+    { "name": "media_type", "type": "text", "label": "Media type" },
+    { "name": "created_at", "type": "date", "label": "Received at" }
+  ]
+}

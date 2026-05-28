@@ -1,0 +1,19 @@
+{
+  "label": "Run automation",
+  "description": "Manually fire a Xyra automation against a contact. Useful for chaining flows.",
+  "type": "action",
+  "communication": {
+    "url": "/automations/{{parameters.automationId}}/run",
+    "method": "POST",
+    "body": {
+      "contact_id": "{{parameters.contactId}}",
+      "trigger_data": "{{parameters.triggerData}}"
+    },
+    "response": { "output": "{{body}}" }
+  },
+  "parameters": [
+    { "name": "automationId", "label": "Automation id", "type": "uuid", "required": true },
+    { "name": "contactId", "label": "Contact id", "type": "uuid", "required": true },
+    { "name": "triggerData", "label": "Trigger data (JSON object)", "type": "collection" }
+  ]
+}

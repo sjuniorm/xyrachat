@@ -1,0 +1,36 @@
+{
+  "label": "Create or update contact",
+  "description": "Upserts on any matching identifier (phone, email, instagram_id, telegram_id). Returns the existing contact if a match is found.",
+  "type": "action",
+  "communication": {
+    "url": "/contacts",
+    "method": "POST",
+    "headers": {
+      "Idempotency-Key": "{{uuid()}}"
+    },
+    "body": {
+      "name": "{{parameters.name}}",
+      "phone": "{{parameters.phone}}",
+      "email": "{{parameters.email}}",
+      "instagram_id": "{{parameters.instagramId}}",
+      "telegram_id": "{{parameters.telegramId}}",
+      "tags": "{{parameters.tags}}",
+      "notes": "{{parameters.notes}}"
+    },
+    "response": { "output": "{{body}}" }
+  },
+  "parameters": [
+    { "name": "name", "label": "Name", "type": "text" },
+    { "name": "phone", "label": "Phone (E.164)", "type": "text" },
+    { "name": "email", "label": "Email", "type": "email" },
+    { "name": "instagramId", "label": "Instagram id", "type": "text" },
+    { "name": "telegramId", "label": "Telegram id", "type": "text" },
+    { "name": "tags", "label": "Tags", "type": "array", "spec": { "type": "text" } },
+    { "name": "notes", "label": "Notes", "type": "text" }
+  ],
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Contact id" },
+    { "name": "name", "type": "text", "label": "Name" },
+    { "name": "opted_out", "type": "boolean", "label": "Opted out" }
+  ]
+}

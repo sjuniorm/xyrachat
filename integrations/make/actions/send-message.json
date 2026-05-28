@@ -1,0 +1,69 @@
+{
+  "label": "Send a message",
+  "description": "Send a text, template, or image to a Xyra conversation. WhatsApp respects the 24h customer-service window — outside it, use type=template.",
+  "type": "action",
+  "communication": {
+    "url": "/messages",
+    "method": "POST",
+    "headers": {
+      "Idempotency-Key": "{{uuid()}}"
+    },
+    "body": {
+      "conversation_id": "{{parameters.conversationId}}",
+      "type": "{{parameters.type}}",
+      "content": "{{parameters.content}}",
+      "template": "{{parameters.template}}",
+      "media": "{{parameters.media}}"
+    },
+    "response": {
+      "output": "{{body}}"
+    }
+  },
+  "parameters": [
+    {
+      "name": "conversationId",
+      "label": "Conversation id",
+      "type": "uuid",
+      "required": true
+    },
+    {
+      "name": "type",
+      "label": "Type",
+      "type": "select",
+      "required": true,
+      "default": "text",
+      "options": [
+        { "label": "Text", "value": "text" },
+        { "label": "WhatsApp template", "value": "template" },
+        { "label": "Image", "value": "image" }
+      ]
+    },
+    {
+      "name": "content",
+      "label": "Message",
+      "type": "text",
+      "help": "Required for type=text. Optional caption for type=image."
+    },
+    {
+      "name": "template",
+      "label": "Template (WhatsApp only)",
+      "type": "collection",
+      "spec": [
+        { "name": "name", "type": "text", "label": "Template name" },
+        { "name": "language", "type": "text", "label": "Language code", "default": "en_US" },
+        { "name": "components", "type": "array", "label": "Components" }
+      ]
+    },
+    {
+      "name": "media",
+      "label": "Image (type=image)",
+      "type": "collection",
+      "spec": [{ "name": "url", "type": "url", "label": "Image URL" }]
+    }
+  ],
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Message id" },
+    { "name": "provider_message_id", "type": "text", "label": "Provider message id" },
+    { "name": "created_at", "type": "date", "label": "Sent at" }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "label": "Find contact",
+  "description": "Search for a contact by phone or email. Returns an empty list if not found.",
+  "type": "search",
+  "communication": {
+    "url": "/contacts",
+    "method": "GET",
+    "qs": {
+      "limit": "100"
+    },
+    "response": {
+      "iterate": "{{body.data}}",
+      "output": "{{item}}"
+    }
+  },
+  "parameters": [
+    { "name": "phone", "label": "Phone (E.164)", "type": "text" },
+    { "name": "email", "label": "Email", "type": "email" }
+  ],
+  "interface": [
+    { "name": "id", "type": "uuid", "label": "Contact id" },
+    { "name": "name", "type": "text", "label": "Name" },
+    { "name": "phone", "type": "text", "label": "Phone" },
+    { "name": "email", "type": "text", "label": "Email" }
+  ]
+}

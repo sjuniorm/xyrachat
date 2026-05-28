@@ -1,0 +1,28 @@
+{
+  "label": "Bot handoff requested",
+  "description": "Fires when a bot escalates a conversation to a human (keyword match, knowledge gap, or [HANDOFF_REQUESTED]).",
+  "type": "trigger",
+  "instant": true,
+  "communication": {
+    "subscribe": {
+      "url": "/webhooks/subscribe",
+      "method": "POST",
+      "headers": { "X-Xyra-Source": "make" },
+      "body": {
+        "url": "{{webhook.url}}",
+        "events": ["bot.handoff"],
+        "label": "Make.com — {{scenarioName}}"
+      },
+      "response": { "data": "{{body}}" }
+    },
+    "unsubscribe": {
+      "url": "/webhooks/{{webhook.id}}",
+      "method": "DELETE"
+    }
+  },
+  "interface": [
+    { "name": "bot_id", "type": "uuid", "label": "Bot id" },
+    { "name": "conversation_id", "type": "uuid", "label": "Conversation id" },
+    { "name": "reason", "type": "text", "label": "Handoff reason" }
+  ]
+}

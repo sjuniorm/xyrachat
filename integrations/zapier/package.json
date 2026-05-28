@@ -1,0 +1,20 @@
+{
+  "name": "xyra-chat-zapier",
+  "version": "1.0.0",
+  "description": "Zapier app for Xyra Chat — multi-platform customer messaging.",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "jest --testTimeout 10000",
+    "lint": "eslint --ext .js ."
+  },
+  "dependencies": {
+    "zapier-platform-core": "16.0.0"
+  },
+  "devDependencies": {
+    "jest": "29.7.0"
+  }
+}

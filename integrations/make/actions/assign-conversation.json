@@ -1,0 +1,17 @@
+{
+  "label": "Assign conversation",
+  "description": "Assign a conversation to a specific agent, or unassign by leaving agent id empty.",
+  "type": "action",
+  "communication": {
+    "url": "/conversations/{{parameters.conversationId}}/assign",
+    "method": "POST",
+    "body": {
+      "agent_id": "{{parameters.agentId}}"
+    },
+    "response": { "output": "{{body}}" }
+  },
+  "parameters": [
+    { "name": "conversationId", "label": "Conversation id", "type": "uuid", "required": true },
+    { "name": "agentId", "label": "Agent id (leave empty to unassign)", "type": "uuid" }
+  ]
+}
