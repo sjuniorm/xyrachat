@@ -1234,16 +1234,98 @@ auto-gen + docs site land in Sessions 2-3 (see pre-launch checklist).
 - API request log captures method/path/status/duration/ip/UA but
   NEVER bodies (PII / secret safety).
 
-## Roadmap snapshot (what's next — Week 12)
+## Week 12 — Stripe billing + entitlements (Session 1 DONE)
 
-Week 12: **Stripe billing** — checkout for the five-tier plan model
-already defined in `lib/billing/plans.ts`, webhook handlers for
-subscription state, plan-tier rate limits on the public API,
-self-serve upgrade/downgrade.
+Entitlements-model billing, not fixed plan-string gates. Architectural
+decision recorded 2026-05-28: ship four fixed bundles (Trial /
+Starter / Pro / Enterprise) for self-serve checkout AND support
+per-org custom deals via row-level entitlements + Stripe Custom
+Quotes. Doing it this way upfront avoids a multi-day retrofit when
+the first bespoke contract lands.
 
-The plan gate already enforces the `apiAccess` levels (none /
-read_only / full) per-org via `createApiKey()` — Stripe will set
-the subscription's `plan` column based on which price was purchased.
+**Schema** — [`026_entitlements_and_stripe.sql`](supabase/migrations/026_entitlements_and_stripe.sql)
+- `org_entitlements` — `(org_id, feature_key, value, source, expires_at,
+  stripe_subscription_id, stripe_quote_id)`. Most-permissive wins across
+  rows for the same (org, feature). UNIQUE on (org_id, source,
+  feature_key) so bundle re-provisioning UPSERTs cleanly.
+- `subscriptions` extended with `stripe_customer_id`,
+  `stripe_subscription_id`, `stripe_price_id`, `status` (trialing /
+  active / past_due / canceling / canceled / incomplete / unpaid),
+  `current_period_end`, `cancel_at_period_end`, `canceled_at`,
+  `data_retention_until`, `trial_ends_at`, `trial_source`,
+  `trial_extended_count`.
+- `provision_bundle_entitlements()` SECURITY DEFINER RPC — atomic
+  swap-out of all `bundle:<plan>` rows for the org, replaced with
+  fresh entitlements from the bundle definition. Per-org overrides
+  (sources != `bundle:*`) survive.
+
+**Library** ([`lib/billing/`](lib/billing/))
+- `entitlements.ts` — single source of truth.
+  `getEntitlement / hasFeature / getLimit (Infinity for -1 sentinel)
+  / checkLimit / requireFeature / requireUnderLimit`. EntitlementError
+  is the throwable variant. 5-second per-request cache.
+- `bundles.ts` — four bundles (Trial / Starter / Pro / Enterprise),
+  each declaring its full entitlement set as code.
+  `bundleFromStripePriceId` maps Stripe Price IDs back to bundles.
+- `stripe.ts` — lazy SDK singleton, env-driven price lookup
+  (`STRIPE_PRICE_<BUNDLE>_<INTERVAL>`).
+- `provision.ts` — `provisionBundle()` (calls the RPC),
+  `clearAllBundleEntitlements()` (full cancellation cleanup).
+
+**Routes**
+- `POST /api/billing/checkout` — owner-only. Creates/reuses Stripe
+  Customer. `allow_promotion_codes: true` so Session 3's promo codes
+  work natively. Metadata carries `org_id` + `bundle_id` for the
+  webhook handler.
+- `POST /api/billing/portal` — opens Stripe Customer Portal.
+- `POST /api/webhooks/stripe` — signature-verified. Handles
+  `checkout.session.completed` (provision), `subscription.updated`
+  (re-provision for plan change), `subscription.deleted` (clear
+  bundle + start 30-day retention), `invoice.paid` (reset AI tokens),
+  `invoice.payment_failed` (past_due). Defensive helpers
+  (`invoiceSubscriptionId`, `subscriptionPeriodEndIso`) accept both
+  the pre-2026-05 and post-2026-05 Stripe API shapes.
+
+**Backward compatibility**
+- `subscriptions.plan` stays as a UI label only — gates now query
+  `checkEntitlement(orgId, key)`. Session 2 refactors every existing
+  plan-string callsite to use entitlements.
+
+**Env additions** (full block in [.env.example](.env.example))
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_PRICE_{STARTER,PRO,ENTERPRISE}_{MONTHLY,YEARLY}`
+- `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`
+
+**Operator setup**
+1. Apply migration 026 in Supabase SQL Editor.
+2. Stripe Dashboard → create products + prices for Starter (€39/mo,
+   €374/yr), Pro (€99/mo, €950/yr), Enterprise (€249/mo, €2390/yr).
+3. Copy `price_xxx` IDs into matching env vars.
+4. Stripe Dashboard → Webhooks → add endpoint
+   `https://xyra-chat.vercel.app/api/webhooks/stripe`, subscribe to
+   the five events above. Paste Signing Secret into
+   `STRIPE_WEBHOOK_SECRET`.
+5. Local dev: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.
+
+**Deferred to Session 2**
+- Refactor existing plan-string callsites (createApiKey, channel/bot/
+  broadcast/team-invite create paths, AI gate) to read entitlements.
+- Billing settings page (`/settings/billing`) with usage meters, plan
+  comparison, upgrade modal, Manage Subscription button.
+- Admin entitlements page (`/settings/admin/entitlements`).
+
+**Deferred to Session 3**
+- Promo codes + admin UI + redeem endpoint + seed script.
+- Cancellation flow (downgrade-blockers preview, reason capture, banner).
+- 30-day retention purge cron.
+- Chargeback/dispute auto-evidence + admin disputes UI.
+- Billing-status banners.
+
+## Roadmap snapshot (what's next — Week 13)
+
+Week 13: **React Native mobile app** — companion app for agents on the
+go. Push notifications for new inbound + assignments + handoffs, full
+inbox + composer parity with the web app, biometric login.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
