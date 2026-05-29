@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAudience } from "./audience";
+import { assertCanCreateBroadcast } from "@/lib/billing/gates";
 import type { AudienceFilter, VariableMapping } from "./types";
 
 // Re-export type-only so existing imports from the actions module keep
@@ -111,6 +112,11 @@ export async function createBroadcast(payload: {
 
   const name = payload.name.trim();
   if (!name) return { ok: false, error: "Broadcast name is required." };
+
+  // Plan gate — broadcasts feature flag + monthly cap. Fails open for
+  // un-provisioned orgs.
+  const bcGate = await assertCanCreateBroadcast(auth.orgId);
+  if (!bcGate.ok) return { ok: false, error: bcGate.error };
 
   const admin = createAdminClient();
   const [{ data: ch }, { data: tpl }] = await Promise.all([

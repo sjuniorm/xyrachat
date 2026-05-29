@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
 import { subscribeIgWebhooks } from "@/lib/instagram/subscribe";
+import { assertCanAddChannel } from "@/lib/billing/gates";
 
 export const runtime = "nodejs";
 
@@ -84,6 +85,15 @@ export async function GET(req: NextRequest) {
   const orgId = dbProfile?.org_id;
   if (!orgId) {
     return redirectWithError(req, "You must belong to an organization.");
+  }
+
+  // 4b. Plan gate — refuse the connection if the org is at its channel
+  //     limit or IG isn't on their plan. Fails open for un-provisioned
+  //     orgs. Done BEFORE storing the token so we don't leave an orphan
+  //     vault secret behind.
+  const gate = await assertCanAddChannel(orgId, "instagram");
+  if (!gate.ok) {
+    return redirectWithError(req, gate.error);
   }
 
   // 5. Stash the long-lived token in Vault.

@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
+import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewTelegramChannelForm } from "./new-telegram-channel-form";
 
 async function createTelegramChannelAction(
@@ -31,6 +32,9 @@ async function createTelegramChannelAction(
     .maybeSingle();
   const orgId = profile?.org_id;
   if (!orgId) return { error: "You must belong to an organization." };
+
+  const gate = await assertCanAddChannel(orgId, "telegram");
+  if (!gate.ok) return { error: gate.error };
 
   // 1. Verify the token works by calling getMe — also gets us the bot's
   //    own username + display name for the channel record.

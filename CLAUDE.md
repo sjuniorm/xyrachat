@@ -1307,12 +1307,47 @@ the first bespoke contract lands.
    `STRIPE_WEBHOOK_SECRET`.
 5. Local dev: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`.
 
-**Deferred to Session 2**
-- Refactor existing plan-string callsites (createApiKey, channel/bot/
-  broadcast/team-invite create paths, AI gate) to read entitlements.
-- Billing settings page (`/settings/billing`) with usage meters, plan
-  comparison, upgrade modal, Manage Subscription button.
-- Admin entitlements page (`/settings/admin/entitlements`).
+**Session 2 — DONE (2026-05-29)**
+- **Fail-open backstop** — `lib/billing/entitlements.ts` `isProvisioned(orgId)`:
+  an org with ZERO entitlement rows passes EVERY gate (hasFeature→true,
+  getLimit→Infinity). Once it has ≥1 row it's enforced strictly. This is
+  what lets the live app keep working before the operator backfills — no
+  org is ever blocked by the refactor landing. (Hardened post-review: a
+  transient DB error on the provisioned check fails open but is NOT
+  cached, so a paid org snaps back to strict enforcement on the next call.)
+- **`lib/billing/gates.ts`** — `assertCanAddChannel` (count + per-type),
+  `assertCanAddBot`, `assertCanAddKnowledgeSource` (per-bot), `assertCanInviteMember`,
+  `assertCanCreateBroadcast` (feature + monthly count), `assertCanUseAutomations`.
+  Each counts live usage and returns `{ ok, error }`.
+- **Gates wired** into all 5 channel-create paths (WA/IG/Telegram/Email
+  manual forms + IG OAuth callback), `createBot`, both knowledge-source
+  paths, `inviteTeamMember`, `createBroadcast`.
+- **`createApiKey`** refactored off the deleted `lib/billing/plans.ts`
+  onto `api:read` / `api:write` entitlements.
+- **`/settings/billing`** rebuilt on bundles + entitlements: live usage
+  meters (channels / team / bots / broadcasts / AI tokens), monthly|yearly
+  plan comparison, Stripe checkout (`UpgradePanel`) + portal buttons.
+- **`/settings/admin/entitlements`** operator console (`lib/billing/admin-actions.ts`):
+  `provisionOrgBundle`, `backfillUnprovisionedOrgs` (one-click launch
+  backfill → Trial), `grantEntitlement` / `revokeEntitlement` per-org.
+  Operator = owner of `XYRA_OPERATOR_ORG_ID` (any owner when env unset,
+  pre-launch). **This is the backfill tool** — point it at your org +
+  pick a bundle.
+- **`lib/billing/plans.ts` DELETED** — single plan model now (entitlements).
+- Verified by a 22-agent adversarial workflow (fail-open contract holds
+  end-to-end; entitlement keys in gates match bundle definitions; gates
+  fire before inserts; admin actions operator-gated). Only finding was
+  the isProvisioned error-cache edge, now fixed.
+
+**Note on the local-toolchain incident (2026-05-29):** the repo lives in
+a OneDrive folder; `node_modules` got cloud-offloaded to dataless
+placeholders and reads started timing out (ETIMEDOUT errno -60). Operator
+quit OneDrive + we reinstalled `node_modules` as real local files +
+cleared `.next`. Builds work again. **`.env.local` is still a OneDrive
+placeholder** — `npm run dev` may warn it can't load env; re-hydrate it
+(open OneDrive once) or recreate `.env.local` from `.env.example`. Prod
+is unaffected (Vercel uses its own env). Long-term: move the repo off
+OneDrive or keep the folder "always on this device".
 
 **Deferred to Session 3**
 - Promo codes + admin UI + redeem endpoint + seed script.

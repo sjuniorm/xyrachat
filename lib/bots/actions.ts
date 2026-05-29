@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chunkText, embedChunks } from "@/lib/ai/embeddings";
 import { scrapeUrl } from "@/lib/ai/scraper";
+import { assertCanAddBot, assertCanAddKnowledgeSource } from "@/lib/billing/gates";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -72,6 +73,10 @@ export async function createBot(payload: {
   if (!validObjectives.includes(payload.objective)) {
     return { ok: false, error: "Invalid objective." };
   }
+
+  // Plan gate — bot count cap. Fails open for un-provisioned orgs.
+  const botGate = await assertCanAddBot(auth.orgId);
+  if (!botGate.ok) return { ok: false, error: botGate.error };
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -244,6 +249,10 @@ export async function addTextSource(
     return { ok: false, error: "Bot not in your org." };
   }
 
+  // Plan gate — per-bot knowledge-source cap. Fails open un-provisioned.
+  const srcGate = await assertCanAddKnowledgeSource(auth.orgId, botId);
+  if (!srcGate.ok) return { ok: false, error: srcGate.error };
+
   const { data: source, error } = await admin
     .from("bot_sources")
     .insert({
@@ -295,6 +304,10 @@ export async function addUrlSource(
   if (!bot || bot.org_id !== auth.orgId) {
     return { ok: false, error: "Bot not in your org." };
   }
+
+  // Plan gate — per-bot knowledge-source cap. Fails open un-provisioned.
+  const srcGate = await assertCanAddKnowledgeSource(auth.orgId, botId);
+  if (!srcGate.ok) return { ok: false, error: srcGate.error };
 
   // Create the source row first so the UI can show progress.
   const { data: source, error: insertErr } = await admin

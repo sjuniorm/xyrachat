@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
+import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewChannelForm } from "./new-channel-form";
 
 async function createChannelAction(
@@ -32,6 +33,11 @@ async function createChannelAction(
     .maybeSingle();
   const orgId = profile?.org_id;
   if (!orgId) return { error: "You must belong to an organization." };
+
+  // Plan gate — count cap + whatsapp availability. Fails open for
+  // un-provisioned orgs (see lib/billing/entitlements isProvisioned).
+  const gate = await assertCanAddChannel(orgId, "whatsapp");
+  if (!gate.ok) return { error: gate.error };
 
   // Store token in Vault — vault.create_secret returns the secret UUID, which
   // is the only thing we persist in channels.access_token_vault_id.

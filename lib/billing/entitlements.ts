@@ -69,6 +69,48 @@ function cacheKey(orgId: string, feature: FeatureKey): string {
   return `${orgId}::${feature}`;
 }
 
+// =====================================================================
+// FAIL-OPEN BACKSTOP
+//
+// An org is "provisioned" once it has ≥1 entitlement row (from a bundle,
+// a manual grant, a promo, anything). Until then — e.g. existing orgs
+// before the operator runs the backfill, or a brand-new org mid-signup
+// — every gate FAILS OPEN: features are allowed, limits are unlimited.
+// This guarantees the live app never starts blocking a real org the
+// moment Session 2 deploys, before the operator has backfilled.
+//
+// Once an org IS provisioned, gates are STRICT: a missing feature_key
+// means "not in your plan" (false / 0). Bundles define every key, so a
+// provisioned org always has a complete set.
+//
+// The provisioned flag is cached per-org for the request window.
+// =====================================================================
+const provisionedCache = new Map<string, { provisioned: boolean; expiresAt: number }>();
+
+export async function isProvisioned(orgId: string): Promise<boolean> {
+  const hit = provisionedCache.get(orgId);
+  if (hit && hit.expiresAt > Date.now()) return hit.provisioned;
+  const admin = createAdminClient();
+  const { count, error } = await admin
+    .from("org_entitlements")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId);
+  if (error) {
+    // DB/network blip: fail OPEN (treat as un-provisioned so gates pass),
+    // but DO NOT cache the wrong answer. A genuinely provisioned org must
+    // snap back to strict enforcement on the very next call once the DB
+    // recovers — caching `false` here would let a paying org bypass its
+    // limits for the full cache window after a single transient error.
+    return false;
+  }
+  const provisioned = (count ?? 0) > 0;
+  provisionedCache.set(orgId, {
+    provisioned,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+  return provisioned;
+}
+
 // Returns the effective value (after precedence resolution) for a
 // feature, or null if no entitlement row exists for the org.
 export async function getEntitlement(
@@ -126,22 +168,26 @@ export async function getAllEntitlements(
   return out;
 }
 
-// Boolean check — true if any active row for the feature evaluates to true.
+// Boolean check — true if any active row for the feature evaluates to
+// true. Fails OPEN for un-provisioned orgs (see isProvisioned above).
 export async function hasFeature(
   orgId: string,
   feature: FeatureKey,
 ): Promise<boolean> {
+  if (!(await isProvisioned(orgId))) return true; // fail-open
   const v = await getEntitlement(orgId, feature);
   return v === "true";
 }
 
-// Numeric limit — returns the max from all active rows, or 0 if none.
-// -1 sentinel value means "unlimited" (returned as Infinity for easy
-// math: `count < limit` always passes).
+// Numeric limit — returns the max from all active rows. -1 sentinel
+// means "unlimited" (returned as Infinity). Un-provisioned orgs get
+// Infinity (fail-open); provisioned orgs with no row for this key get
+// 0 (not in plan).
 export async function getLimit(
   orgId: string,
   feature: FeatureKey,
 ): Promise<number> {
+  if (!(await isProvisioned(orgId))) return Infinity; // fail-open
   const v = await getEntitlement(orgId, feature);
   if (v === null) return 0;
   if (v === "-1") return Infinity;
@@ -231,4 +277,5 @@ function pickMostPermissive(values: string[]): string {
 // between assertions. Not for production use.
 export function _clearEntitlementCache(): void {
   cache.clear();
+  provisionedCache.clear();
 }

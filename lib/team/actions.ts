@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertCanInviteMember } from "@/lib/billing/gates";
 import type { ProfileRole } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -48,6 +49,10 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   if (role === "admin" && me.role !== "owner") {
     return { ok: false, error: "Only owners can invite admins." };
   }
+
+  // Plan gate — team-member count cap. Fails open for un-provisioned orgs.
+  const seatGate = await assertCanInviteMember(me.org_id);
+  if (!seatGate.ok) return { ok: false, error: seatGate.error };
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";

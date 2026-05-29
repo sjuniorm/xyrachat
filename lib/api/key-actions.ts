@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateApiKey, hashApiKey } from "./keys";
 import { SCOPES, type Scope } from "./scopes";
-import { PLANS, type PlanId } from "@/lib/billing/plans";
+import { hasFeature } from "@/lib/billing/entitlements";
 
 // Scopes that count as "write" — gated to plans with apiAccess='full'.
 // Read-only access (apiAccess='read_only') is allowed everything ending
@@ -84,26 +84,24 @@ export async function createApiKey(input: {
     return { ok: false, error: "Pick at least one scope." };
   }
 
-  // Plan gate. Free can't create API keys; Starter can create read-only
-  // keys; Pro+ can create full-write keys. When the admin panel lands,
-  // these defaults stay as fallbacks while overrides live in the DB.
+  // Plan gate via entitlements (replaces the old PLANS.apiAccess check).
+  //   api:read  — can the org create read-only keys at all?
+  //   api:write — can it create keys with write scopes?
+  // Fails open for un-provisioned orgs (hasFeature returns true), so the
+  // operator's own org keeps full access until the backfill runs.
   const admin0 = createAdminClient();
-  const { data: sub } = await admin0
-    .from("subscriptions")
-    .select("plan")
-    .eq("org_id", auth.orgId)
-    .maybeSingle();
-  const plan = PLANS[(sub?.plan as PlanId) ?? "free"] ?? PLANS.free;
-  if (plan.apiAccess === "none") {
+  const canRead = await hasFeature(auth.orgId, "api:read");
+  if (!canRead) {
     return {
       ok: false,
       error:
         "Public API access isn't included on your plan. Upgrade to Starter or Pro to generate keys.",
     };
   }
-  if (plan.apiAccess === "read_only") {
-    const hasWrite = input.scopes.some((s) => WRITE_SCOPES.has(s as Scope));
-    if (hasWrite) {
+  const wantsWrite = input.scopes.some((s) => WRITE_SCOPES.has(s as Scope));
+  if (wantsWrite) {
+    const canWrite = await hasFeature(auth.orgId, "api:write");
+    if (!canWrite) {
       return {
         ok: false,
         error:

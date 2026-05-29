@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewEmailChannelForm } from "./new-email-channel-form";
 
 async function createEmailChannelAction(
@@ -28,6 +29,9 @@ async function createEmailChannelAction(
     .maybeSingle();
   const orgId = profile?.org_id;
   if (!orgId) return { error: "You must belong to an organization." };
+
+  const gate = await assertCanAddChannel(orgId, "email");
+  if (!gate.ok) return { error: gate.error };
 
   const domain = process.env.INBOUND_EMAIL_DOMAIN ?? "mail.xyrachat.com";
   const inboxEmail = `${inboxLocal}@${domain}`.toLowerCase();
