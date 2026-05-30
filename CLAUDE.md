@@ -1450,6 +1450,15 @@ Also queued:
   RLS from inside an authenticated server action is the wrong shape. See
   `app/(auth)/onboarding/page.tsx` for the canonical example.
 - Tables: snake_case. TypeScript types: PascalCase. Re-generate types via `supabase gen types typescript --linked > lib/db-types.ts` (Week 2 once linked).
+- **Every new `CREATE TABLE` migration MUST bundle explicit GRANTs.**
+  Supabase removed Data-API auto-grants for `public` tables (discussion
+  #45329); applies to our project from **2026-10-30**. Existing tables
+  are safe; new ones aren't. Pattern: `GRANT ALL ON public.<t> TO
+  service_role;` (our admin client — the one that breaks the app if
+  missed) plus `GRANT SELECT[, INSERT, UPDATE, DELETE] ON public.<t> TO
+  authenticated;` for RLS-gated org tables the user-scoped client reads/
+  writes. Operator/service-only tables (e.g. promo_codes, disputes):
+  service_role only. See the project_supabase_data_api_grants memory.
 
 ## Open issues / notes
 
