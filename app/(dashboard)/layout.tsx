@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { SidebarContent } from "@/components/app/sidebar-content";
 import { MobileHeader } from "@/components/app/mobile-header";
+import { BillingBanner } from "@/components/app/billing-banner";
 
 export default async function DashboardLayout({
   children,
@@ -43,6 +44,7 @@ export default async function DashboardLayout({
       {/* Mobile column: hamburger header + content */}
       <div className="flex h-full flex-1 flex-col">
         <MobileHeader {...userProps} />
+        <BillingBanner orgId={profile.org_id} />
         <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>
     </div>

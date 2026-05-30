@@ -4,6 +4,7 @@ import { getStripe, bundleIdFromPriceId } from "@/lib/billing/stripe";
 import { provisionBundle, clearAllBundleEntitlements } from "@/lib/billing/provision";
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { submitDisputeEvidence } from "@/lib/billing/dispute-evidence";
 
 export const runtime = "nodejs";
 
@@ -80,9 +81,15 @@ export async function POST(req: NextRequest) {
       case "invoice.payment_failed":
         await onInvoicePaymentFailed(event.data.object as Stripe.Invoice);
         break;
+      case "charge.dispute.created":
+        await onDisputeCreated(event.data.object as Stripe.Dispute);
+        break;
+      case "charge.dispute.updated":
+      case "charge.dispute.closed":
+        await onDisputeUpdated(event.data.object as Stripe.Dispute);
+        break;
       default:
-        // No-op for events we don't handle yet (charge.*, dispute.*,
-        // coupon.*, etc.) — they land in Session 3.
+        // No-op for events we don't handle (coupon.*, etc.).
         break;
     }
   } catch (err) {
@@ -142,6 +149,51 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
     stripeSubscriptionId: subscription.id,
     expiresAt: null,
   });
+
+  // Record a promo redemption if a discount was applied at checkout, so
+  // analytics + redemption_count stay accurate. Match Stripe's coupon to
+  // our promo_codes mirror.
+  await recordCheckoutPromo(orgId, session);
+}
+
+// Matches the checkout's applied coupon to our promo_codes mirror and
+// upserts a redemption row. Best-effort — never throws into the webhook.
+async function recordCheckoutPromo(orgId: string, session: Stripe.Checkout.Session) {
+  try {
+    const amountDiscount = session.total_details?.amount_discount ?? 0;
+    if (amountDiscount <= 0) return;
+    // Resolve the coupon id from the session's discounts.
+    const stripe = getStripe();
+    const full = await stripe.checkout.sessions.retrieve(session.id, {
+      expand: ["total_details.breakdown.discounts.discount"],
+    });
+    const breakdown = (full.total_details as unknown as {
+      breakdown?: { discounts?: Array<{ discount?: { coupon?: { id?: string } } }> };
+    } | null)?.breakdown;
+    const couponId = breakdown?.discounts?.[0]?.discount?.coupon?.id;
+    if (!couponId) return;
+    const admin = createAdminClient();
+    const { data: promo } = await admin
+      .from("promo_codes")
+      .select("id, redemption_count")
+      .eq("stripe_coupon_id", couponId)
+      .maybeSingle();
+    if (!promo) return;
+    await admin.from("promo_redemptions").upsert(
+      {
+        promo_code_id: promo.id,
+        org_id: orgId,
+        amount_discounted_cents: amountDiscount,
+      },
+      { onConflict: "promo_code_id,org_id" },
+    );
+    await admin
+      .from("promo_codes")
+      .update({ redemption_count: (promo.redemption_count ?? 0) + 1 })
+      .eq("id", promo.id);
+  } catch (err) {
+    console.warn("[stripe webhook] recordCheckoutPromo failed", err);
+  }
 }
 
 async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
@@ -304,4 +356,92 @@ async function syncSubscriptionRow(
         : null,
     })
     .eq("org_id", orgId);
+}
+
+// =====================================================================
+// Disputes (chargebacks). On create: record the dispute, pause the org
+// (likely-fraudulent), and auto-submit evidence. On update/close: sync
+// status so the admin disputes UI reflects the outcome.
+// =====================================================================
+async function onDisputeCreated(dispute: Stripe.Dispute) {
+  const admin = createAdminClient();
+  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id ?? null;
+
+  // Resolve the org via the charge's customer → subscriptions row.
+  let orgId: string | null = null;
+  try {
+    if (chargeId) {
+      const stripe = getStripe();
+      const charge = await stripe.charges.retrieve(chargeId);
+      const customerId = typeof charge.customer === "string" ? charge.customer : charge.customer?.id ?? null;
+      if (customerId) {
+        const { data: sub } = await admin
+          .from("subscriptions")
+          .select("org_id")
+          .eq("stripe_customer_id", customerId)
+          .maybeSingle();
+        orgId = sub?.org_id ?? null;
+      }
+    }
+  } catch (err) {
+    console.warn("[stripe webhook] dispute org resolution failed", err);
+  }
+
+  // Insert the dispute row, but DON'T clobber status on a re-delivery.
+  // Stripe can deliver events out of order — a `.closed`/`.updated`
+  // carrying a newer status (won/lost/under_review) may arrive before a
+  // re-delivered `.created`. So: fresh row → insert with the created
+  // status; existing row → only backfill org/charge linkage, never
+  // regress the status (onDisputeUpdated owns status transitions).
+  const { data: existing } = await admin
+    .from("disputes")
+    .select("id, org_id")
+    .eq("stripe_dispute_id", dispute.id)
+    .maybeSingle();
+  if (existing) {
+    if (!existing.org_id && orgId) {
+      await admin
+        .from("disputes")
+        .update({ org_id: orgId, stripe_charge_id: chargeId })
+        .eq("id", existing.id);
+    }
+  } else {
+    await admin.from("disputes").insert({
+      stripe_dispute_id: dispute.id,
+      org_id: orgId,
+      stripe_charge_id: chargeId,
+      amount_cents: dispute.amount,
+      currency: dispute.currency,
+      reason: dispute.reason,
+      status: dispute.status,
+      evidence_due_by: dispute.evidence_details?.due_by
+        ? new Date(dispute.evidence_details.due_by * 1000).toISOString()
+        : null,
+    });
+  }
+
+  // Pause the org's service — a dispute usually means fraud or a hard
+  // chargeback; don't keep serving until it resolves.
+  if (orgId) {
+    await admin.from("subscriptions").update({ status: "past_due" }).eq("org_id", orgId);
+  }
+
+  // Auto-submit evidence (within Stripe's deadline). Only when the
+  // dispute actually needs a response.
+  if (dispute.status === "needs_response" || dispute.status === "warning_needs_response") {
+    await submitDisputeEvidence(dispute.id);
+  }
+}
+
+async function onDisputeUpdated(dispute: Stripe.Dispute) {
+  const admin = createAdminClient();
+  await admin
+    .from("disputes")
+    .update({
+      status: dispute.status,
+      evidence_due_by: dispute.evidence_details?.due_by
+        ? new Date(dispute.evidence_details.due_by * 1000).toISOString()
+        : null,
+    })
+    .eq("stripe_dispute_id", dispute.id);
 }

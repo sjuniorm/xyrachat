@@ -22,6 +22,14 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith("/api/webhooks/")) return true;
   // GDPR + auth-gated APIs do their own auth checks inside the handler.
   if (pathname.startsWith("/api/gdpr")) return true;
+  // Bearer/secret-authed API families — they authenticate INSIDE the
+  // handler (API key, CRON_SECRET), never via a session cookie. Without
+  // these exemptions the middleware 401s them before the handler runs,
+  // which silently breaks the entire public REST API + every cron job.
+  if (pathname.startsWith("/api/v1/")) return true; // public REST API (Bearer key)
+  if (pathname.startsWith("/api/internal/")) return true; // webhook-retry, retention-purge (CRON_SECRET)
+  if (pathname.startsWith("/api/cron/")) return true; // broadcasts cron (CRON_SECRET)
+  if (pathname === "/api/broadcasts/send-internal") return true; // CRON_SECRET-authed
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/favicon")) return true;
   return false;

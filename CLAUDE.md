@@ -1349,12 +1349,75 @@ placeholder** — `npm run dev` may warn it can't load env; re-hydrate it
 is unaffected (Vercel uses its own env). Long-term: move the repo off
 OneDrive or keep the folder "always on this device".
 
-**Deferred to Session 3**
-- Promo codes + admin UI + redeem endpoint + seed script.
-- Cancellation flow (downgrade-blockers preview, reason capture, banner).
-- 30-day retention purge cron.
-- Chargeback/dispute auto-evidence + admin disputes UI.
-- Billing-status banners.
+**Session 3 — DONE (2026-05-30)**
+- **Migration 027** — `promo_codes`, `promo_redemptions`,
+  `cancellation_feedback`, `disputes` tables + RLS (promo/dispute are
+  service-role-only; cancellation_feedback has an org-scoped INSERT
+  policy). Plus `soft_delete_org(org_id)` SECURITY DEFINER cascade and
+  the daily `retention_purge` pg_cron job (reuses the `app_config`
+  cron_secret pattern from migration 025).
+- **Promo codes** ([lib/billing/promo.ts](lib/billing/promo.ts)) —
+  `createPromo` makes a Stripe Coupon + Promotion Code for discount/
+  free_month/custom_quote kinds; trial/trial_extension kinds skip Stripe
+  and bump `subscriptions.trial_ends_at` directly. `redeemPromo`
+  attaches the coupon to a live sub OR extends the trial; generic
+  "invalid or expired" error for all failure modes (anti-enumeration);
+  one-redemption-per-org. Operator actions in
+  [lib/billing/promo-actions.ts](lib/billing/promo-actions.ts)
+  (create/disable + `seedLaunchPromos` → LAUNCH50/FREEMONTH/BETA90).
+  Admin UI at `/settings/admin/promos`.
+- **Customer redeem** — `POST /api/billing/promo/redeem` (owner-only,
+  in-memory 5/hour rate limit). "Have a code?" box on `/settings/billing`.
+- **Cancellation** — `POST /api/billing/preview-downgrade` returns
+  blockers when the org exceeds the target plan's limits (block-and-
+  prompt). Reason-capture modal on the Cancel button → 
+  `recordCancellationFeedback` ([lib/billing/cancellation-actions.ts](lib/billing/cancellation-actions.ts))
+  logs to `cancellation_feedback` before redirecting to the Stripe Portal.
+- **Retention purge** — `POST/GET /api/internal/retention-purge`
+  (CRON_SECRET-authed) finds `status='canceled'` subs past
+  `data_retention_until`, runs `soft_delete_org`, then clears the marker.
+  Soft-delete only; never touches active/trialing orgs.
+- **Disputes** — Stripe webhook now handles `charge.dispute.created`
+  (records the dispute, pauses the org to `past_due`, auto-submits
+  evidence via [lib/billing/dispute-evidence.ts](lib/billing/dispute-evidence.ts)),
+  `.updated`/`.closed` (status sync). Evidence is assembled from org +
+  owner identity + usage proof (channels/bots/conversations counts) +
+  policy links. Admin UI at `/settings/admin/disputes` (force-submit +
+  notes). **Add the dispute events to the Stripe webhook subscription**
+  in the dashboard: `charge.dispute.created`, `.updated`, `.closed`.
+- **Promo redemption on checkout** — webhook records a redemption +
+  bumps `redemption_count` when a discount is applied at Checkout.
+- **`<BillingBanner />`** in the dashboard layout — one dismissible
+  (per-session) banner driven by subscription status: past_due →
+  retention countdown → canceling → trial-ending (≤3d) → AI usage ≥80%.
+
+**Adversarial review (23-agent workflow) caught + fixed before ship:**
+- **Middleware was 401'ing every Bearer/secret-authed API** — `/api/v1/*`
+  (public REST API), `/api/internal/*` + `/api/cron/*` (cron jobs), and
+  `/api/broadcasts/send-internal` were NOT in `isPublicPath`, so the
+  session-cookie gate rejected them before the handler's own auth ran.
+  This silently broke the entire Week 11 public API + the webhook-retry
+  + retention crons (pg_cron reported "succeeded" because the SQL
+  function fired http_post; the request itself got 401). Fixed in
+  [lib/supabase/middleware.ts](lib/supabase/middleware.ts) — those
+  families are now exempt (they auth via Bearer/HMAC inside the handler).
+- **Promo trial TOCTOU** — `redeemPromo` now claims the redemption slot
+  via an INSERT guarded by `UNIQUE(promo_code_id, org_id)` BEFORE any
+  benefit, + an atomic `extend_trial` RPC (GREATEST, server-side), so
+  parallel requests can't stack free trial days.
+- **Dispute evidence double-submit** — atomic claim of
+  `evidence_submitted_at` (conditional UPDATE … WHERE … IS NULL) so
+  re-delivered `dispute.created` events submit to Stripe once.
+- **Dispute status clobber** — `onDisputeCreated` no longer regresses a
+  newer status on out-of-order re-delivery (insert-if-absent only).
+
+**Operator console URLs** (owner of XYRA_OPERATOR_ORG_ID, or any owner
+pre-launch): `/settings/admin/entitlements`, `/settings/admin/promos`,
+`/settings/admin/disputes`. Not yet in the settings nav — reach by URL.
+
+**Week 12 is COMPLETE.** Operator setup checklist (apply migrations
+026+027, create Stripe products/prices/webhook/keys, run the backfill)
+is in the project_billing_operator_setup memory.
 
 ## Roadmap snapshot (what's next — Week 13)
 
