@@ -7,6 +7,7 @@ import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
+import { notifyNewInbound } from "@/lib/push/notify";
 
 // Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -524,6 +525,12 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       media_type: extracted.media_type,
       created_at: new Date(ev.timestamp).toISOString(),
     },
+  });
+  // Wake the assigned agent's mobile device(s). Fire-and-forget.
+  void notifyNewInbound({
+    conversationId,
+    channelType: channel.type,
+    preview: extracted.content,
   });
   await runBotGate({
     channel: { id: channel.id, type: channel.type, org_id: channel.org_id },

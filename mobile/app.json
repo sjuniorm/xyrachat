@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Xyra Chat",
+    "slug": "xyra-chat",
+    "version": "1.0.0",
+    "scheme": "xyrachat",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "primaryColor": "#9333EA",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.xyrachat.app"
+    },
+    "android": {
+      "package": "com.xyrachat.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1F1033",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-image",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0B0418"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#9333EA",
+          "defaultChannel": "default"
+        }
+      ]
+    ]
+  }
+}

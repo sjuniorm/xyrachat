@@ -4,6 +4,7 @@ import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
+import { notifyNewInbound } from "@/lib/push/notify";
 
 export const runtime = "nodejs";
 
@@ -291,6 +292,13 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
       media_type: extracted.media_type,
       created_at: new Date(msg.date * 1000).toISOString(),
     },
+  });
+
+  // Wake the assigned agent's mobile device(s). Fire-and-forget.
+  void notifyNewInbound({
+    conversationId,
+    channelType: channel.type,
+    preview: extracted.content,
   });
 
   // Auto-translate + bot gate. Run sequentially so the bot sees the

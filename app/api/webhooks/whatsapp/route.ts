@@ -8,6 +8,7 @@ import { applyOptOutAction } from "@/lib/contacts/opt-out";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
+import { notifyNewInbound } from "@/lib/push/notify";
 
 // Force Node runtime — we need `crypto` for HMAC.
 export const runtime = "nodejs";
@@ -468,6 +469,12 @@ async function handleInbound(
       media_type: extracted.media_type,
       created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
     },
+  });
+  // Wake the assigned agent's mobile device(s). Fire-and-forget.
+  void notifyNewInbound({
+    conversationId,
+    channelType: channel.type ?? "whatsapp",
+    preview: extracted.content,
   });
   // Don't run the bot gate when the contact just unsubscribed — the auto
   // confirm message is the appropriate response and a bot reply on top

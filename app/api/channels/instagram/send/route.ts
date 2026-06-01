@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 
@@ -15,11 +15,8 @@ type SendBody = {
 };
 
 export async function POST(req: Request) {
-  // 1. Auth.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // 1. Auth (web session cookie OR mobile JWT).
+  const { supabase, user } = await getRouteUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

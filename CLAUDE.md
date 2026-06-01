@@ -1419,11 +1419,96 @@ pre-launch): `/settings/admin/entitlements`, `/settings/admin/promos`,
 026+027, create Stripe products/prices/webhook/keys, run the backfill)
 is in the project_billing_operator_setup memory.
 
-## Roadmap snapshot (what's next — Week 13)
+## Week 13 — React Native mobile app (DONE)
 
-Week 13: **React Native mobile app** — companion app for agents on the
-go. Push notifications for new inbound + assignments + handoffs, full
-inbox + composer parity with the web app, biometric login.
+Companion app for agents on the go, living in [`mobile/`](mobile/) as a
+separate Expo package in the monorepo (excluded from the Next.js
+tsconfig + eslint so the web build never touches it). Built before launch
+(Junior's call — wants the product to feel complete at ship despite the
+spec flagging it as v1.2-deferrable).
+
+**Stack** — Expo SDK 56, React Native 0.85, React 19, TypeScript, React
+Navigation v7 (native-stack + bottom-tabs), React Native Paper (themed to
+Xyra brand), `@supabase/supabase-js`. Latest stable per the always-latest
+convention.
+
+**Auth + session** ([`mobile/src/lib/`](mobile/src/lib/))
+- `storage.ts` — `LargeSecureStore`: AES-encrypts the Supabase session, AES
+  key in the device Keychain/Keystore (`expo-secure-store`), ciphertext in
+  AsyncStorage. Handles sessions larger than SecureStore's ~2KB cap
+  (Supabase's official Expo pattern).
+- `supabase.ts` — client with that storage, `autoRefreshToken`, focus-based
+  refresh start/stop on `AppState`.
+- `auth/AuthContext.tsx` — session + profile + `signIn` / `signOut` /
+  `setAvailability` (direct RLS UPDATE on own profile — allowed by the
+  migration-001 self-update policy). Auto-login on launch.
+
+**Screens** ([`mobile/src/screens/`](mobile/src/screens/)) — Login (dark,
+gradient wordmark), ConversationList (All/Mine/Open filter tabs,
+pull-to-refresh, skeleton, realtime), ChatDetail (inverted bubbles, image
+preview modal, assign-to-me + close/reopen via RLS UPDATE, composer →
+send), Contacts (searchable), ContactProfile (details + tags + this
+contact's conversations → deep link), Notifications (my open conversations
++ enable-push card, drives the tab badge), Settings (profile, availability
+segmented toggle, push status, version, sign out).
+
+**Realtime** ([`mobile/src/hooks/`](mobile/src/hooks/)) — `useConversations`,
+`useThread`, `useMyAssigned`. All Supabase Realtime, RLS-scoped to the
+agent's org (multi-tenant safe by construction — same RLS as web).
+
+**Sending** — `mobile/src/lib/api.ts` posts to the web app's
+`/api/channels/{provider}/send` with the Supabase access token as a
+`Bearer`. This required a web-side change: **`lib/supabase/route-auth.ts`**
+→ `getRouteUser(req)` accepts a session **cookie OR a Supabase JWT Bearer**;
+the 4 send routes now use it, and `lib/supabase/middleware.ts` exempts
+`/api/channels/` (handlers self-auth — the cookie-only middleware gate would
+401 the mobile app before its handler ran; same bug class as the Week 12
+public-API middleware fix). New message renders via the Realtime
+subscription (no optimistic insert).
+
+**Push notifications**
+- Migration [`028_push_tokens.sql`](supabase/migrations/028_push_tokens.sql)
+  — `push_tokens(user_id, org_id, token, platform, …)`, RLS (own rows only),
+  a trigger that derives `org_id` from the profile (not client-spoofable),
+  soft-delete + explicit grants per the Data-API convention.
+- Client: `mobile/src/lib/push.ts` registers the Expo push token on login
+  (UPSERT) and removes it on logout. Foreground handler shows banners.
+- Server: `lib/push/expo.ts` (Expo Push API client, chunked, never throws) +
+  `lib/push/notify.ts` (`notifyNewInbound` — wakes the **assigned** agent's
+  devices, prunes DeviceNotRegistered tokens). Wired fire-and-forget into the
+  WA / IG / Telegram inbound webhooks after the existing `emit()`.
+- Tapping a notification deep-links to the conversation (cold-start +
+  runtime), via `mobile/src/navigation/ref.ts` + `App.tsx`.
+
+**Config** — `mobile/app.json` (name "Xyra Chat", bundle/package
+`com.xyrachat.app`, dark UI, brand splash + adaptive icon bg, notifications
+plugin color `#9333EA`), `mobile/eas.json` (development / preview /
+production profiles; public `EXPO_PUBLIC_*` baked into each profile's env).
+`mobile/README.md` documents run / EAS build / store submit.
+
+**Verified** — `npx tsc --noEmit` clean in `mobile/`; `npm run build` clean
+on the web app after the route-auth / middleware / webhook edits.
+
+**Deferred to the post-launch mobile roadmap** (not this week)
+- **Real store submission** (App Store / Google Play review, credentials,
+  icons/screenshots) — Week 13 scope was "builds locally + EAS configured".
+- **Push delivery needs `eas init`** to write `extra.eas.projectId`; until
+  then push registration no-ops gracefully (rest of the app works).
+- **Sending photos/files from mobile** — composer attach button shows a
+  "coming soon" alert (blocked on the same media-outbound work deferred since
+  Week 3). `expo-image-picker` is installed for when it lands.
+- **Biometric login** (the spec mentioned it) — `expo-local-authentication`
+  gate on top of the persisted session; quick follow-up.
+- OneDrive note: `mobile/node_modules` is large; keep the folder
+  "Always keep on this device" so Metro file-watching doesn't choke (same
+  caution as the Week 12 OneDrive incident).
+
+## Roadmap snapshot (what's next — Week 14)
+
+Week 14: **Tauri desktop app** — native desktop wrapper (macOS/Windows/Linux)
+for agents who live in the inbox all day. Week 15 onward is the debug/polish
++ launch-prep phase (see the project_pre_launch_checklist memory) — Meta App
+Review is the longest-pole external dependency, start it early.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
