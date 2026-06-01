@@ -1427,10 +1427,19 @@ tsconfig + eslint so the web build never touches it). Built before launch
 (Junior's call — wants the product to feel complete at ship despite the
 spec flagging it as v1.2-deferrable).
 
-**Stack** — Expo SDK 56, React Native 0.85, React 19, TypeScript, React
+**Stack** — Expo SDK 54 (RN 0.81.5, React 19.1), TypeScript, React
 Navigation v7 (native-stack + bottom-tabs), React Native Paper (themed to
-Xyra brand), `@supabase/supabase-js`. Latest stable per the always-latest
-convention.
+Xyra brand), `@supabase/supabase-js`.
+
+> **SDK pin (intentional, dev-preview only):** scaffolded on the latest SDK
+> 56 but pinned down to **SDK 54** because the test iPhone's stock Expo Go is
+> 54.0.2 (iOS Expo Go lags new SDKs; that device's iOS caps it at 54). Expo
+> Go runs only its own single SDK, so the project SDK must match to preview
+> without a dev build. `mobile/.npmrc` sets `legacy-peer-deps=true`. **Bump
+> back to the latest SDK** (`npm install expo@latest && npx expo install
+> --fix`) when we move to real EAS builds for launch — the pin is purely so
+> Expo Go can open it now. `expo-image` must NOT be in app.json `plugins` on
+> SDK 54 (no config plugin until a later SDK).
 
 **Auth + session** ([`mobile/src/lib/`](mobile/src/lib/))
 - `storage.ts` — `LargeSecureStore`: AES-encrypts the Supabase session, AES
