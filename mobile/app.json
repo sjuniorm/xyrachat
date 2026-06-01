@@ -8,7 +8,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "primaryColor": "#9333EA",
-    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.xyrachat.app"
@@ -43,7 +42,8 @@
           "color": "#9333EA",
           "defaultChannel": "default"
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
