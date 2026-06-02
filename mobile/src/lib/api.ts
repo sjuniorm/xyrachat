@@ -86,6 +86,23 @@ export async function sendMessage(params: {
   return res.ok ? { ok: true } : res;
 }
 
+/** Send an approved WhatsApp template (re-engage outside the 24h window). */
+export async function sendTemplate(params: {
+  conversationId: string;
+  templateName: string;
+  templateLanguage: string;
+  components: Array<Record<string, unknown>>;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await authedPost("/api/channels/whatsapp/send", {
+    conversationId: params.conversationId,
+    type: "template",
+    templateName: params.templateName,
+    templateLanguage: params.templateLanguage,
+    templateComponents: params.components,
+  });
+  return res.ok ? { ok: true } : res;
+}
+
 /** AI rewrite of the composer text (improve / friendlier / shorter / …). */
 export async function aiAssist(params: {
   text: string;

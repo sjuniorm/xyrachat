@@ -24,6 +24,7 @@ import { sendMessage, aiAssist, aiSuggestReply } from "../lib/api";
 import { useThread } from "../hooks/useThread";
 import { useAuth } from "../auth/AuthContext";
 import { MessageBubble } from "../components/MessageBubble";
+import { TemplatePicker } from "../components/TemplatePicker";
 import { contactDisplayName, channelLabel } from "../lib/format";
 import type { ConversationWithRelations } from "../types";
 
@@ -57,6 +58,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
   const [noteMode, setNoteMode] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
 
   const loadConv = useCallback(async () => {
     const { data } = await supabase
@@ -101,6 +103,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
 
   const assignedToMe = conv?.assigned_to === userId;
   const closed = conv?.status === "closed";
+  const isWhatsApp = conv?.channel?.type === "whatsapp";
   const canSend =
     text.trim().length > 0 && !sending && (noteMode || Boolean(conv?.channel));
 
@@ -334,6 +337,19 @@ export function ChatDetailScreen({ route, navigation }: Props) {
                 color={colors.textMuted}
               />
             </Pressable>
+            {isWhatsApp && !noteMode ? (
+              <Pressable
+                onPress={() => setTemplateOpen(true)}
+                hitSlop={8}
+                style={styles.iconBtn}
+              >
+                <MaterialCommunityIcons
+                  name="file-document-outline"
+                  size={22}
+                  color={colors.textMuted}
+                />
+              </Pressable>
+            ) : null}
             <TextInput
               value={text}
               onChangeText={setText}
@@ -371,6 +387,17 @@ export function ChatDetailScreen({ route, navigation }: Props) {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* WhatsApp template picker */}
+      {conv?.channel ? (
+        <TemplatePicker
+          visible={templateOpen}
+          channelId={conv.channel.id}
+          conversationId={conversationId}
+          contactName={contactDisplayName(conv.contact)}
+          onClose={() => setTemplateOpen(false)}
+        />
+      ) : null}
 
       {/* AI actions sheet */}
       <Modal
