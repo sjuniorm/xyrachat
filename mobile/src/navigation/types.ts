@@ -14,6 +14,7 @@ export type ContactsStackParamList = {
 export type RootTabParamList = {
   Inbox: NavigatorScreenParams<InboxStackParamList>;
   Contacts: NavigatorScreenParams<ContactsStackParamList>;
+  Team: undefined;
   Notifications: undefined;
   Settings: undefined;
 };

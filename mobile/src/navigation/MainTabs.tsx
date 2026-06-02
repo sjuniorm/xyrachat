@@ -7,6 +7,7 @@ import { colors } from "../theme";
 import { useMyAssigned } from "../hooks/useMyAssigned";
 import { InboxStack } from "./InboxStack";
 import { ContactsStack } from "./ContactsStack";
+import { TeamChatScreen } from "../screens/TeamChatScreen";
 import { NotificationsScreen } from "../screens/NotificationsScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 
@@ -65,6 +66,20 @@ export function MainTabs() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons
               name={"account-multiple-outline" as IconName}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Team"
+        component={TeamChatScreen}
+        options={{
+          title: "Team chat",
+          tabBarIcon: ({ color, size }) => (
+            <MaterialCommunityIcons
+              name={"forum-outline" as IconName}
               size={size}
               color={color}
             />

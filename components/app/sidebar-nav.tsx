@@ -11,6 +11,7 @@ import {
   Sparkles,
   FileText,
   Plug,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const ITEMS: NavItem[] = [
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },
   { href: "/automations", label: "Automations", icon: Sparkles },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/team-chat", label: "Team chat", icon: MessagesSquare },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
