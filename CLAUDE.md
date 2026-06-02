@@ -1498,7 +1498,32 @@ production profiles; public `EXPO_PUBLIC_*` baked into each profile's env).
 **Verified** — `npx tsc --noEmit` clean in `mobile/`; `npm run build` clean
 on the web app after the route-auth / middleware / webhook edits.
 
+**Post-test polish (from on-device testing 2026-06-01/02)**
+- Realtime: each hook now uses a unique channel topic (`mobile/src/lib/uid.ts`)
+  — `useMyAssigned` is mounted twice (tab badge + Notifications) and collided
+  on one topic ("cannot add postgres_changes callbacks after subscribe()").
+- Keyboard: composer uses `useHeaderHeight()` as the KeyboardAvoidingView
+  offset; the bottom tab bar is hidden on ChatDetail (full-screen thread).
+- Composer gained **AI Assist** (improve/friendlier/professional/shorter/
+  fix-grammar), **Suggest reply** (bot-grounded), and a **Reply|Note** toggle
+  (internal notes inserted directly with `is_internal_note=true`). The web
+  `/api/ai/message-assist` + `/api/ai/suggest-reply` now accept the mobile JWT
+  via `getRouteUser`; middleware exempts `/api/ai/`.
+- Settings expanded: workspace name + switch, Support (help / report-a-problem
+  with diagnostics), privacy/terms links.
+- Push: skip token fetch (and its warning) when there's no EAS projectId.
+
 **Deferred to the post-launch mobile roadmap** (not this week)
+- **In-app workspace switching for multi-org users** — today one account = one
+  organization on web AND mobile (the whole RLS model assumes `profiles.org_id`
+  is single). True switching needs a many-to-many membership model
+  (memberships table + RLS rewrite) across the *whole product*. Mobile's
+  "Switch workspace" currently = sign out → sign in with the other org's
+  account. A real feature, but a core-data-model project, not a mobile-only add.
+- **Templates from mobile** (WA template picker + variable mapping) — feasible,
+  medium effort; the send endpoint already supports `type:"template"`.
+- **Standalone team chat** — not a web feature either; internal notes are the
+  existing per-conversation team-comms mechanism. Net-new to both platforms.
 - **Real store submission** (App Store / Google Play review, credentials,
   icons/screenshots) — Week 13 scope was "builds locally + EAS configured".
 - **Push delivery needs `eas init`** to write `extra.eas.projectId`; until
