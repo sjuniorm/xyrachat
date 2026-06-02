@@ -1528,6 +1528,13 @@ on the web app after the route-auth / middleware / webhook edits.
   direct `profiles.org_id`/`role` UPDATE from authenticated — previously a user
   could self-reassign org_id to any org and read its data. `removeTeamMember`
   now revokes the membership too.
+- **Invite existing users + membership-based team management** — inviting an
+  email that already has an account adds/revives a membership directly (so two
+  separate accounts can share workspaces), instead of the email invite that
+  rejects existing emails. Team reads (`getTeamSnapshot`/`getOrgMembers`),
+  role changes, removal, and the seat-limit gate are all sourced from
+  `memberships` (per-org roles) rather than `profiles.org_id`, so a teammate
+  whose active workspace is elsewhere still appears + is assignable in this org.
 
 **⚠️ Operator: apply migrations 029 + 030 in Supabase.** After 030, smoke-test
 that login + set-availability + onboarding still work (the profiles column-grant
@@ -1535,11 +1542,6 @@ hardening is the sensitive bit — failure mode is "can't update profile",
 fail-closed, not a leak).
 
 **Still deferred (post-launch)**
-- **Invite an EXISTING user into a second org** — today you get extra
-  workspaces by *creating* them (web "Create workspace"); inviting someone who
-  already has an account into your org needs an invite-existing-user flow
-  (`inviteUserByEmail` rejects existing emails). Until then multi-org = "I
-  created/own N workspaces."
 - **Per-session active org** — switching changes the active org globally
   (profiles.org_id is one column), so web + mobile follow the same active
   workspace. Per-device active org would need active-org in JWT claims.
