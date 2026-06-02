@@ -56,7 +56,11 @@ export function InviteDialog({ myRole }: { myRole: ProfileRole }) {
         toast.error(result.error);
         return;
       }
-      toast.success(`Invite sent to ${email}`);
+      toast.success(
+        result.mode === "added"
+          ? `${email} added to your workspace`
+          : `Invite sent to ${email}`,
+      );
       setEmail("");
       setRole("agent");
       setOpen(false);
@@ -74,8 +78,9 @@ export function InviteDialog({ myRole }: { myRole: ProfileRole }) {
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
           <DialogDescription>
-            They'll get an email with a link to set their password and join
-            your workspace.
+            New emails get a link to set a password and join. If they already
+            have a Xyra Chat account, they're added to this workspace right
+            away and can switch to it.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">

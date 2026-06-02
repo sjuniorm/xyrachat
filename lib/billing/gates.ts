@@ -110,9 +110,11 @@ export async function assertCanInviteMember(orgId: string): Promise<GateResult> 
   const max = await getLimit(orgId, "team_members:max");
   if (max === Infinity) return { ok: true };
   const admin = createAdminClient();
+  // Count active org members via memberships (multi-org: a member whose ACTIVE
+  // workspace is another org still occupies a seat here).
   const { count } = await admin
-    .from("profiles")
-    .select("id", { count: "exact", head: true })
+    .from("memberships")
+    .select("user_id", { count: "exact", head: true })
     .eq("org_id", orgId)
     .is("deleted_at", null);
   if ((count ?? 0) >= max) {

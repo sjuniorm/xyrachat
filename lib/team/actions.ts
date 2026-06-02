@@ -8,22 +8,57 @@ import { assertCanInviteMember } from "@/lib/billing/gates";
 import type { ProfileRole } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
+type InviteResult =
+  | { ok: true; mode: "added" | "invited" }
+  | { ok: false; error: string };
+type Admin = ReturnType<typeof createAdminClient>;
+
+/** A user's role in a specific org, sourced from memberships (per-org). */
+async function membershipRole(
+  admin: Admin,
+  userId: string,
+  orgId: string,
+): Promise<ProfileRole | null> {
+  const { data } = await admin
+    .from("memberships")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("org_id", orgId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return (data as { role: ProfileRole } | null)?.role ?? null;
+}
+
+async function ownerCount(admin: Admin, orgId: string): Promise<number> {
+  const { count } = await admin
+    .from("memberships")
+    .select("user_id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .eq("role", "owner")
+    .is("deleted_at", null);
+  return count ?? 0;
+}
 
 /**
- * Invite a teammate by email. Sends a Supabase auth invite with our metadata
- * payload — handle_new_user() reads this on first sign-in and auto-links the
- * new profile to our org with the chosen role (see migration 007).
+ * Invite a teammate by email into the caller's ACTIVE org.
+ *  - If the email has no account yet → Supabase auth invite (handle_new_user
+ *    links the new profile + a membership is created by the ensure_membership
+ *    trigger).
+ *  - If the email already belongs to an account → add (or revive) a membership
+ *    directly, so a person can belong to multiple workspaces. They'll see the
+ *    workspace appear in their switcher.
  *
  * Owners and admins can invite. Agents can't.
  */
-export async function inviteTeamMember(formData: FormData): Promise<ActionResult> {
+export async function inviteTeamMember(
+  formData: FormData,
+): Promise<InviteResult> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const role = String(formData.get("role") ?? "agent") as ProfileRole;
 
   if (!email || !/.+@.+\..+/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
   }
-  // Owners can be invited only by other owners — see role-check below.
   if (!["owner", "admin", "supervisor", "agent"].includes(role)) {
     return { ok: false, error: "Invalid role." };
   }
@@ -54,16 +89,53 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   const seatGate = await assertCanInviteMember(me.org_id);
   if (!seatGate.ok) return { ok: false, error: seatGate.error };
 
+  const admin = createAdminClient();
+
+  // Existing account? Add/revive a membership instead of emailing a new invite.
+  const { data: existing } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if ((existing as { id: string } | null)?.id) {
+    const existingId = (existing as { id: string }).id;
+    const { data: mem } = await admin
+      .from("memberships")
+      .select("id, deleted_at")
+      .eq("user_id", existingId)
+      .eq("org_id", me.org_id)
+      .maybeSingle();
+    const memRow = mem as { id: string; deleted_at: string | null } | null;
+
+    if (memRow && !memRow.deleted_at) {
+      return { ok: false, error: "They're already a member of this workspace." };
+    }
+    if (memRow) {
+      const { error } = await admin
+        .from("memberships")
+        .update({ deleted_at: null, role })
+        .eq("id", memRow.id);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await admin
+        .from("memberships")
+        .insert({ user_id: existingId, org_id: me.org_id, role });
+      if (error) return { ok: false, error: error.message };
+    }
+    revalidatePath("/settings/team");
+    return { ok: true, mode: "added" };
+  }
+
+  // New user → email invite.
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("host") ?? "xyra-chat.vercel.app";
   // Land invitees on /accept-invite so they set a password before reaching
-  // the dashboard. Without this, they're stuck: Supabase logs them in via
-  // magic link, they have no password, and "Forgot password" is the only
-  // way back in once the session expires.
+  // the dashboard.
   const redirectTo = `${proto}://${host}/accept-invite`;
 
-  const admin = createAdminClient();
   const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo,
     data: {
@@ -75,14 +147,16 @@ export async function inviteTeamMember(formData: FormData): Promise<ActionResult
   if (inviteErr) return { ok: false, error: inviteErr.message };
 
   revalidatePath("/settings/team");
-  return { ok: true };
+  return { ok: true, mode: "invited" };
 }
 
 /**
- * Remove a teammate from the org. Soft-action: clears org_id + role on their
- * profile so they can't access the org anymore. Their auth account stays.
+ * Remove a teammate from the caller's ACTIVE org. Revokes their membership in
+ * this org (so they can't switch back in). Their account + any OTHER workspace
+ * memberships are untouched. Only clears their active org if it was this one.
  *
- * Only owners can remove anyone; admins can remove agents; agents can't remove.
+ * Only owners + admins can remove; admins can't remove other admins; owners
+ * can't remove the last owner.
  */
 export async function removeTeamMember(
   formData: FormData,
@@ -107,73 +181,67 @@ export async function removeTeamMember(
   if (!me?.org_id) return { ok: false, error: "You're not in an org." };
 
   const admin = createAdminClient();
-  const { data: target } = await admin
-    .from("profiles")
-    .select("org_id, role")
-    .eq("id", targetId)
-    .maybeSingle();
-  if (!target || target.org_id !== me.org_id) {
-    return { ok: false, error: "User not in your org." };
-  }
+  const targetRole = await membershipRole(admin, targetId, me.org_id);
+  if (!targetRole) return { ok: false, error: "User not in your org." };
+
   if (me.role === "agent" || me.role === "supervisor") {
     return { ok: false, error: "Only owners and admins can remove members." };
   }
-  // Owners can remove other owners — but never the last one.
-  if (target.role === "owner") {
+  if (targetRole === "owner") {
     if (me.role !== "owner") {
       return { ok: false, error: "Only owners can remove other owners." };
     }
-    const { count } = await admin
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("org_id", me.org_id)
-      .eq("role", "owner")
-      .is("deleted_at", null);
-    if ((count ?? 0) <= 1) {
+    if ((await ownerCount(admin, me.org_id)) <= 1) {
       return {
         ok: false,
         error: "Can't remove the last owner. Promote someone first.",
       };
     }
   }
-  if (me.role === "admin" && target.role === "admin") {
+  if (me.role === "admin" && targetRole === "admin") {
     return { ok: false, error: "Admins can't remove other admins." };
   }
 
-  // Revoke their membership in THIS org first, so they can't switch_active_org
-  // back into it (multi-org: a stale membership row would let them return).
+  // Revoke their membership in THIS org.
   await admin
     .from("memberships")
     .update({ deleted_at: new Date().toISOString() })
     .eq("user_id", targetId)
     .eq("org_id", me.org_id);
 
-  // If they still belong to other workspaces, move their active org to one of
-  // those; otherwise clear it (they'll land on onboarding next time).
-  const { data: remaining } = await admin
-    .from("memberships")
-    .select("org_id, role")
-    .eq("user_id", targetId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  const fallback = remaining as { org_id: string; role: string } | null;
-
-  const { error: updErr } = await admin
+  // Only touch their ACTIVE org if it was this one — move it to a remaining
+  // workspace, else clear it. (If they were active elsewhere, leave it alone.)
+  const { data: tp } = await admin
     .from("profiles")
-    .update({
-      org_id: fallback?.org_id ?? null,
-      role: fallback?.role ?? "agent",
-    })
-    .eq("id", targetId);
-  if (updErr) return { ok: false, error: updErr.message };
+    .select("org_id")
+    .eq("id", targetId)
+    .maybeSingle();
+  if ((tp as { org_id: string | null } | null)?.org_id === me.org_id) {
+    const { data: remaining } = await admin
+      .from("memberships")
+      .select("org_id, role")
+      .eq("user_id", targetId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const fallback = remaining as { org_id: string; role: string } | null;
+    const { error: updErr } = await admin
+      .from("profiles")
+      .update({
+        org_id: fallback?.org_id ?? null,
+        role: fallback?.role ?? "agent",
+      })
+      .eq("id", targetId);
+    if (updErr) return { ok: false, error: updErr.message };
+  }
 
-  // Unassign anything they were on so it doesn't dangle.
+  // Unassign anything they were on IN THIS ORG so it doesn't dangle.
   await admin
     .from("conversations")
     .update({ assigned_to: null })
-    .eq("assigned_to", targetId);
+    .eq("assigned_to", targetId)
+    .eq("org_id", me.org_id);
 
   revalidatePath("/settings/team");
   return { ok: true };
@@ -226,9 +294,10 @@ export async function cancelInvite(
 }
 
 /**
- * Promote/demote a team member's role. Only owners can change anyone's role
- * (including promoting someone to owner — co-owner pattern). Admins are
- * limited to moving people between supervisor + agent.
+ * Promote/demote a team member's role IN THE CALLER'S ACTIVE ORG (roles are
+ * per-org). Updates the membership; also syncs profiles.role when the target's
+ * active org is this one. Only owners can mint owners/admins; admins are
+ * limited to supervisor↔agent and can't touch other admins.
  */
 export async function changeMemberRole(
   formData: FormData,
@@ -246,6 +315,9 @@ export async function changeMemberRole(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in." };
+  if (user.id === targetId) {
+    return { ok: false, error: "You can't change your own role." };
+  }
 
   const { data: me } = await supabase
     .from("profiles")
@@ -255,52 +327,46 @@ export async function changeMemberRole(
   if (!me?.org_id) return { ok: false, error: "You're not in an org." };
 
   const admin = createAdminClient();
-  const { data: target } = await admin
-    .from("profiles")
-    .select("org_id, role")
-    .eq("id", targetId)
-    .maybeSingle();
-  if (!target || target.org_id !== me.org_id) {
-    return { ok: false, error: "User not in your org." };
-  }
-  if (user.id === targetId) {
-    return { ok: false, error: "You can't change your own role." };
-  }
+  const targetRole = await membershipRole(admin, targetId, me.org_id);
+  if (!targetRole) return { ok: false, error: "User not in your org." };
+
   if (me.role !== "owner" && me.role !== "admin") {
     return { ok: false, error: "Only owners and admins can change roles." };
   }
-  // Only owners can mint other owners or admins.
   if ((newRole === "owner" || newRole === "admin") && me.role !== "owner") {
     return { ok: false, error: "Only owners can promote to admin or owner." };
   }
-  // Demoting an owner is owner-only and requires there to be another owner.
-  if (target.role === "owner" && newRole !== "owner") {
+  if (targetRole === "owner" && newRole !== "owner") {
     if (me.role !== "owner") {
       return { ok: false, error: "Only owners can demote other owners." };
     }
-    const { count } = await admin
-      .from("profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("org_id", me.org_id)
-      .eq("role", "owner")
-      .is("deleted_at", null);
-    if ((count ?? 0) <= 1) {
+    if ((await ownerCount(admin, me.org_id)) <= 1) {
       return {
         ok: false,
         error: "Can't demote the last owner. Promote someone else first.",
       };
     }
   }
-  // Admins can't touch admins.
-  if (me.role === "admin" && target.role === "admin") {
+  if (me.role === "admin" && targetRole === "admin") {
     return { ok: false, error: "Admins can't change other admins' roles." };
   }
 
   const { error } = await admin
-    .from("profiles")
+    .from("memberships")
     .update({ role: newRole })
-    .eq("id", targetId);
+    .eq("user_id", targetId)
+    .eq("org_id", me.org_id);
   if (error) return { ok: false, error: error.message };
+
+  // Sync the profile role if this org is the target's active workspace.
+  const { data: tp } = await admin
+    .from("profiles")
+    .select("org_id")
+    .eq("id", targetId)
+    .maybeSingle();
+  if ((tp as { org_id: string | null } | null)?.org_id === me.org_id) {
+    await admin.from("profiles").update({ role: newRole }).eq("id", targetId);
+  }
 
   revalidatePath("/settings/team");
   return { ok: true };

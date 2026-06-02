@@ -20,13 +20,55 @@ export type PendingInvite = {
   invited_at: string;
 };
 
+type MembershipWithProfile = {
+  user_id: string;
+  role: ProfileRole;
+  created_at: string;
+  profiles: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+    availability: Availability | null;
+    deleted_at: string | null;
+  } | null;
+};
+
+const MEMBER_SELECT =
+  "user_id, role, created_at, profiles!memberships_user_id_fkey(id, email, full_name, avatar_url, availability, deleted_at)";
+
 /**
- * Returns the current user's profile (incl. org_id), the active members of
- * their org, and any pending (un-confirmed) invites tagged for that org.
- *
- * Pending invites are derived from auth.users where email_confirmed_at IS NULL
- * AND raw_user_meta_data.invited_org_id matches. We don't keep a separate
- * invites table — Supabase auth already tracks the state.
+ * The members of an org, sourced from `memberships` (NOT profiles.org_id) so a
+ * teammate whose *active* workspace is a different org still appears here with
+ * their per-org role. Resolved via the admin client because the caller (active
+ * in this org) can't read the profile rows of members active elsewhere under
+ * RLS. The caller is authenticated + org-scoped first.
+ */
+async function loadOrgMembers(orgId: string): Promise<TeamMember[]> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("memberships")
+    .select(MEMBER_SELECT)
+    .eq("org_id", orgId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+
+  return ((data as MembershipWithProfile[] | null) ?? [])
+    .filter((m) => m.profiles && !m.profiles.deleted_at)
+    .map((m) => ({
+      id: m.user_id,
+      email: m.profiles?.email ?? null,
+      full_name: m.profiles?.full_name ?? null,
+      avatar_url: m.profiles?.avatar_url ?? null,
+      role: m.role,
+      availability: m.profiles?.availability ?? "offline",
+      joined_at: m.created_at,
+    }));
+}
+
+/**
+ * Returns the current user's profile (incl. active org_id), the members of
+ * their active org, and any pending (un-confirmed) invites tagged for it.
  */
 export async function getTeamSnapshot(): Promise<{
   me: ProfileRow | null;
@@ -52,32 +94,17 @@ export async function getTeamSnapshot(): Promise<{
     return { me: profile, orgId: null, members: [], pendingInvites: [] };
   }
 
-  // Members (the org-peers RLS policy from migration 007 makes this readable).
-  const { data: memberRows } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, avatar_url, role, availability, created_at")
-    .eq("org_id", orgId)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
-
-  const members: TeamMember[] = (memberRows ?? []).map((r) => ({
-    id: r.id as string,
-    email: (r.email as string | null) ?? null,
-    full_name: (r.full_name as string | null) ?? null,
-    avatar_url: (r.avatar_url as string | null) ?? null,
-    role: r.role as ProfileRole,
-    availability: (r.availability as Availability) ?? "offline",
-    joined_at: r.created_at as string,
-  }));
+  const members = await loadOrgMembers(orgId);
 
   // Pending invites — service-role-only API. List, then filter by metadata +
   // email_confirmed_at IS NULL.
   const admin = createAdminClient();
   const pendingInvites: PendingInvite[] = [];
   try {
-    // page size 200 — fine for any normal org. Loop pages if it ever grows.
-    const { data: authUsers } =
-      await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+    const { data: authUsers } = await admin.auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    });
     for (const u of authUsers?.users ?? []) {
       if (u.email_confirmed_at) continue; // already accepted
       const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
@@ -85,7 +112,7 @@ export async function getTeamSnapshot(): Promise<{
       pendingInvites.push({
         id: u.id,
         email: u.email ?? "(no email)",
-        role: ((meta.invited_role as ProfileRole) ?? "agent"),
+        role: (meta.invited_role as ProfileRole) ?? "agent",
         invited_at: u.created_at,
       });
     }
@@ -97,8 +124,8 @@ export async function getTeamSnapshot(): Promise<{
 }
 
 /**
- * Fetches just the team members for a given org id, server-side. Used by the
- * Assign dropdown in the message thread (lighter than getTeamSnapshot).
+ * Just the members of the caller's active org. Used by the Assign dropdown in
+ * the message thread (lighter than getTeamSnapshot). Membership-sourced.
  */
 export async function getOrgMembers(): Promise<TeamMember[]> {
   const supabase = await createClient();
@@ -113,20 +140,9 @@ export async function getOrgMembers(): Promise<TeamMember[]> {
     .maybeSingle();
   if (!me?.org_id) return [];
 
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, email, full_name, avatar_url, role, availability, created_at")
-    .eq("org_id", me.org_id)
-    .is("deleted_at", null)
-    .order("full_name", { ascending: true });
-
-  return (data ?? []).map((r) => ({
-    id: r.id as string,
-    email: (r.email as string | null) ?? null,
-    full_name: (r.full_name as string | null) ?? null,
-    avatar_url: (r.avatar_url as string | null) ?? null,
-    role: r.role as ProfileRole,
-    availability: (r.availability as Availability) ?? "offline",
-    joined_at: r.created_at as string,
-  }));
+  const members = await loadOrgMembers(me.org_id);
+  // Assign menu prefers name order.
+  return members.sort((a, b) =>
+    (a.full_name ?? "").localeCompare(b.full_name ?? ""),
+  );
 }
