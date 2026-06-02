@@ -1513,17 +1513,37 @@ on the web app after the route-auth / middleware / webhook edits.
   with diagnostics), privacy/terms links.
 - Push: skip token fetch (and its warning) when there's no EAS projectId.
 
-**Deferred to the post-launch mobile roadmap** (not this week)
-- **In-app workspace switching for multi-org users** — today one account = one
-  organization on web AND mobile (the whole RLS model assumes `profiles.org_id`
-  is single). True switching needs a many-to-many membership model
-  (memberships table + RLS rewrite) across the *whole product*. Mobile's
-  "Switch workspace" currently = sign out → sign in with the other org's
-  account. A real feature, but a core-data-model project, not a mobile-only add.
-- **Templates from mobile** (WA template picker + variable mapping) — feasible,
-  medium effort; the send endpoint already supports `type:"template"`.
-- **Standalone team chat** — not a web feature either; internal notes are the
-  existing per-conversation team-comms mechanism. Net-new to both platforms.
+**Feature additions (2026-06-02, web + mobile)** — built on top of Week 13:
+- **Templates from mobile** — WhatsApp conversations get a template picker in
+  the composer ({{N}} variable fill, contact name prefilled) → existing
+  `/api/channels/whatsapp/send` (`type:"template"`). `mobile/src/lib/templates.ts`,
+  `TemplatePicker.tsx`.
+- **Team chat** — org-wide team room (migration 029 `team_messages`). Web
+  `/team-chat` + sidebar entry; mobile "Team" tab. Realtime, RLS-scoped.
+- **Multi-org workspace switching** — migration 030 `memberships` +
+  `switch_active_org` RPC + `create_additional_workspace`. Active org =
+  `profiles.org_id` (RLS unchanged); a trigger keeps memberships in sync.
+  Web: WorkspaceSwitcher in the sidebar (list/switch/create). Mobile: Settings
+  switcher (list/switch; create on web). **Tenant-isolation fix**: revoked
+  direct `profiles.org_id`/`role` UPDATE from authenticated — previously a user
+  could self-reassign org_id to any org and read its data. `removeTeamMember`
+  now revokes the membership too.
+
+**⚠️ Operator: apply migrations 029 + 030 in Supabase.** After 030, smoke-test
+that login + set-availability + onboarding still work (the profiles column-grant
+hardening is the sensitive bit — failure mode is "can't update profile",
+fail-closed, not a leak).
+
+**Still deferred (post-launch)**
+- **Invite an EXISTING user into a second org** — today you get extra
+  workspaces by *creating* them (web "Create workspace"); inviting someone who
+  already has an account into your org needs an invite-existing-user flow
+  (`inviteUserByEmail` rejects existing emails). Until then multi-org = "I
+  created/own N workspaces."
+- **Per-session active org** — switching changes the active org globally
+  (profiles.org_id is one column), so web + mobile follow the same active
+  workspace. Per-device active org would need active-org in JWT claims.
+- **Team chat DMs / channels** — current team chat is a single org-wide room.
 - **Real store submission** (App Store / Google Play review, credentials,
   icons/screenshots) — Week 13 scope was "builds locally + EAS configured".
 - **Push delivery needs `eas init`** to write `extra.eas.projectId`; until
