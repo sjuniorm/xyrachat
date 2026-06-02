@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { generateBotResponse, type BotRow, type ConversationMessage } from "@/lib/ai/chatbot";
@@ -23,10 +23,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "conversation_id required" }, { status: 400 });
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Auth (web cookie OR mobile JWT).
+  const { supabase, user } = await getRouteUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: profile } = await supabase

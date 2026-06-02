@@ -7,16 +7,22 @@ import {
   StyleSheet,
   Alert,
   Linking,
+  Platform,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors } from "../theme";
+import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthContext";
 import { Avatar } from "../components/Avatar";
 import { registerForPushNotifications } from "../lib/push";
 import type { Availability } from "../types";
+
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://xyra-chat.vercel.app";
+const SUPPORT_EMAIL = "support@xyrachat.com";
 
 const AVAILABILITY: { key: Availability; label: string; color: string }[] = [
   { key: "online", label: "Online", color: colors.online },
@@ -24,9 +30,48 @@ const AVAILABILITY: { key: Availability; label: string; color: string }[] = [
   { key: "offline", label: "Offline", color: colors.offline },
 ];
 
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+function Row({
+  icon,
+  label,
+  value,
+  valueColor,
+  onPress,
+  chevron,
+}: {
+  icon: IconName;
+  label: string;
+  value?: string;
+  valueColor?: string;
+  onPress?: () => void;
+  chevron?: boolean;
+}) {
+  const content = (
+    <View style={styles.listRow}>
+      <MaterialCommunityIcons name={icon} size={20} color={colors.textMuted} />
+      <Text style={styles.listLabel}>{label}</Text>
+      {value ? (
+        <Text style={[styles.listValue, valueColor ? { color: valueColor } : null]}>
+          {value}
+        </Text>
+      ) : null}
+      {chevron ? (
+        <MaterialCommunityIcons
+          name="chevron-right"
+          size={18}
+          color={colors.textFaint}
+        />
+      ) : null}
+    </View>
+  );
+  return onPress ? <Pressable onPress={onPress}>{content}</Pressable> : content;
+}
+
 export function SettingsScreen() {
   const { profile, session, signOut, setAvailability } = useAuth();
   const [pushStatus, setPushStatus] = useState<string>("undetermined");
+  const [orgName, setOrgName] = useState<string | null>(null);
 
   const checkPush = useCallback(async () => {
     const { status } = await Notifications.getPermissionsAsync();
@@ -41,6 +86,16 @@ export function SettingsScreen() {
   useEffect(() => {
     void checkPush();
   }, [checkPush]);
+
+  useEffect(() => {
+    if (!profile?.org_id) return;
+    void supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", profile.org_id)
+      .maybeSingle()
+      .then(({ data }) => setOrgName((data as { name: string } | null)?.name ?? null));
+  }, [profile?.org_id]);
 
   const name = profile?.full_name || session?.user?.email || "Agent";
   const email = profile?.email || session?.user?.email || "";
@@ -60,6 +115,29 @@ export function SettingsScreen() {
     }
     await registerForPushNotifications();
     await checkPush();
+  };
+
+  const emailSupport = (subject: string, withDiagnostics = false) => {
+    const diag = withDiagnostics
+      ? `\n\n---\nApp ${version} · ${Platform.OS} ${Platform.Version}\nWorkspace: ${orgName ?? profile?.org_id ?? "?"}\nUser: ${email}`
+      : "";
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
+      subject,
+    )}&body=${encodeURIComponent(diag)}`;
+    Linking.openURL(url).catch(() =>
+      Alert.alert("Email", `Reach us at ${SUPPORT_EMAIL}`),
+    );
+  };
+
+  const onSwitchWorkspace = () => {
+    Alert.alert(
+      "Switch workspace",
+      "Each account belongs to one workspace. To use a different workspace, sign out and sign in with that workspace's account.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign out", style: "destructive", onPress: () => void signOut() },
+      ],
+    );
   };
 
   const onLogout = () => {
@@ -107,56 +185,76 @@ export function SettingsScreen() {
         })}
       </View>
 
+      {/* Workspace */}
+      <Text style={styles.sectionTitle}>Workspace</Text>
+      <View style={styles.card}>
+        <Row icon="domain" label="Current" value={orgName ?? "—"} />
+        <Row
+          icon="swap-horizontal"
+          label="Switch workspace"
+          onPress={onSwitchWorkspace}
+          chevron
+        />
+      </View>
+
       {/* Notifications */}
       <Text style={styles.sectionTitle}>Notifications</Text>
-      <Pressable style={styles.listRow} onPress={onPushPress}>
-        <MaterialCommunityIcons
-          name="bell-outline"
-          size={20}
-          color={colors.textMuted}
+      <View style={styles.card}>
+        <Row
+          icon="bell-outline"
+          label="Push notifications"
+          value={
+            pushStatus === "granted"
+              ? "On"
+              : pushStatus === "denied"
+                ? "Off"
+                : "Enable"
+          }
+          valueColor={pushStatus === "granted" ? colors.online : colors.away}
+          onPress={onPushPress}
         />
-        <Text style={styles.listLabel}>Push notifications</Text>
-        <Text
-          style={[
-            styles.listValue,
-            { color: pushStatus === "granted" ? colors.online : colors.away },
-          ]}
-        >
-          {pushStatus === "granted"
-            ? "On"
-            : pushStatus === "denied"
-              ? "Off"
-              : "Enable"}
-        </Text>
-      </Pressable>
+      </View>
+
+      {/* Support */}
+      <Text style={styles.sectionTitle}>Support</Text>
+      <View style={styles.card}>
+        <Row
+          icon="lifebuoy"
+          label="Help & support"
+          onPress={() => emailSupport("Xyra Chat — support request")}
+          chevron
+        />
+        <Row
+          icon="bug-outline"
+          label="Report a problem"
+          onPress={() => emailSupport("Xyra Chat — problem report", true)}
+          chevron
+        />
+      </View>
 
       {/* About */}
       <Text style={styles.sectionTitle}>About</Text>
-      <View style={styles.listRow}>
-        <MaterialCommunityIcons
-          name="information-outline"
-          size={20}
-          color={colors.textMuted}
+      <View style={styles.card}>
+        <Row icon="information-outline" label="Version" value={version} />
+        <Row
+          icon="web"
+          label="xyrachat.com"
+          onPress={() => Linking.openURL("https://xyrachat.com")}
+          chevron
         />
-        <Text style={styles.listLabel}>Version</Text>
-        <Text style={styles.listValue}>{version}</Text>
+        <Row
+          icon="shield-lock-outline"
+          label="Privacy policy"
+          onPress={() => Linking.openURL(`${API_BASE}/privacy`)}
+          chevron
+        />
+        <Row
+          icon="file-document-outline"
+          label="Terms of service"
+          onPress={() => Linking.openURL(`${API_BASE}/terms`)}
+          chevron
+        />
       </View>
-      <Pressable
-        style={styles.listRow}
-        onPress={() => Linking.openURL("https://xyrachat.com")}
-      >
-        <MaterialCommunityIcons
-          name="web"
-          size={20}
-          color={colors.textMuted}
-        />
-        <Text style={styles.listLabel}>xyrachat.com</Text>
-        <MaterialCommunityIcons
-          name="open-in-new"
-          size={16}
-          color={colors.textFaint}
-        />
-      </Pressable>
 
       {/* Logout */}
       <Pressable style={styles.logout} onPress={onLogout}>
@@ -222,16 +320,18 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4 },
   segmentText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
   segmentTextActive: { color: colors.text },
+  card: {
+    backgroundColor: colors.surface,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
   listRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: colors.surface,
-    marginHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 8,
   },
   listLabel: { color: colors.text, fontSize: 15, flex: 1 },
   listValue: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },

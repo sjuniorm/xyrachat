@@ -12,28 +12,20 @@ const SEND_PATH: Partial<Record<ChannelType, string>> = {
   email: "/api/channels/email/send",
 };
 
-export type SendResult = { ok: true } | { ok: false; error: string };
+export type ApiResult<T = unknown> =
+  | ({ ok: true } & T)
+  | { ok: false; error: string };
 
 /**
- * Sends an outbound message through the web app's channel endpoint, authed
- * with the agent's Supabase access token (the endpoints accept the JWT via
- * `Authorization: Bearer` — see lib/supabase/route-auth.ts on the web side).
- * The new message arrives back in the UI via the Realtime subscription, so we
- * don't optimistically insert here.
+ * POST to a web API route authed with the agent's Supabase access token. The
+ * web routes accept the JWT via `Authorization: Bearer` (lib/supabase/
+ * route-auth.ts). Surfaces the API's `message` (friendly) or `error` (code).
  */
-export async function sendMessage(params: {
-  channelType: ChannelType;
-  conversationId: string;
-  content: string;
-  repliedToMessageId?: string;
-}): Promise<SendResult> {
+async function authedPost(
+  path: string,
+  body: unknown,
+): Promise<{ ok: true; json: Record<string, unknown> } | { ok: false; error: string }> {
   if (!API_BASE) return { ok: false, error: "EXPO_PUBLIC_API_BASE_URL not set" };
-
-  const path = SEND_PATH[params.channelType];
-  if (!path) {
-    return { ok: false, error: `Sending isn't supported for ${params.channelType} yet` };
-  }
-
   const {
     data: { session },
   } = await supabase.auth.getSession();
@@ -47,23 +39,75 @@ export async function sendMessage(params: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        conversationId: params.conversationId,
-        content: params.content,
-        repliedToMessageId: params.repliedToMessageId,
-      }),
+      body: JSON.stringify(body),
     });
-    const json = (await res.json().catch(() => null)) as
-      | { error?: string }
-      | null;
+    const json = (await res.json().catch(() => null)) as Record<
+      string,
+      unknown
+    > | null;
     if (!res.ok) {
-      return { ok: false, error: json?.error ?? `HTTP ${res.status}` };
+      const msg =
+        (json?.message as string) ??
+        (json?.error as string) ??
+        `HTTP ${res.status}`;
+      return { ok: false, error: msg };
     }
-    return { ok: true };
+    return { ok: true, json: json ?? {} };
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Network error",
     };
   }
+}
+
+/**
+ * Send an outbound message through the web app's channel endpoint. The new
+ * message renders via the Realtime subscription (no optimistic insert).
+ */
+export async function sendMessage(params: {
+  channelType: ChannelType;
+  conversationId: string;
+  content: string;
+  repliedToMessageId?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const path = SEND_PATH[params.channelType];
+  if (!path) {
+    return {
+      ok: false,
+      error: `Sending isn't supported for ${params.channelType} yet`,
+    };
+  }
+  const res = await authedPost(path, {
+    conversationId: params.conversationId,
+    content: params.content,
+    repliedToMessageId: params.repliedToMessageId,
+  });
+  return res.ok ? { ok: true } : res;
+}
+
+/** AI rewrite of the composer text (improve / friendlier / shorter / …). */
+export async function aiAssist(params: {
+  text: string;
+  action: string;
+  conversationId?: string;
+}): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const res = await authedPost("/api/ai/message-assist", {
+    text: params.text,
+    action: params.action,
+    conversation_id: params.conversationId,
+  });
+  if (!res.ok) return res;
+  return { ok: true, text: (res.json.text as string) ?? "" };
+}
+
+/** Generate a from-scratch suggested reply grounded in the channel's bot. */
+export async function aiSuggestReply(
+  conversationId: string,
+): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  const res = await authedPost("/api/ai/suggest-reply", {
+    conversation_id: conversationId,
+  });
+  if (!res.ok) return res;
+  return { ok: true, text: (res.json.text as string) ?? "" };
 }

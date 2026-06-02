@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { uid } from "../lib/uid";
 import type { Message } from "../types";
 
 /**
@@ -7,6 +8,7 @@ import type { Message } from "../types";
  * appends new rows (inbound, our own outbound echoed back, and bot replies).
  */
 export function useThread(conversationId: string) {
+  const chanId = useRef(uid()).current;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,7 +31,7 @@ export function useThread(conversationId: string) {
 
   useEffect(() => {
     const channel = supabase
-      .channel(`rt-thread-${conversationId}`)
+      .channel(`rt-thread-${conversationId}-${chanId}`)
       .on(
         "postgres_changes",
         {

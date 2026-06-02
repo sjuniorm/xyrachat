@@ -15,11 +15,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useHeaderHeight } from "@react-navigation/elements";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { InboxStackParamList } from "../navigation/types";
 import { colors } from "../theme";
 import { supabase } from "../lib/supabase";
-import { sendMessage } from "../lib/api";
+import { sendMessage, aiAssist, aiSuggestReply } from "../lib/api";
 import { useThread } from "../hooks/useThread";
 import { useAuth } from "../auth/AuthContext";
 import { MessageBubble } from "../components/MessageBubble";
@@ -34,16 +35,28 @@ const CONV_SELECT = `
   channel:channels!conversations_channel_id_fkey(id, type, name)
 `;
 
+const AI_ACTIONS: { key: string; label: string; icon: string }[] = [
+  { key: "improve", label: "Improve writing", icon: "auto-fix" },
+  { key: "friendlier", label: "Make friendlier", icon: "emoticon-happy-outline" },
+  { key: "professional", label: "More professional", icon: "tie" },
+  { key: "shorter", label: "Make shorter", icon: "format-letter-spacing" },
+  { key: "fix_grammar", label: "Fix grammar & spelling", icon: "spellcheck" },
+];
+
 export function ChatDetailScreen({ route, navigation }: Props) {
   const { conversationId } = route.params;
   const { messages, loading } = useThread(conversationId);
   const { session } = useAuth();
   const userId = session?.user?.id;
+  const headerHeight = useHeaderHeight();
 
   const [conv, setConv] = useState<ConversationWithRelations | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [noteMode, setNoteMode] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const loadConv = useCallback(async () => {
     const { data } = await supabase
@@ -88,23 +101,65 @@ export function ChatDetailScreen({ route, navigation }: Props) {
 
   const assignedToMe = conv?.assigned_to === userId;
   const closed = conv?.status === "closed";
-  const canSend = Boolean(conv?.channel) && text.trim().length > 0 && !sending;
+  const canSend =
+    text.trim().length > 0 && !sending && (noteMode || Boolean(conv?.channel));
 
   const onSend = async () => {
     const body = text.trim();
-    if (!body || !conv?.channel) return;
+    if (!body) return;
     setSending(true);
+
+    if (noteMode) {
+      // Internal note — stored locally only, never sent to the customer.
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        direction: "outbound",
+        content: body,
+        sender_type: "agent",
+        sender_id: userId,
+        status: "sent",
+        is_internal_note: true,
+      });
+      setSending(false);
+      if (error) Alert.alert("Couldn't save note", error.message);
+      else setText("");
+      return;
+    }
+
+    if (!conv?.channel) {
+      setSending(false);
+      return;
+    }
     const result = await sendMessage({
       channelType: conv.channel.type,
       conversationId,
       content: body,
     });
     setSending(false);
-    if (result.ok) {
-      setText("");
-    } else {
-      Alert.alert("Couldn't send", result.error);
+    if (result.ok) setText("");
+    else Alert.alert("Couldn't send", result.error);
+  };
+
+  const runAssist = async (action: string) => {
+    const body = text.trim();
+    if (!body) {
+      Alert.alert("Nothing to rewrite", "Type a message first, then use AI.");
+      return;
     }
+    setAiOpen(false);
+    setAiBusy(true);
+    const result = await aiAssist({ text: body, action, conversationId });
+    setAiBusy(false);
+    if (result.ok) setText(result.text);
+    else Alert.alert("AI Assist", result.error);
+  };
+
+  const runSuggest = async () => {
+    setAiBusy(true);
+    const result = await aiSuggestReply(conversationId);
+    setAiBusy(false);
+    if (result.ok) setText(result.text);
+    else Alert.alert("Suggest reply", result.error);
   };
 
   const assignToMe = async () => {
@@ -136,7 +191,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 92 : 0}
+        keyboardVerticalOffset={headerHeight}
       >
         {/* Action sub-bar */}
         <View style={styles.actionBar}>
@@ -202,6 +257,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
               <MessageBubble message={item} onImagePress={setPreviewUri} />
             )}
             contentContainerStyle={styles.listContent}
+            keyboardDismissMode="interactive"
             ListEmptyComponent={
               <View style={styles.emptyThread}>
                 <Text style={styles.emptyText}>No messages yet</Text>
@@ -211,38 +267,142 @@ export function ChatDetailScreen({ route, navigation }: Props) {
         )}
 
         {/* Composer */}
-        <View style={styles.composer}>
-          <Pressable onPress={onAttach} hitSlop={8} style={styles.iconBtn}>
-            <MaterialCommunityIcons
-              name="paperclip"
-              size={22}
-              color={colors.textMuted}
-            />
-          </Pressable>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder={
-              conv?.channel ? "Type a message…" : "Channel unavailable"
-            }
-            placeholderTextColor={colors.textFaint}
-            editable={Boolean(conv?.channel)}
-            multiline
-            style={styles.input}
-          />
-          <Pressable
-            onPress={onSend}
-            disabled={!canSend}
-            style={[styles.sendBtn, { opacity: canSend ? 1 : 0.4 }]}
-          >
-            {sending ? (
-              <ActivityIndicator color={colors.white} size="small" />
+        <View>
+          {/* Reply/Note toggle + AI actions */}
+          <View style={styles.aiBar}>
+            <View style={styles.modeToggle}>
+              <Pressable
+                onPress={() => setNoteMode(false)}
+                style={[styles.modePill, !noteMode && styles.modePillActive]}
+              >
+                <Text
+                  style={[styles.modeText, !noteMode && styles.modeTextActive]}
+                >
+                  Reply
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setNoteMode(true)}
+                style={[styles.modePill, noteMode && styles.modePillActiveNote]}
+              >
+                <Text
+                  style={[styles.modeText, noteMode && styles.modeTextActive]}
+                >
+                  Note
+                </Text>
+              </Pressable>
+            </View>
+
+            {!noteMode ? (
+              <View style={styles.aiActions}>
+                {aiBusy ? (
+                  <ActivityIndicator color={colors.glow} size="small" />
+                ) : (
+                  <>
+                    <Pressable
+                      style={styles.aiBtn}
+                      onPress={() => setAiOpen(true)}
+                    >
+                      <MaterialCommunityIcons
+                        name="auto-fix"
+                        size={15}
+                        color={colors.glow}
+                      />
+                      <Text style={styles.aiBtnText}>AI</Text>
+                    </Pressable>
+                    <Pressable style={styles.aiBtn} onPress={runSuggest}>
+                      <MaterialCommunityIcons
+                        name="lightbulb-outline"
+                        size={15}
+                        color={colors.glow}
+                      />
+                      <Text style={styles.aiBtnText}>Suggest</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
             ) : (
-              <MaterialCommunityIcons name="send" size={20} color={colors.white} />
+              <Text style={styles.noteHint}>Visible to your team only</Text>
             )}
-          </Pressable>
+          </View>
+
+          <View style={[styles.composer, noteMode && styles.composerNote]}>
+            <Pressable onPress={onAttach} hitSlop={8} style={styles.iconBtn}>
+              <MaterialCommunityIcons
+                name="paperclip"
+                size={22}
+                color={colors.textMuted}
+              />
+            </Pressable>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder={
+                noteMode
+                  ? "Write an internal note…"
+                  : conv?.channel
+                    ? "Type a message…"
+                    : "Channel unavailable"
+              }
+              placeholderTextColor={colors.textFaint}
+              editable={noteMode || Boolean(conv?.channel)}
+              multiline
+              style={[styles.input, noteMode && styles.inputNote]}
+            />
+            <Pressable
+              onPress={onSend}
+              disabled={!canSend}
+              style={[
+                styles.sendBtn,
+                noteMode && styles.sendBtnNote,
+                { opacity: canSend ? 1 : 0.4 },
+              ]}
+            >
+              {sending ? (
+                <ActivityIndicator color={colors.white} size="small" />
+              ) : (
+                <MaterialCommunityIcons
+                  name={noteMode ? "note-plus-outline" : "send"}
+                  size={20}
+                  color={colors.white}
+                />
+              )}
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* AI actions sheet */}
+      <Modal
+        visible={aiOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAiOpen(false)}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setAiOpen(false)}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>AI Assist</Text>
+            {AI_ACTIONS.map((a) => (
+              <Pressable
+                key={a.key}
+                style={styles.sheetRow}
+                onPress={() => runAssist(a.key)}
+              >
+                <MaterialCommunityIcons
+                  name={
+                    a.icon as React.ComponentProps<
+                      typeof MaterialCommunityIcons
+                    >["name"]
+                  }
+                  size={20}
+                  color={colors.glow}
+                />
+                <Text style={styles.sheetRowText}>{a.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       {/* Full-screen image preview */}
       <Modal
@@ -300,16 +460,53 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   emptyText: { color: colors.textFaint, fontSize: 14 },
+  aiBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 2,
+    backgroundColor: colors.surface,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 14,
+    padding: 2,
+  },
+  modePill: {
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  modePillActive: { backgroundColor: colors.purple },
+  modePillActiveNote: { backgroundColor: colors.away },
+  modeText: { color: colors.textMuted, fontSize: 13, fontWeight: "600" },
+  modeTextActive: { color: colors.white },
+  aiActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  aiBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  aiBtnText: { color: colors.glow, fontSize: 12, fontWeight: "700" },
+  noteHint: { color: colors.away, fontSize: 12, fontStyle: "italic" },
   composer: {
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 8,
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    paddingTop: 6,
+    paddingBottom: 8,
     backgroundColor: colors.surface,
   },
+  composerNote: { backgroundColor: "rgba(245,158,11,0.08)" },
   iconBtn: { padding: 8 },
   input: {
     flex: 1,
@@ -323,6 +520,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
   },
+  inputNote: {
+    backgroundColor: "rgba(245,158,11,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.4)",
+  },
   sendBtn: {
     width: 40,
     height: 40,
@@ -331,6 +533,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  sendBtnNote: { backgroundColor: colors.away },
   modal: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.92)",
@@ -338,4 +541,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   fullImage: { width: "100%", height: "80%" },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 10,
+    paddingBottom: 34,
+    paddingHorizontal: 8,
+  },
+  sheetTitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  sheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  sheetRowText: { color: colors.text, fontSize: 16 },
 });

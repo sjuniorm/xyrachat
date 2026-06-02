@@ -32,6 +32,13 @@ export async function registerForPushNotifications(): Promise<string | null> {
     return null;
   }
 
+  const id = projectId();
+  if (!id) {
+    // No EAS projectId yet (e.g. Expo Go before `eas init`). Remote push can't
+    // work without it, so skip quietly rather than logging a token error.
+    return null;
+  }
+
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync("default", {
       name: "Messages",
@@ -49,12 +56,9 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
   if (status !== "granted") return null;
 
-  const id = projectId();
   let token: string;
   try {
-    const res = await Notifications.getExpoPushTokenAsync(
-      id ? { projectId: id } : undefined,
-    );
+    const res = await Notifications.getExpoPushTokenAsync({ projectId: id });
     token = res.data;
   } catch (err) {
     console.warn("[push] getExpoPushTokenAsync failed", err);

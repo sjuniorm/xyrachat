@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
@@ -56,11 +56,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
 
-  // Auth: must be a signed-in agent in some org.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Auth: must be a signed-in agent in some org (web cookie OR mobile JWT).
+  const { supabase, user } = await getRouteUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data: profile } = await supabase
     .from("profiles")

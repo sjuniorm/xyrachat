@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { messagePreview } from "../lib/format";
 import { useAuth } from "../auth/AuthContext";
+import { uid } from "../lib/uid";
 import type { ConversationWithRelations } from "../types";
 
 const SELECT = `
@@ -18,6 +19,7 @@ const SELECT = `
 export function useMyAssigned() {
   const { session } = useAuth();
   const userId = session?.user?.id;
+  const chanId = useRef(uid()).current;
   const [items, setItems] = useState<ConversationWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,7 +79,7 @@ export function useMyAssigned() {
   useEffect(() => {
     if (!userId) return;
     const channel = supabase
-      .channel(`rt-assigned-${userId}`)
+      .channel(`rt-assigned-${userId}-${chanId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations" },

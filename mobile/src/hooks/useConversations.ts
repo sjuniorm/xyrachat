@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { messagePreview } from "../lib/format";
+import { uid } from "../lib/uid";
 import type { ConversationWithRelations } from "../types";
 
 const SELECT = `
@@ -15,6 +16,7 @@ const SELECT = `
  * live on any conversation change or new message via Realtime.
  */
 export function useConversations() {
+  const chanId = useRef(uid()).current;
   const [conversations, setConversations] = useState<
     ConversationWithRelations[]
   >([]);
@@ -67,7 +69,7 @@ export function useConversations() {
 
   useEffect(() => {
     const channel = supabase
-      .channel("rt-conversations-list")
+      .channel(`rt-conversations-list-${chanId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations" },

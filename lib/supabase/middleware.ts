@@ -30,12 +30,13 @@ function isPublicPath(pathname: string) {
   if (pathname.startsWith("/api/internal/")) return true; // webhook-retry, retention-purge (CRON_SECRET)
   if (pathname.startsWith("/api/cron/")) return true; // broadcasts cron (CRON_SECRET)
   if (pathname === "/api/broadcasts/send-internal") return true; // CRON_SECRET-authed
-  // Channel send endpoints self-auth inside the handler via getRouteUser() —
-  // accept the web session cookie OR a mobile `Authorization: Bearer <jwt>`.
+  // Channel send + AI endpoints self-auth inside the handler via getRouteUser()
+  // — accept the web session cookie OR a mobile `Authorization: Bearer <jwt>`.
   // The cookie-only middleware gate would 401 the mobile app before its
-  // handler runs, so exempt the family (every handler still returns 401 when
+  // handler runs, so exempt the families (every handler still returns 401 when
   // getRouteUser() yields no user).
   if (pathname.startsWith("/api/channels/")) return true;
+  if (pathname.startsWith("/api/ai/")) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/favicon")) return true;
   return false;

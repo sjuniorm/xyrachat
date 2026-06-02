@@ -1,5 +1,6 @@
 import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { RootTabParamList } from "./types";
 import { colors } from "../theme";
@@ -33,15 +34,27 @@ export function MainTabs() {
       <Tab.Screen
         name="Inbox"
         component={InboxStack}
-        options={{
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons
-              name={"message-text-outline" as IconName}
-              size={size}
-              color={color}
-            />
-          ),
+        options={({ route }) => {
+          const focused =
+            getFocusedRouteNameFromRoute(route) ?? "ConversationList";
+          return {
+            headerShown: false,
+            // Full-screen the chat thread — hide the tab bar on ChatDetail.
+            tabBarStyle:
+              focused === "ChatDetail"
+                ? { display: "none" }
+                : {
+                    backgroundColor: colors.surface,
+                    borderTopColor: colors.border,
+                  },
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons
+                name={"message-text-outline" as IconName}
+                size={size}
+                color={color}
+              />
+            ),
+          };
         }}
       />
       <Tab.Screen
