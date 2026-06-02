@@ -7,7 +7,7 @@ import { LoginScreen } from "../screens/LoginScreen";
 import { MainTabs } from "./MainTabs";
 
 export function RootNavigator() {
-  const { initializing, session } = useAuth();
+  const { initializing, session, profile } = useAuth();
 
   if (initializing) {
     return (
@@ -18,7 +18,13 @@ export function RootNavigator() {
     );
   }
 
-  return session ? <MainTabs /> : <LoginScreen />;
+  // Key by active org so switching workspace remounts the whole tab tree and
+  // every screen refetches its org-scoped data.
+  return session ? (
+    <MainTabs key={profile?.org_id ?? "no-org"} />
+  ) : (
+    <LoginScreen />
+  );
 }
 
 const styles = StyleSheet.create({

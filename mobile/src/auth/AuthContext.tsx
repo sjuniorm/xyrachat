@@ -23,6 +23,7 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   setAvailability: (a: Availability) => Promise<void>;
+  switchWorkspace: (orgId: string) => Promise<{ error?: string }>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -103,6 +104,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (session?.user) await loadProfile(session.user.id);
   }, [session?.user, loadProfile]);
 
+  const switchWorkspace = useCallback(
+    async (orgId: string) => {
+      const { error } = await supabase.rpc("switch_active_org", {
+        p_org_id: orgId,
+      });
+      if (error) return { error: error.message };
+      // Reload profile so org_id/role reflect the new active workspace; the
+      // RootNavigator keys MainTabs by org_id, so this remounts every screen
+      // and refetches all org-scoped data.
+      if (session?.user) await loadProfile(session.user.id);
+      return {};
+    },
+    [session?.user, loadProfile],
+  );
+
   const setAvailability = useCallback(
     async (availability: Availability) => {
       if (!session?.user) return;
@@ -129,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       refreshProfile,
       setAvailability,
+      switchWorkspace,
     }),
     [
       initializing,
@@ -138,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       refreshProfile,
       setAvailability,
+      switchWorkspace,
     ],
   );
 

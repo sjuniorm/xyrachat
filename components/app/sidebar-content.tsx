@@ -2,6 +2,7 @@ import Link from "next/link";
 import { XyraWordmark } from "@/components/brand/xyra-wordmark";
 import { SidebarNav } from "@/components/app/sidebar-nav";
 import { SidebarUser } from "@/components/app/sidebar-user";
+import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import type { Availability } from "@/lib/db-types";
 
 export function SidebarContent({
@@ -25,6 +26,7 @@ export function SidebarContent({
           <XyraWordmark size="md" />
         </Link>
       </div>
+      <WorkspaceSwitcher />
       <div className="flex-1 overflow-y-auto py-4">
         <SidebarNav />
       </div>

@@ -69,9 +69,13 @@ function Row({
 }
 
 export function SettingsScreen() {
-  const { profile, session, signOut, setAvailability } = useAuth();
+  const { profile, session, signOut, setAvailability, switchWorkspace } =
+    useAuth();
   const [pushStatus, setPushStatus] = useState<string>("undetermined");
   const [orgName, setOrgName] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<
+    { org_id: string; name: string; active: boolean }[]
+  >([]);
 
   const checkPush = useCallback(async () => {
     const { status } = await Notifications.getPermissionsAsync();
@@ -95,6 +99,30 @@ export function SettingsScreen() {
       .eq("id", profile.org_id)
       .maybeSingle()
       .then(({ data }) => setOrgName((data as { name: string } | null)?.name ?? null));
+  }, [profile?.org_id]);
+
+  useEffect(() => {
+    if (!profile?.org_id) return;
+    void supabase
+      .from("memberships")
+      .select("org_id, organizations(name)")
+      .is("deleted_at", null)
+      .then(({ data }) => {
+        const list = (
+          (data as Array<{
+            org_id: string;
+            organizations: { name: string } | null;
+          }> | null) ?? []
+        ).map((m) => ({
+          org_id: m.org_id,
+          name: m.organizations?.name ?? "Workspace",
+          active: m.org_id === profile.org_id,
+        }));
+        list.sort((a, b) =>
+          a.active === b.active ? a.name.localeCompare(b.name) : a.active ? -1 : 1,
+        );
+        setWorkspaces(list);
+      });
   }, [profile?.org_id]);
 
   const name = profile?.full_name || session?.user?.email || "Agent";
@@ -129,15 +157,12 @@ export function SettingsScreen() {
     );
   };
 
-  const onSwitchWorkspace = () => {
-    Alert.alert(
-      "Switch workspace",
-      "Each account belongs to one workspace. To use a different workspace, sign out and sign in with that workspace's account.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Sign out", style: "destructive", onPress: () => void signOut() },
-      ],
-    );
+  const onSwitch = async (orgId: string) => {
+    if (orgId === profile?.org_id) return;
+    const res = await switchWorkspace(orgId);
+    if (res.error) Alert.alert("Couldn't switch", res.error);
+    // On success the profile reloads and RootNavigator remounts the tabs into
+    // the new workspace.
   };
 
   const onLogout = () => {
@@ -188,14 +213,25 @@ export function SettingsScreen() {
       {/* Workspace */}
       <Text style={styles.sectionTitle}>Workspace</Text>
       <View style={styles.card}>
-        <Row icon="domain" label="Current" value={orgName ?? "—"} />
-        <Row
-          icon="swap-horizontal"
-          label="Switch workspace"
-          onPress={onSwitchWorkspace}
-          chevron
-        />
+        {workspaces.length === 0 ? (
+          <Row icon="domain" label="Current" value={orgName ?? "—"} />
+        ) : (
+          workspaces.map((w) => (
+            <Row
+              key={w.org_id}
+              icon={w.active ? "check-circle" : "domain"}
+              label={w.name}
+              value={w.active ? "Active" : undefined}
+              valueColor={w.active ? colors.online : undefined}
+              onPress={w.active ? undefined : () => onSwitch(w.org_id)}
+              chevron={!w.active}
+            />
+          ))
+        )}
       </View>
+      <Text style={styles.workspaceHint}>
+        Create new workspaces on the Xyra Chat web app.
+      </Text>
 
       {/* Notifications */}
       <Text style={styles.sectionTitle}>Notifications</Text>
@@ -325,6 +361,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     borderRadius: 12,
     overflow: "hidden",
+  },
+  workspaceHint: {
+    color: colors.textFaint,
+    fontSize: 12,
+    marginHorizontal: 20,
+    marginTop: 8,
   },
   listRow: {
     flexDirection: "row",

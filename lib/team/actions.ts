@@ -140,9 +140,32 @@ export async function removeTeamMember(
     return { ok: false, error: "Admins can't remove other admins." };
   }
 
+  // Revoke their membership in THIS org first, so they can't switch_active_org
+  // back into it (multi-org: a stale membership row would let them return).
+  await admin
+    .from("memberships")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("user_id", targetId)
+    .eq("org_id", me.org_id);
+
+  // If they still belong to other workspaces, move their active org to one of
+  // those; otherwise clear it (they'll land on onboarding next time).
+  const { data: remaining } = await admin
+    .from("memberships")
+    .select("org_id, role")
+    .eq("user_id", targetId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const fallback = remaining as { org_id: string; role: string } | null;
+
   const { error: updErr } = await admin
     .from("profiles")
-    .update({ org_id: null, role: "agent" })
+    .update({
+      org_id: fallback?.org_id ?? null,
+      role: fallback?.role ?? "agent",
+    })
     .eq("id", targetId);
   if (updErr) return { ok: false, error: updErr.message };
 
