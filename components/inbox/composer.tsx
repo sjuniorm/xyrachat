@@ -8,7 +8,6 @@ import {
   Paperclip,
   Send,
   Sparkles,
-  StickyNote,
   X,
   Zap,
 } from "lucide-react";
@@ -25,6 +24,7 @@ import { cn } from "@/lib/utils";
 import type { Conversation, Message } from "@/lib/mock-data";
 import { TOP_LANGUAGES, languageLabel } from "@/lib/i18n/languages";
 import { EmojiPicker } from "@/components/inbox/emoji-picker";
+import { SavedRepliesPopover } from "@/components/inbox/saved-replies-popover";
 
 type AssistAction =
   | "improve"
@@ -72,6 +72,12 @@ export function Composer({
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
   useEffect(autoGrow, [text]);
+
+  // Insert a saved reply — append below any existing draft, then focus.
+  function insertSavedReply(body: string) {
+    setText((prev) => (prev.trim() ? `${prev.replace(/\n+$/, "")}\n${body}` : body));
+    requestAnimationFrame(() => taRef.current?.focus());
+  }
 
   // Cmd/Ctrl+Enter to send, Cmd/Ctrl+J for AI Assist, Cmd/Ctrl+L for Suggest.
   useEffect(() => {
@@ -444,16 +450,7 @@ export function Composer({
 
           <EmojiPicker onSelect={insertEmoji} disabled={pending} />
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 px-2 text-xs text-white/70 hover:text-white"
-            onClick={() => toast.message("Saved replies coming soon")}
-          >
-            <StickyNote className="size-3.5" />
-            <span className="hidden sm:inline">Saved replies</span>
-          </Button>
+          <SavedRepliesPopover onInsert={insertSavedReply} disabled={pending} />
 
           <div className="ml-auto flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-white/70">
