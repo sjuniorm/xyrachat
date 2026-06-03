@@ -1606,11 +1606,49 @@ password as GitHub secrets (`TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`). Code
 signing (Apple Developer / Windows cert) is launch-prep (see DESKTOP.md).
 `npm run tauri dev` works now (needs Rust) — points at localhost:3000.
 
-## Roadmap snapshot (what's next — Week 15)
+## Week 15 — Production hardening (IN PROGRESS — done in batches)
 
-Week 15: **production hardening** — the debug/polish + launch-prep phase (see
-the project_pre_launch_checklist memory). Meta App Review is the longest-pole
-external dependency, start it early.
+Week 15 is ~12 workstreams; being done in focused, verified batches.
+
+**Batch 1 — Security audit + ops foundation (DONE 2026-06-03)**
+- **Adversarial security audit** via a 17-agent workflow (7 surfaces ×
+  parallel reviewers → adversarial verify of each high/critical). 82 findings,
+  8 verified. **Baseline is strong**: RLS enabled + org-scoped on all 34
+  tables, no blanket policies, secrets server-only + API keys hashed, webhooks
+  HMAC-verified, the Week-30 `profiles` column-grant hardening confirmed to
+  close cross-tenant self-reassignment. Three real gaps fixed:
+  - **Stored-XSS (critical)**: inbound email `html_body` was stored RAW +
+    exposed via `/api/v1`. Now sanitized at the webhook boundary
+    ([lib/security/sanitize.ts](lib/security/sanitize.ts), `sanitize-html`).
+  - **Broadcast TOCTOU (critical)**: non-atomic status→sending let concurrent
+    requests double-send. Now an atomic conditional claim
+    ([app/api/broadcasts/send/route.ts](app/api/broadcasts/send/route.ts)).
+  - **No rate limiting (critical/high)**: [lib/rate-limit.ts](lib/rate-limit.ts)
+    (Upstash sliding window, **fails open** until `UPSTASH_REDIS_REST_*` set)
+    wired into v1/messages + v1/contacts (per org), ai/* (per user),
+    channels/*/send (per user), broadcasts/send (per org). 429 + Retry-After.
+- **`/api/health`** ([app/api/health/route.ts](app/api/health/route.ts)) —
+  public probe (checks Supabase, 503 on DB down) for Uptime Robot.
+- **Sentry** ([instrumentation.ts](instrumentation.ts) + configs) — gated on
+  `NEXT_PUBLIC_SENTRY_DSN` (inert until set); source-map upload needs
+  `SENTRY_AUTH_TOKEN`. GDPR-aligned (no PII, no replay). Build-safe on Next 16
+  + Turbopack.
+- Request logging covered by `api_request_log` (public API) + Vercel logs +
+  Sentry `onRequestError`. zod validation was NOT a confirmed audit gap (v1
+  endpoints validate fields manually; supabase-js parameterizes) — deferred.
+
+**Remaining Week 15 batches** (each its own pass): VPS/Docker (n8n +
+webhook-processor + Nginx + SSL) · Playwright smoke suite + CI · changelog +
+versioning + in-app toast · transactional emails (react-email) · business
+metrics dashboard (Stripe/PostHog/Supabase) · Dependabot + maintenance window ·
+LLM-deprecation playbook · help docs · perf (skeletons/virtual-scroll/Redis
+cache). Operator: add Upstash keys to enforce rate limits; create a Sentry
+project for the DSN. See project_pre_launch_checklist memory; Meta App Review
+is the longest-pole external dependency — start early.
+
+## Roadmap snapshot (after Week 15 — Week 16)
+
+Week 16: **Meta Business verification + launch prep**.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
