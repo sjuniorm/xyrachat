@@ -1559,12 +1559,58 @@ fail-closed, not a leak).
   "Always keep on this device" so Metro file-watching doesn't choke (same
   caution as the Week 12 OneDrive incident).
 
-## Roadmap snapshot (what's next — Week 14)
+## Week 14 — Tauri desktop app (DONE)
 
-Week 14: **Tauri desktop app** — native desktop wrapper (macOS/Windows/Linux)
-for agents who live in the inbox all day. Week 15 onward is the debug/polish
-+ launch-prep phase (see the project_pre_launch_checklist memory) — Meta App
-Review is the longest-pole external dependency, start it early.
+Native desktop shell (macOS/Windows/Linux) that **wraps the deployed web app**
+in [`src-tauri/`](src-tauri/) — it loads the remote URL, so the browser +
+mobile experiences are unchanged. Build needs Rust (rustup) — wasn't installed
+when scaffolded, so the first `cargo build` may surface a minor version-specific
+tweak in `lib.rs`. Full guide: [DESKTOP.md](DESKTOP.md).
+
+**Stack** — Tauri v2 (Rust core + system WebView). Implementation grounded in a
+5-agent Tauri-v2 doc-research workflow (the v1→v2 API churn made stale-knowledge
+risk high).
+
+**Config** ([`src-tauri/tauri.conf.json`](src-tauri/tauri.conf.json)) —
+`build.devUrl` = `http://localhost:3000`, `build.frontendDist` =
+`https://xyra-chat.vercel.app` (a URL, not a path — clean dev/prod switch with
+no bundled frontend). `app.withGlobalTauri: true` so the remote page can use
+`window.__TAURI__`. `bundle.createUpdaterArtifacts: true`. Capability
+([`capabilities/default.json`](src-tauri/capabilities/default.json)) grants the
+remote origin (`remote.urls`) `core:default` + `notification:default`.
+
+**Rust** ([`src-tauri/src/lib.rs`](src-tauri/src/lib.rs))
+- System tray: Open / Check for Updates… / Quit; double-click (Windows) focuses
+  the window; close-to-tray (`CloseRequested` → `prevent_close` + `hide`).
+- `set_unread` command → dock (macOS) / taskbar (Windows) badge.
+- Plugins: notification + (desktop) window-state, dialog, updater.
+- Updater: silent check on launch + manual tray check → native dialog →
+  `download_and_install` → `app.restart()`.
+
+**Web bridge** ([`lib/desktop/tauri.ts`](lib/desktop/tauri.ts)) — `isDesktop()`,
+`ensureNotificationPermission()`, `desktopNotify()` (returns false → caller uses
+browser `Notification`), `setUnreadBadge()`. Wired into
+[`components/inbox/notifications-watcher.tsx`](components/inbox/notifications-watcher.tsx):
+native notifications when in the shell, dock/taskbar badge mirrors the inbox
+count. Everything no-ops/falls back in a normal browser.
+
+**Release** — [`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml)
+builds macOS (arm64 + x64) + Windows via `tauri-apps/tauri-action`, signs
+updater artifacts, publishes a draft GitHub Release + `latest.json`. Trigger:
+push tag `desktop-vX.Y.Z` or run manually.
+
+**⚠️ Operator before first desktop release**: install Rust, run
+`npm run tauri signer generate`, paste the public key into
+`tauri.conf.json` → `plugins.updater.pubkey`, add the private key +
+password as GitHub secrets (`TAURI_SIGNING_PRIVATE_KEY[_PASSWORD]`). Code
+signing (Apple Developer / Windows cert) is launch-prep (see DESKTOP.md).
+`npm run tauri dev` works now (needs Rust) — points at localhost:3000.
+
+## Roadmap snapshot (what's next — Week 15)
+
+Week 15: **production hardening** — the debug/polish + launch-prep phase (see
+the project_pre_launch_checklist memory). Meta App Review is the longest-pole
+external dependency, start it early.
 
 Also queued:
 - Real WhatsApp media outbound (deferred from Week 3 — Meta media upload flow)
