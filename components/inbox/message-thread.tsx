@@ -19,7 +19,7 @@ import type { Conversation, Message } from "@/lib/mock-data";
 import type { ConversationStatus, MessageRow } from "@/lib/db-types";
 import { adaptMessage } from "@/lib/inbox/adapt";
 import { useMessages } from "@/lib/realtime";
-import { setConversationStatus } from "@/lib/inbox/actions";
+import { setConversationStatus, markConversationRead } from "@/lib/inbox/actions";
 import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
@@ -68,6 +68,18 @@ export function MessageThread({
   const [closing, startClosing] = useTransition();
   // Subscribe to Supabase Realtime so new inbound/outbound messages appear live.
   const rows = useMessages(conversation.id, initialMessageRows);
+
+  // Read tracking: mark read on open (and refresh the list so the unread badge
+  // clears), then keep it read as new messages land while the thread is open.
+  const lastRowId = rows.length > 0 ? rows[rows.length - 1].id : null;
+  useEffect(() => {
+    void markConversationRead(conversation.id).then(() => router.refresh());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.id]);
+  useEffect(() => {
+    if (lastRowId) void markConversationRead(conversation.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastRowId]);
   const [localOverrides, setLocalOverrides] = useState<
     Record<string, Partial<Message>>
   >({});

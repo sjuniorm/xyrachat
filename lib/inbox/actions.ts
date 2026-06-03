@@ -266,3 +266,51 @@ export async function deleteConversationsBulk(
   revalidatePath("/inbox");
   return { ok: true };
 }
+
+/**
+ * Mark a conversation read for the current agent (upsert last_read_at = now).
+ * Fire-and-forget from the thread on open / new message. RLS scopes the row to
+ * the caller (user_id = auth.uid()).
+ */
+export async function markConversationRead(conversationId: string): Promise<void> {
+  if (!conversationId) return;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  await supabase.from("conversation_reads").upsert(
+    {
+      conversation_id: conversationId,
+      user_id: user.id,
+      last_read_at: new Date().toISOString(),
+    },
+    { onConflict: "conversation_id,user_id" },
+  );
+}
+
+/**
+ * Mark a conversation unread for the current agent — set last_read_at to the
+ * epoch so the unread check (last_inbound_at > last_read_at) flags it again.
+ */
+export async function markConversationUnread(
+  conversationId: string,
+): Promise<ActionResult> {
+  if (!conversationId) return { ok: false, error: "Missing conversation id." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+  const { error } = await supabase.from("conversation_reads").upsert(
+    {
+      conversation_id: conversationId,
+      user_id: user.id,
+      last_read_at: new Date(0).toISOString(),
+    },
+    { onConflict: "conversation_id,user_id" },
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/inbox");
+  return { ok: true };
+}

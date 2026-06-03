@@ -26,6 +26,7 @@ import {
 import {
   setConversationStatus,
   snoozeConversation,
+  markConversationUnread,
 } from "@/lib/inbox/actions";
 import type { ConversationStatus } from "@/lib/db-types";
 
@@ -139,8 +140,17 @@ export function StatusMenu({
 
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onClick={() => toast.message("Mark unread coming soon")}
-          className="text-white/60"
+          onClick={() =>
+            startTransition(async () => {
+              const r = await markConversationUnread(conversationId);
+              if (!r.ok) {
+                toast.error(r.error);
+                return;
+              }
+              toast.success("Marked as unread");
+              router.refresh();
+            })
+          }
         >
           Mark as unread
         </DropdownMenuItem>

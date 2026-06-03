@@ -85,15 +85,39 @@ export async function getConversationsForCurrentOrg(): Promise<
     }
   }
 
+  // Per-agent read state (RLS returns only the caller's rows). A conversation
+  // is unread when its latest inbound is newer than when this agent last read
+  // it (or they never read it).
+  const { data: reads } = await supabase
+    .from("conversation_reads")
+    .select("conversation_id, last_read_at")
+    .in("conversation_id", ids);
+  const readAt: Record<string, string> = {};
+  for (const r of (reads as Array<{
+    conversation_id: string;
+    last_read_at: string;
+  }> | null) ?? []) {
+    readAt[r.conversation_id] = r.last_read_at;
+  }
+
   return rows
     .filter((c): c is RawConversation & { contact: ContactRow; channel: NonNullable<RawConversation["channel"]> } =>
       Boolean(c.contact && c.channel),
     )
-    .map((c) => ({
-      ...c,
-      last_message_preview: previews[c.id] ?? null,
-      unread_count: 0,
-    }));
+    .map((c) => {
+      const lastInbound = c.last_inbound_at;
+      const lastRead = readAt[c.id];
+      const unread = Boolean(
+        lastInbound &&
+          (!lastRead ||
+            new Date(lastInbound).getTime() > new Date(lastRead).getTime()),
+      );
+      return {
+        ...c,
+        last_message_preview: previews[c.id] ?? null,
+        unread_count: unread ? 1 : 0,
+      };
+    });
 }
 
 export async function getConversationDetail(
