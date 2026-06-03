@@ -2,6 +2,11 @@
 
 import { useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  desktopNotify,
+  setUnreadBadge,
+  ensureNotificationPermission,
+} from "@/lib/desktop/tauri";
 import type { Conversation } from "@/lib/mock-data";
 
 /**
@@ -32,12 +37,10 @@ export function NotificationsWatcher({
   const baseTitleRef = useRef<string>("Xyra Chat");
 
   // Lazy permission prompt — fires on first click anywhere in the app.
+  // Handles both the native desktop shell (Tauri) and the browser.
   useEffect(() => {
     function onFirstClick() {
-      if (typeof window === "undefined" || !("Notification" in window)) return;
-      if (Notification.permission === "default") {
-        Notification.requestPermission().catch(() => {});
-      }
+      void ensureNotificationPermission();
       window.removeEventListener("click", onFirstClick);
     }
     window.addEventListener("click", onFirstClick);
@@ -60,6 +63,8 @@ export function NotificationsWatcher({
     document.title = count > 0
       ? `(${count}) ${baseTitleRef.current}`
       : baseTitleRef.current;
+    // Mirror the count onto the desktop dock/taskbar badge (no-op in browser).
+    setUnreadBadge(count);
   }, [conversations, currentUserId]);
 
   // Fire notifications by diffing the current conversations snapshot against
@@ -72,6 +77,8 @@ export function NotificationsWatcher({
     }>();
 
     function notify(title: string, body: string) {
+      // Native desktop notification first; fall back to the browser API.
+      if (desktopNotify(title, body)) return;
       if (typeof window === "undefined" || !("Notification" in window)) return;
       if (Notification.permission !== "granted") return;
       try {
@@ -162,6 +169,9 @@ export function MessagesRealtimeNotifier({
           };
           if (m.direction !== "inbound") return;
           if (!myConversationIds.includes(m.conversation_id)) return;
+          const body = m.content ?? "(media or empty)";
+          // Native desktop notification first; fall back to the browser API.
+          if (desktopNotify("New message", body)) return;
           if (
             typeof Notification === "undefined" ||
             Notification.permission !== "granted"
@@ -169,7 +179,7 @@ export function MessagesRealtimeNotifier({
             return;
           try {
             new Notification("New message", {
-              body: m.content ?? "(media or empty)",
+              body,
               icon: "/icon.png",
               badge: "/icon.png",
             });

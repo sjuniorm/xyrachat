@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // The Expo / React Native app is a separate package with its own toolchain.
     "mobile/**",
     "integrations/**",
+    // The Tauri desktop shell (Rust + its own config).
+    "src-tauri/**",
   ]),
 ]);
 
