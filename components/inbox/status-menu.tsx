@@ -144,12 +144,6 @@ export function StatusMenu({
         >
           Mark as unread
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => toast.message("Tag editor coming soon")}
-          className="text-white/60"
-        >
-          Add tag…
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

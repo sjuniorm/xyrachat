@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
+import { updateContact } from "@/lib/contacts/actions";
 import {
   ChevronDown,
   ChevronRight,
@@ -43,6 +45,41 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
   const [editingName, setEditingName] = useState(false);
   const [notes, setNotes] = useState(conversation.contact.notes);
   const [prevOpen, setPrevOpen] = useState(false);
+  const [tags, setTags] = useState<string[]>(
+    conversation.contact.tags.map((t) => t.label),
+  );
+  const [addingTag, setAddingTag] = useState(false);
+  const [newTag, setNewTag] = useState("");
+  const [, startSave] = useTransition();
+  const contactId = conversation.contact.id;
+
+  function persist(patch: { name?: string; notes?: string; tags?: string[] }) {
+    startSave(async () => {
+      const r = await updateContact({ id: contactId, ...patch });
+      if (!r.ok) toast.error(r.error);
+    });
+  }
+  function saveName() {
+    setEditingName(false);
+    if (name.trim() && name !== conversation.contact.name) persist({ name });
+  }
+  function saveNotes() {
+    if (notes !== conversation.contact.notes) persist({ notes });
+  }
+  function addTag(label: string) {
+    const t = label.trim();
+    setNewTag("");
+    setAddingTag(false);
+    if (!t || tags.includes(t)) return;
+    const next = [...tags, t];
+    setTags(next);
+    persist({ tags: next });
+  }
+  function removeTag(label: string) {
+    const next = tags.filter((x) => x !== label);
+    setTags(next);
+    persist({ tags: next });
+  }
 
   const initials = name
     .split(/\s+/)
@@ -73,9 +110,9 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onBlur={() => setEditingName(false)}
+            onBlur={saveName}
             onKeyDown={(e) => {
-              if (e.key === "Enter") setEditingName(false);
+              if (e.key === "Enter") saveName();
               if (e.key === "Escape") {
                 setName(conversation.contact.name);
                 setEditingName(false);
@@ -120,34 +157,56 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
         </Section>
 
         <Section title="Tags">
-          <div className="flex flex-wrap gap-1.5 px-3 pb-3">
-            {conversation.contact.tags.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3">
+            {tags.length === 0 && !addingTag && (
               <p className="text-xs text-white/50">No tags yet.</p>
-            ) : (
-              conversation.contact.tags.map((tag, i) => (
-                <Badge
-                  key={i}
-                  variant="outline"
-                  className={cn("h-6 gap-1 px-2 text-[11px]", TAG_COLORS[tag.color])}
-                >
-                  {tag.label}
-                  <button
-                    type="button"
-                    aria-label={`Remove tag ${tag.label}`}
-                    className="text-current/70 hover:text-current"
-                  >
-                    <X className="size-2.5" />
-                  </button>
-                </Badge>
-              ))
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 gap-1 px-2 text-[11px] border-white/10"
-            >
-              <Plus className="size-3" /> Add
-            </Button>
+            {tags.map((tag) => (
+              <Badge
+                key={tag}
+                variant="outline"
+                className={cn("h-6 gap-1 px-2 text-[11px]", TAG_COLORS.purple)}
+              >
+                {tag}
+                <button
+                  type="button"
+                  aria-label={`Remove tag ${tag}`}
+                  onClick={() => removeTag(tag)}
+                  className="text-current/70 hover:text-current"
+                >
+                  <X className="size-2.5" />
+                </button>
+              </Badge>
+            ))}
+            {addingTag ? (
+              <Input
+                autoFocus
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onBlur={() => addTag(newTag)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addTag(newTag);
+                  }
+                  if (e.key === "Escape") {
+                    setNewTag("");
+                    setAddingTag(false);
+                  }
+                }}
+                placeholder="Tag name"
+                className="h-6 w-28 border-white/10 bg-white/5 px-2 text-[11px]"
+              />
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAddingTag(true)}
+                className="h-6 gap-1 px-2 text-[11px] border-white/10"
+              >
+                <Plus className="size-3" /> Add
+              </Button>
+            )}
           </div>
         </Section>
 
@@ -176,6 +235,7 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              onBlur={saveNotes}
               placeholder="Internal notes about this contact (only your team sees these)"
               className="min-h-20 resize-none border-white/10 bg-white/5 text-sm text-white/90 placeholder:text-white/40"
             />
