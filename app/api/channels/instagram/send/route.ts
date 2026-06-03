@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/rate-limit";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 
 export const runtime = "nodejs";
@@ -19,6 +20,13 @@ export async function POST(req: Request) {
   const { supabase, user } = await getRouteUser(req);
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const rl = await rateLimit("channel:send:instagram", user.id, { limit: 120, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Slow down — too many messages." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
   }
 
   let body: SendBody;

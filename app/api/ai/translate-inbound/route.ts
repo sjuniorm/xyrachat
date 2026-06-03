@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, isAnthropicConfigured, MODELS } from "@/lib/ai/clients";
 import { detectLanguage } from "@/lib/ai/language-detect";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
+import { rateLimit } from "@/lib/rate-limit";
 
 // POST /api/ai/translate-inbound
 // Body: { message_id, target_language? }
@@ -31,6 +32,14 @@ export async function POST(req: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = await rateLimit("ai:translate-inbound", user.id, { limit: 30, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Slow down — too many AI requests." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
 
   const { data: profile } = await supabase
     .from("profiles")

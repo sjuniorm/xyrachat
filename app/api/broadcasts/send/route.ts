@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { fetchAudience } from "@/lib/broadcasts/audience";
+import { rateLimit } from "@/lib/rate-limit";
 import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
 import { applyVariables, type TemplateComponent } from "@/lib/templates/types";
 
@@ -68,11 +69,39 @@ export async function POST(req: NextRequest) {
   if (bc.org_id !== profile.org_id) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
-  if (bc.status === "sending") {
-    return NextResponse.json({ ok: false, error: "Broadcast is already sending" }, { status: 409 });
+
+  // Per-org safety throttle on launching broadcasts (cost/abuse). Fails open
+  // when Upstash isn't configured.
+  const rl = await rateLimit("broadcast:send", profile.org_id, {
+    limit: 10,
+    windowSec: 600,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { ok: false, error: "Too many broadcasts launched. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
   }
-  if (bc.status === "done") {
-    return NextResponse.json({ ok: false, error: "Broadcast already finished" }, { status: 409 });
+
+  // Atomically CLAIM the broadcast: flip draft/scheduled/failed → sending in a
+  // single conditional UPDATE. Two concurrent requests can't both win — the
+  // loser matches 0 rows and 409s. Closes the TOCTOU double-send race (a
+  // non-atomic check-then-update previously let concurrent requests both send).
+  const { data: claimed } = await admin
+    .from("broadcasts")
+    .update({
+      status: "sending",
+      started_at: new Date().toISOString(),
+      last_error: null,
+    })
+    .eq("id", bc.id)
+    .in("status", ["draft", "scheduled", "failed"])
+    .select("id");
+  if (!claimed || claimed.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "Broadcast is already sending or finished" },
+      { status: 409 },
+    );
   }
 
   const [{ data: tpl }, { data: channel }] = await Promise.all([

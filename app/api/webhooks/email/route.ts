@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { dispatchTrigger } from "@/lib/automations/triggers";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sanitizeEmailHtml } from "@/lib/security/sanitize";
 
 export const runtime = "nodejs";
 
@@ -207,7 +208,9 @@ async function handleInbound(email: ResendInboundEmail) {
       from_name: fromName,
       to_addresses: toAddresses,
       cc_addresses: email.cc?.map(normalizeAddress),
-      html_body: email.html,
+      // Sanitize untrusted sender HTML before storing (stored-XSS defense) —
+      // it's surfaced via the API + may be rendered by future clients.
+      html_body: email.html ? sanitizeEmailHtml(email.html) : undefined,
       in_reply_to: inReplyTo ?? undefined,
       references: references.length > 0 ? references : undefined,
     },

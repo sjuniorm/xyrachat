@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit } from "@/lib/rate-limit";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { generateBotResponse, type BotRow, type ConversationMessage } from "@/lib/ai/chatbot";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
@@ -26,6 +27,14 @@ export async function POST(req: Request) {
   // Auth (web cookie OR mobile JWT).
   const { supabase, user } = await getRouteUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = await rateLimit("ai:suggest-reply", user.id, { limit: 20, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Slow down — too many AI requests." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
 
   const { data: profile } = await supabase
     .from("profiles")

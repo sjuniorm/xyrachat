@@ -3,7 +3,8 @@ import { requireApiKey, logApiRequest } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeCursor, encodeCursor, parseLimit } from "@/lib/api/pagination";
 import { getCachedIdempotentResponse, storeIdempotentResponse } from "@/lib/api/idempotency";
-import { invalidRequest } from "@/lib/api/errors";
+import { invalidRequest, rateLimited } from "@/lib/api/errors";
+import { rateLimit } from "@/lib/rate-limit";
 import { emit } from "@/lib/api/emit";
 
 export const runtime = "nodejs";
@@ -79,6 +80,13 @@ export async function POST(req: NextRequest) {
   const start = Date.now();
   const auth = await requireApiKey(req, "contacts:write");
   if (!auth.ok) return auth.response;
+
+  // Rate limit per org — bulk contact-create abuse / write amplification.
+  const rl = await rateLimit("api:contacts:create", auth.ctx.orgId, {
+    limit: 300,
+    windowSec: 60,
+  });
+  if (!rl.ok) return rateLimited(rl.retryAfter);
 
   const idempotencyKey = req.headers.get("idempotency-key");
   const cached = await getCachedIdempotentResponse(auth.ctx.apiKeyId, idempotencyKey);

@@ -2,7 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireApiKey, logApiRequest } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
-import { invalidRequest, notFound, unprocessable } from "@/lib/api/errors";
+import { invalidRequest, notFound, unprocessable, rateLimited } from "@/lib/api/errors";
+import { rateLimit } from "@/lib/rate-limit";
 import {
   getCachedIdempotentResponse,
   storeIdempotentResponse,
@@ -35,6 +36,14 @@ export async function POST(req: NextRequest) {
   const start = Date.now();
   const auth = await requireApiKey(req, "messages:write");
   if (!auth.ok) return auth.response;
+
+  // Rate limit per org — prevents a leaked/abused key (or many keys) from
+  // spamming the provider and racking up cost / a number ban.
+  const rl = await rateLimit("api:messages:send", auth.ctx.orgId, {
+    limit: 120,
+    windowSec: 60,
+  });
+  if (!rl.ok) return rateLimited(rl.retryAfter);
 
   const idempotencyKey = req.headers.get("idempotency-key");
   const cached = await getCachedIdempotentResponse(auth.ctx.apiKeyId, idempotencyKey);
