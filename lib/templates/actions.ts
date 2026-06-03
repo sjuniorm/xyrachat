@@ -192,6 +192,123 @@ export async function createTemplate(payload: {
 }
 
 // =====================================================================
+// EDIT — resubmit an existing template to Meta. Name + language are immutable
+// on Meta's side (create a new template for those); only category + components
+// can change. Meta refuses edits while a template is under review, so we gate
+// on status. A successful edit flips the template back to PENDING; the
+// previously-approved version keeps sending until the edit is approved.
+// =====================================================================
+export async function editTemplate(payload: {
+  templateId: string;
+  category: TemplateCategory;
+  components: TemplateComponent[];
+  exampleValues?: Record<string, string[]>;
+}): Promise<ActionResult> {
+  const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const body = payload.components.find((c) => c.type === "BODY");
+  if (!body || !("text" in body) || !body.text.trim()) {
+    return { ok: false, error: "Template body is required." };
+  }
+  const varCount = countVariables(body.text);
+  if (varCount > 0) {
+    const samples = payload.exampleValues?.body ?? [];
+    if (samples.length < varCount || samples.some((s) => !s?.trim())) {
+      return {
+        ok: false,
+        error: `Provide example values for all ${varCount} body variable${varCount === 1 ? "" : "s"} so Meta can review.`,
+      };
+    }
+  }
+
+  const admin = createAdminClient();
+  const { data: tpl } = await admin
+    .from("wa_templates")
+    .select("id, org_id, channel_id, meta_template_id, meta_status")
+    .eq("id", payload.templateId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!tpl || tpl.org_id !== auth.orgId) {
+    return { ok: false, error: "Template not in your org." };
+  }
+  if (!tpl.meta_template_id) {
+    return {
+      ok: false,
+      error: "Meta never accepted this template — recreate it instead of editing.",
+    };
+  }
+  if (tpl.meta_status === "PENDING" || tpl.meta_status === "IN_APPEAL") {
+    return {
+      ok: false,
+      error:
+        "Meta won't accept edits while a template is under review. Wait for approval or rejection first.",
+    };
+  }
+
+  const { data: channel } = await admin
+    .from("channels")
+    .select("id, access_token_vault_id")
+    .eq("id", tpl.channel_id)
+    .maybeSingle();
+  if (!channel?.access_token_vault_id) {
+    return {
+      ok: false,
+      error: "Channel is missing its access token — finish channel setup first.",
+    };
+  }
+  const token = await vaultReadSecret(channel.access_token_vault_id);
+  if (!token) return { ok: false, error: "Channel token missing from vault." };
+
+  const metaComponents = injectExamples(
+    payload.components,
+    payload.exampleValues ?? {},
+  );
+
+  // Meta edit endpoint is POST to the template ID itself (not the WABA).
+  const metaUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${tpl.meta_template_id}`;
+  let metaErrorMessage: string | null = null;
+  try {
+    const res = await fetch(metaUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        category: payload.category,
+        components: metaComponents,
+      }),
+    });
+    const json = (await res.json().catch(() => null)) as
+      | { success?: boolean; error?: { message: string } }
+      | null;
+    if (!res.ok || json?.error) {
+      metaErrorMessage =
+        json?.error?.message ?? `Meta API error (HTTP ${res.status})`;
+    }
+  } catch (err) {
+    metaErrorMessage = err instanceof Error ? err.message : "Network error";
+  }
+  if (metaErrorMessage) return { ok: false, error: metaErrorMessage };
+
+  const { error } = await admin
+    .from("wa_templates")
+    .update({
+      category: payload.category,
+      components: payload.components,
+      example_values: payload.exampleValues ?? {},
+      meta_status: "PENDING",
+      meta_rejection_reason: null,
+    })
+    .eq("id", tpl.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/templates");
+  return { ok: true };
+}
+
+// =====================================================================
 // SYNC — pull current status from Meta for one or all templates in an org
 // =====================================================================
 export async function syncTemplates(): Promise<

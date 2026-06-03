@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
   let sent = 0;
   let failed = 0;
   let lastErr: string | null = null;
+  let cancelled = false;
   const mapping = (bc.variable_mapping ?? {}) as VariableMapping;
   const tplComponents = tpl.components as TemplateComponent[];
 
@@ -177,11 +178,19 @@ export async function POST(req: NextRequest) {
       failed += 1;
       lastErr = err instanceof Error ? err.message : "Network error";
     }
+    // Progress persist + cancel poll: the guarded UPDATE matches 0 rows once
+    // status flips to 'cancelled', which breaks the loop with partials intact.
     if (i % 50 === 49) {
-      await admin
+      const { data: prog } = await admin
         .from("broadcasts")
         .update({ sent_count: sent, failed_count: failed, last_error: lastErr })
-        .eq("id", bc.id);
+        .eq("id", bc.id)
+        .eq("status", "sending")
+        .select("id");
+      if (!prog || prog.length === 0) {
+        cancelled = true;
+        break;
+      }
     }
     if (i < eligible.length - 1) await sleep(SEND_GAP_MS);
   }
@@ -189,7 +198,7 @@ export async function POST(req: NextRequest) {
   await admin
     .from("broadcasts")
     .update({
-      status: "done",
+      status: cancelled ? "cancelled" : "done",
       sent_count: sent,
       failed_count: failed,
       last_error: lastErr,
@@ -197,7 +206,7 @@ export async function POST(req: NextRequest) {
     })
     .eq("id", bc.id);
 
-  return NextResponse.json({ ok: true, sent, failed, total: eligible.length });
+  return NextResponse.json({ ok: true, sent, failed, cancelled, total: eligible.length });
 }
 
 async function fail(

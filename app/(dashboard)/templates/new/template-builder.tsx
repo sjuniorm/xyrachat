@@ -17,7 +17,7 @@ import {
   countVariables,
   normalizeTemplateName,
 } from "@/lib/templates/types";
-import { createTemplate } from "@/lib/templates/actions";
+import { createTemplate, editTemplate } from "@/lib/templates/actions";
 
 const CATEGORIES: Array<{
   value: TemplateCategory;
@@ -59,31 +59,93 @@ type Header =
   | { kind: "text"; text: string }
   | { kind: "media"; format: "IMAGE" | "VIDEO" | "DOCUMENT" };
 
+export type TemplateEdit = {
+  templateId: string;
+  channelId: string;
+  name: string;
+  language: string;
+  category: TemplateCategory;
+  components: TemplateComponent[];
+  exampleValues: Record<string, string[]>;
+};
+
+// Reverse of buildComponents(): turn a stored components array back into the
+// header / body / footer / buttons editor state so an existing template can be
+// edited in the same builder.
+function decompose(components: TemplateComponent[]): {
+  header: Header;
+  body: string;
+  footer: string;
+  buttons: TemplateButton[];
+} {
+  let header: Header = { kind: "none" };
+  let body = "";
+  let footer = "";
+  let buttons: TemplateButton[] = [];
+  for (const c of components) {
+    if (c.type === "HEADER") {
+      if (c.format === "TEXT" && "text" in c) {
+        header = { kind: "text", text: c.text };
+      } else if (
+        c.format === "IMAGE" ||
+        c.format === "VIDEO" ||
+        c.format === "DOCUMENT"
+      ) {
+        header = { kind: "media", format: c.format };
+      }
+    } else if (c.type === "BODY") {
+      body = c.text;
+    } else if (c.type === "FOOTER") {
+      footer = c.text;
+    } else if (c.type === "BUTTONS") {
+      buttons = c.buttons;
+    }
+  }
+  return { header, body, footer, buttons };
+}
+
 export function TemplateBuilder({
   channels,
+  edit,
 }: {
   channels: Array<{ id: string; name: string }>;
+  edit?: TemplateEdit;
 }) {
   const router = useRouter();
   const [busy, startTransition] = useTransition();
+  const isEdit = !!edit;
+  const initial = edit ? decompose(edit.components) : null;
 
-  const [channelId, setChannelId] = useState(channels[0]?.id ?? "");
-  const [name, setName] = useState("");
-  const [language, setLanguage] = useState("en_US");
-  const [category, setCategory] = useState<TemplateCategory>("UTILITY");
-
-  const [header, setHeader] = useState<Header>({ kind: "none" });
-  const [body, setBody] = useState(
-    "Hi {{1}}, thanks for reaching out — we got your message about {{2}}.",
+  const [channelId, setChannelId] = useState(
+    edit?.channelId ?? channels[0]?.id ?? "",
   );
-  const [footer, setFooter] = useState("");
-  const [buttons, setButtons] = useState<TemplateButton[]>([]);
+  const [name, setName] = useState(edit?.name ?? "");
+  const [language, setLanguage] = useState(edit?.language ?? "en_US");
+  const [category, setCategory] = useState<TemplateCategory>(
+    edit?.category ?? "UTILITY",
+  );
+
+  const [header, setHeader] = useState<Header>(
+    initial?.header ?? { kind: "none" },
+  );
+  const [body, setBody] = useState(
+    initial?.body ??
+      "Hi {{1}}, thanks for reaching out — we got your message about {{2}}.",
+  );
+  const [footer, setFooter] = useState(initial?.footer ?? "");
+  const [buttons, setButtons] = useState<TemplateButton[]>(
+    initial?.buttons ?? [],
+  );
 
   // Examples for the {{N}} placeholders. Used both by the preview AND
   // included in the Meta submission so reviewers see what real content
   // looks like.
-  const [headerExamples, setHeaderExamples] = useState<string[]>([]);
-  const [bodyExamples, setBodyExamples] = useState<string[]>(["Junior", "your order"]);
+  const [headerExamples, setHeaderExamples] = useState<string[]>(
+    edit?.exampleValues?.header ?? [],
+  );
+  const [bodyExamples, setBodyExamples] = useState<string[]>(
+    edit?.exampleValues?.body ?? ["Junior", "your order"],
+  );
 
   const bodyVarCount = useMemo(() => countVariables(body), [body]);
   const headerVarCount = useMemo(
@@ -131,12 +193,12 @@ export function TemplateBuilder({
   }
 
   function submit() {
-    if (!channelId) {
+    if (!isEdit && !channelId) {
       toast.error("Pick a WhatsApp channel.");
       return;
     }
     const normalized = normalizeTemplateName(name);
-    if (!normalized) {
+    if (!isEdit && !normalized) {
       toast.error("Add a template name.");
       return;
     }
@@ -149,25 +211,36 @@ export function TemplateBuilder({
       return;
     }
 
+    const exampleValues = {
+      ...(fixedHeaderExamples.length > 0 ? { header: fixedHeaderExamples } : {}),
+      ...(fixedBodyExamples.length > 0 ? { body: fixedBodyExamples } : {}),
+    };
+
     startTransition(async () => {
-      const res = await createTemplate({
-        channelId,
-        name: normalized,
-        language,
-        category,
-        components: buildComponents(),
-        exampleValues: {
-          ...(fixedHeaderExamples.length > 0
-            ? { header: fixedHeaderExamples }
-            : {}),
-          ...(fixedBodyExamples.length > 0 ? { body: fixedBodyExamples } : {}),
-        },
-      });
+      const res = edit
+        ? await editTemplate({
+            templateId: edit.templateId,
+            category,
+            components: buildComponents(),
+            exampleValues,
+          })
+        : await createTemplate({
+            channelId,
+            name: normalized,
+            language,
+            category,
+            components: buildComponents(),
+            exampleValues,
+          });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
-      toast.success("Submitted to Meta — refresh status from the templates page.");
+      toast.success(
+        isEdit
+          ? "Resubmitted to Meta — refresh status from the templates page."
+          : "Submitted to Meta — refresh status from the templates page.",
+      );
       router.push("/templates");
     });
   }
@@ -190,7 +263,8 @@ export function TemplateBuilder({
                 id="channel"
                 value={channelId}
                 onChange={(e) => setChannelId(e.target.value)}
-                className="mt-1 h-9 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white"
+                disabled={isEdit}
+                className="mt-1 h-9 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white disabled:opacity-60"
               >
                 {channels.map((c) => (
                   <option key={c.id} value={c.id} className="bg-zinc-900">
@@ -211,10 +285,13 @@ export function TemplateBuilder({
                   onChange={(e) => setName(e.target.value)}
                   onBlur={() => setName((v) => normalizeTemplateName(v))}
                   placeholder="order_shipped_v1"
-                  className="mt-1 font-mono"
+                  disabled={isEdit}
+                  className="mt-1 font-mono disabled:opacity-60"
                 />
                 <p className="mt-1 text-[10px] text-white/50">
-                  Lowercase letters, numbers and underscores. Auto-converted.
+                  {isEdit
+                    ? "Name can't change on Meta — create a new template to rename."
+                    : "Lowercase letters, numbers and underscores. Auto-converted."}
                 </p>
               </div>
               <div>
@@ -225,7 +302,8 @@ export function TemplateBuilder({
                   id="language"
                   value={language}
                   onChange={(e) => setLanguage(e.target.value)}
-                  className="mt-1 h-9 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white"
+                  disabled={isEdit}
+                  className="mt-1 h-9 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white disabled:opacity-60"
                 >
                   {LANGUAGES.map((l) => (
                     <option key={l.code} value={l.code} className="bg-zinc-900">
@@ -542,11 +620,15 @@ export function TemplateBuilder({
             className="xyra-gradient text-white border-0 hover:opacity-90"
           >
             {busy ? (
-              "Submitting…"
+              isEdit ? (
+                "Resubmitting…"
+              ) : (
+                "Submitting…"
+              )
             ) : (
               <>
                 <Send className="mr-1.5 size-4" />
-                Submit to Meta
+                {isEdit ? "Resubmit to Meta" : "Submit to Meta"}
               </>
             )}
           </Button>
@@ -600,9 +682,19 @@ export function TemplateBuilder({
         <div className="flex items-start gap-1.5 rounded-md border border-amber-400/20 bg-amber-400/5 p-2.5 text-[11px] text-amber-200/80">
           <AlertCircle className="mt-0.5 size-3 shrink-0" />
           <span>
-            Once submitted, Meta reviews the template (usually under 10 min for
-            utility, up to 24h for marketing). You can&apos;t edit a pending
-            template — delete and recreate to make changes.
+            {isEdit ? (
+              <>
+                Resubmitting sends the edit to Meta for review. The currently
+                approved version keeps sending until the edit is approved. Meta
+                limits edits to roughly once per day.
+              </>
+            ) : (
+              <>
+                Once submitted, Meta reviews the template (usually under 10 min
+                for utility, up to 24h for marketing). You can edit an approved
+                or rejected template later — not while it&apos;s pending.
+              </>
+            )}
           </span>
         </div>
       </div>

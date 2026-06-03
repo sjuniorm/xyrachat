@@ -195,6 +195,7 @@ export async function POST(req: NextRequest) {
   let sent = 0;
   let failed = 0;
   let lastErr: string | null = null;
+  let cancelled = false;
   const conversationsBumped = new Set<string>();
   // For each send, we also create or upsert a conversation + outbound message
   // so the broadcast appears in the inbox just like any other agent send.
@@ -291,12 +292,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Persist progress every 50 sends so the UI shows movement without
-    // hammering the DB.
+    // hammering the DB. The guarded UPDATE also doubles as a cancel poll:
+    // if someone flipped status→'cancelled' mid-send, 0 rows match and we
+    // break out of the loop, preserving the partial counts.
     if (i % 50 === 49) {
-      await admin
+      const { data: prog } = await admin
         .from("broadcasts")
         .update({ sent_count: sent, failed_count: failed, last_error: lastErr })
-        .eq("id", bc.id);
+        .eq("id", bc.id)
+        .eq("status", "sending")
+        .select("id");
+      if (!prog || prog.length === 0) {
+        cancelled = true;
+        break;
+      }
     }
 
     if (i < eligible.length - 1) await sleep(SEND_GAP_MS);
@@ -313,11 +322,12 @@ export async function POST(req: NextRequest) {
       .in("id", Array.from(conversationsBumped));
   }
 
-  // 7. Mark done.
+  // 7. Mark done — or leave it 'cancelled' if an abort landed mid-send. Either
+  //    way persist the final counts + finish time.
   await admin
     .from("broadcasts")
     .update({
-      status: "done",
+      status: cancelled ? "cancelled" : "done",
       sent_count: sent,
       failed_count: failed,
       last_error: lastErr,
@@ -330,6 +340,7 @@ export async function POST(req: NextRequest) {
     sent,
     failed,
     skipped_opt_out,
+    cancelled,
     total: eligible.length,
   });
 }

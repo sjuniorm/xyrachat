@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { FileText, Plus, RefreshCw, AlertCircle } from "lucide-react";
+import { FileText, Plus, RefreshCw, AlertCircle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -63,10 +63,11 @@ export default async function TemplatesPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("org_id")
+    .select("org_id, role")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
+  const canEdit = ["owner", "admin", "supervisor"].includes(profile.role);
 
   // Templates + WA channel count (the New button is disabled when no WA
   // channels exist — without them there's no Meta business account to
@@ -191,6 +192,23 @@ export default async function TemplatesPage() {
                           <span>{t.meta_rejection_reason}</span>
                         </div>
                       )}
+                      {canEdit &&
+                        t.meta_status !== "PENDING" &&
+                        t.meta_status !== "IN_APPEAL" && (
+                          <div className="flex justify-end pt-1">
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 gap-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-white"
+                            >
+                              <Link href={`/templates/${t.id}/edit`}>
+                                <Pencil className="size-3" />
+                                Edit
+                              </Link>
+                            </Button>
+                          </div>
+                        )}
                     </CardContent>
                   </Card>
                 </li>

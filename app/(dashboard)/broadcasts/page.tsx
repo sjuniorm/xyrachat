@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { LaunchNowButton } from "./launch-now-button";
+import { CancelBroadcastButton } from "./cancel-broadcast-button";
 
 const STATUS_TONE: Record<
   string,
@@ -199,9 +200,20 @@ export default async function BroadcastsPage() {
                           </p>
                         )}
                       </div>
-                      {b.status === "draft" && canCreate && (
-                        <LaunchNowButton broadcastId={b.id} />
-                      )}
+                      {canCreate &&
+                        (b.status === "draft" ||
+                          b.status === "scheduled" ||
+                          b.status === "sending") && (
+                          <div className="flex shrink-0 items-center gap-2">
+                            {b.status === "draft" && (
+                              <LaunchNowButton broadcastId={b.id} />
+                            )}
+                            <CancelBroadcastButton
+                              broadcastId={b.id}
+                              sending={b.status === "sending"}
+                            />
+                          </div>
+                        )}
                     </CardContent>
                   </Card>
                 </li>

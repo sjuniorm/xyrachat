@@ -223,6 +223,41 @@ export async function deleteBroadcast(id: string): Promise<ActionResult> {
 }
 
 // =====================================================================
+// CANCEL — stop a broadcast that hasn't finished.
+//   • draft / scheduled  → never sends. The cron's atomic claim only matches
+//     draft/scheduled/failed, so flipping to 'cancelled' takes it out of reach.
+//   • sending            → signal abort. The send loop re-reads status every
+//     50 sends and stops when it sees 'cancelled' (partial counts preserved).
+// =====================================================================
+export async function cancelBroadcast(id: string): Promise<ActionResult> {
+  const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
+  if ("error" in auth) return { ok: false, error: auth.error };
+  const admin = createAdminClient();
+  const { data: bc } = await admin
+    .from("broadcasts")
+    .select("org_id, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (!bc || bc.org_id !== auth.orgId) {
+    return { ok: false, error: "Broadcast not in your org." };
+  }
+  if (!["draft", "scheduled", "sending"].includes(bc.status)) {
+    return { ok: false, error: `Can't cancel a ${bc.status} broadcast.` };
+  }
+  // Guard the UPDATE on the same status set so a broadcast that finished
+  // between our read and write isn't clobbered back to 'cancelled'.
+  const { error } = await admin
+    .from("broadcasts")
+    .update({ status: "cancelled" })
+    .eq("id", id)
+    .eq("org_id", auth.orgId)
+    .in("status", ["draft", "scheduled", "sending"]);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/broadcasts");
+  return { ok: true };
+}
+
+// =====================================================================
 // Re-subscribe a contact (manual opt-in). Logs to opt_out_log.
 // =====================================================================
 export async function reSubscribeContact(
