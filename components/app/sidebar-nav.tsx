@@ -12,6 +12,7 @@ import {
   FileText,
   Plug,
   MessagesSquare,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const ITEMS: NavItem[] = [
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/team-chat", label: "Team chat", icon: MessagesSquare },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/help", label: "Help", icon: LifeBuoy },
 ];
 
 export function SidebarNav() {
