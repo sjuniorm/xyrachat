@@ -48,7 +48,7 @@ export default async function BotDetailPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("bot_assignments")
-      .select("channel_id, active")
+      .select("channel_id, active, routing_description")
       .eq("bot_id", botId),
     supabase
       .from("channels")
@@ -123,9 +123,25 @@ export default async function BotDetailPage({
           </TabsContent>
           <TabsContent value="assign" className="mt-6">
             <AssignTab
+              // Key by the fetched assignment state so the tab remounts and
+              // re-seeds its local toggle/routing state after router.refresh()
+              // (the lazy useState initializers only run on mount).
+              key={(assignments ?? [])
+                .map(
+                  (a) =>
+                    `${a.channel_id}:${a.active ? 1 : 0}:${a.routing_description ?? ""}`,
+                )
+                .sort()
+                .join("|")}
               botId={bot.id}
               channels={(channels ?? []) as Channel[]}
-              assignments={(assignments ?? []) as Array<{ channel_id: string; active: boolean }>}
+              assignments={
+                (assignments ?? []) as Array<{
+                  channel_id: string;
+                  active: boolean;
+                  routing_description: string | null;
+                }>
+              }
             />
           </TabsContent>
           <TabsContent value="settings" className="mt-6">

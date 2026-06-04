@@ -221,11 +221,47 @@ export async function setChannelAssignment(
     return { ok: true };
   }
 
-  // UNIQUE(channel_id) — clobber any other bot assigned to this channel first.
-  await admin.from("bot_assignments").delete().eq("channel_id", channelId);
+  // Multiple bots may now share a channel (the gate routes between them), so we
+  // no longer clobber other bots here. Upsert this (bot, channel) pair —
+  // UNIQUE(channel_id, bot_id) keeps it idempotent.
   const { error } = await admin
     .from("bot_assignments")
-    .insert({ bot_id: botId, channel_id: channelId, active: true });
+    .upsert(
+      { bot_id: botId, channel_id: channelId, active: true },
+      { onConflict: "channel_id,bot_id" },
+    );
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/bots/${botId}`);
+  return { ok: true };
+}
+
+// =====================================================================
+// Routing description — the hint the multi-bot classifier uses to pick this
+// bot on a shared channel (e.g. "pricing + sales questions"). Per (bot, channel).
+// =====================================================================
+export async function setAssignmentRouting(
+  botId: string,
+  channelId: string,
+  routingDescription: string,
+): Promise<ActionResult> {
+  const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const admin = createAdminClient();
+  const { data: bot } = await admin
+    .from("bots")
+    .select("org_id")
+    .eq("id", botId)
+    .maybeSingle();
+  if (!bot || bot.org_id !== auth.orgId) {
+    return { ok: false, error: "Bot not in your org." };
+  }
+  const { error } = await admin
+    .from("bot_assignments")
+    .update({ routing_description: routingDescription.trim().slice(0, 280) || null })
+    .eq("bot_id", botId)
+    .eq("channel_id", channelId);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/bots/${botId}`);

@@ -49,19 +49,124 @@ export type BotGateResult =
 export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   const admin = createAdminClient();
 
-  // ---- GATE 1: bot assigned to this channel? --------------------------
-  const { data: assignment } = await admin
+  // ---- GATE 1: which bot (if any) handles this channel? ---------------
+  // Multiple bots can share a channel. A single-bot channel skips routing
+  // entirely (zero added cost, original behavior). With >1, a Haiku classifier
+  // routes the inbound to the best match by routing_description, made STICKY
+  // per conversation (conversations.routed_bot_id) so it runs ~once and the
+  // chat doesn't bounce between bots. The classifier cost is charged inline at
+  // spend (below), so there's no token total to thread to the final consume.
+  const { data: assignments } = await admin
     .from("bot_assignments")
-    .select("bot_id, active")
+    .select("bot_id, routing_description")
     .eq("channel_id", input.channel.id)
-    .eq("active", true)
-    .maybeSingle();
-  if (!assignment) return { skipped: true, reason: "no_bot_assigned" };
+    .eq("active", true);
+  if (!assignments || assignments.length === 0) {
+    return { skipped: true, reason: "no_bot_assigned" };
+  }
+
+  let chosenBotId: string;
+  if (assignments.length === 1) {
+    chosenBotId = assignments[0].bot_id;
+  } else {
+    // Only route among bots that are still active + not deleted. Ordered so
+    // the "default bot" (candidates[0], used on no-text / classifier-failure
+    // fallbacks) is stable across turns: oldest assigned bot wins.
+    const { data: candBots } = await admin
+      .from("bots")
+      .select("id, name, objective, created_at")
+      .in("id", assignments.map((a) => a.bot_id))
+      .eq("active", true)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
+    const candidates = candBots ?? [];
+    if (candidates.length === 0) {
+      return { skipped: true, reason: "bot_inactive_or_deleted" };
+    }
+    if (candidates.length === 1) {
+      chosenBotId = candidates[0].id;
+    } else {
+      // Sticky: reuse the conversation's prior routing if still a candidate.
+      const { data: convRoute } = await admin
+        .from("conversations")
+        .select("routed_bot_id")
+        .eq("id", input.conversationId)
+        .maybeSingle();
+      const stickyId =
+        convRoute?.routed_bot_id &&
+        candidates.some((c) => c.id === convRoute.routed_bot_id)
+          ? (convRoute.routed_bot_id as string)
+          : null;
+      if (stickyId) {
+        chosenBotId = stickyId;
+      } else {
+        const routingText = input.newMessage.content?.trim() ?? "";
+        if (routingText) {
+          const { classifyBot } = await import("@/lib/ai/router");
+          const route = await classifyBot({
+            candidates: candidates.map((c) => ({
+              id: c.id,
+              name: c.name,
+              objective: c.objective,
+              routingDescription:
+                assignments.find((a) => a.bot_id === c.id)?.routing_description ?? null,
+            })),
+            message: routingText,
+          });
+          // Charge the classifier the instant it's spent — many gates below can
+          // skip, and we'd otherwise drop the cost (the budget invariant).
+          if (route.classifierTokens > 0) {
+            await consumeAiTokens(input.channel.org_id, route.classifierTokens);
+          }
+          const myChoice = route.botId || candidates[0].id;
+          // First-writer-wins CAS: only claim routing if nobody has yet. Two
+          // concurrent first inbounds would otherwise classify independently
+          // (Haiku is non-deterministic) and answer as DIFFERENT bots. The
+          // loser adopts the winner's bot so both turns use one persona.
+          const { data: claimed, error: claimErr } = await admin
+            .from("conversations")
+            .update({ routed_bot_id: myChoice })
+            .eq("id", input.conversationId)
+            .is("routed_bot_id", null)
+            .select("routed_bot_id")
+            .maybeSingle();
+          if (claimErr) {
+            console.warn("[bot-gate] sticky-route claim failed", {
+              conversationId: input.conversationId,
+              claimErr,
+            });
+          }
+          if (claimed?.routed_bot_id) {
+            chosenBotId = claimed.routed_bot_id as string; // we won the claim
+          } else {
+            // Someone claimed first — adopt the persisted winner so both
+            // concurrent turns converge on the same bot.
+            const { data: winner } = await admin
+              .from("conversations")
+              .select("routed_bot_id")
+              .eq("id", input.conversationId)
+              .maybeSingle();
+            chosenBotId =
+              winner?.routed_bot_id &&
+              candidates.some((c) => c.id === winner.routed_bot_id)
+                ? (winner.routed_bot_id as string)
+                : myChoice;
+          }
+        } else {
+          // No text to classify on (e.g. a voice note, transcribed later at
+          // Gate 6) → use the default bot for THIS turn but DON'T persist, so a
+          // later text turn still gets properly routed by intent.
+          chosenBotId = candidates[0].id;
+        }
+      }
+    }
+  }
 
   const { data: bot } = await admin
     .from("bots")
     .select("*")
-    .eq("id", assignment.bot_id)
+    .eq("id", chosenBotId)
     .eq("active", true)
     .is("deleted_at", null)
     .maybeSingle();
