@@ -15,6 +15,7 @@ type TestMessage = {
   sourcesUsed?: string[];
   similarity?: number;
   handoff?: boolean;
+  toolsInvoked?: string[];
 };
 
 export function TestTab({
@@ -55,6 +56,7 @@ export function TestTab({
           sourcesUsed: r.data!.sourcesUsed,
           similarity: r.data!.maxSimilarity,
           handoff: r.data!.shouldHandoff,
+          toolsInvoked: r.data!.toolsInvoked,
         },
       ]);
     });
@@ -131,6 +133,15 @@ export function TestTab({
                               handoff
                             </span>
                           )}
+                          {m.toolsInvoked?.map((t, k) => (
+                            <span
+                              key={k}
+                              className="rounded-full bg-[color:var(--xyra-purple)]/30 px-1.5 text-[color:var(--xyra-glow)]"
+                              title="Tool the bot called (test mode: not executed)"
+                            >
+                              🔧 {t}
+                            </span>
+                          ))}
                           {showSources && (
                             <button
                               type="button"

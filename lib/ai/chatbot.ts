@@ -1,6 +1,8 @@
 import "server-only";
+import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropic, MODELS } from "@/lib/ai/clients";
 import { retrieveContext } from "@/lib/ai/retrieval";
+import type { ToolSpec, ToolResult } from "@/lib/ai/tools";
 
 // Shape pulled from `bots` rows. Kept loose intentionally — most fields are
 // JSONB and the bot CRUD UI lands in Week 8.
@@ -22,6 +24,8 @@ export type BotRow = {
   language: string;
   behavior_rules: Record<string, unknown>;
   handoff_triggers: string[] | null;
+  // Per-bot tool-use config (JSONB). Empty {} = no tools (current behavior).
+  tools_config?: Record<string, { enabled?: boolean }> | null;
   active: boolean;
 };
 
@@ -46,6 +50,13 @@ export type BotResult = {
   sourcesUsed: string[];
   maxSimilarity: number;
   model: string;
+  // Tool use: names the model invoked this turn + structured outcomes the
+  // caller (bot gate) should log to bot_outcomes. Empty when no tools ran.
+  toolsInvoked: string[];
+  toolOutcomes: Array<{ type: string; payload: Record<string, unknown> }>;
+  // OpenAI embedding tokens spent (initial retrieval + any search_knowledge
+  // tool calls). The caller folds this into the org AI budget charge.
+  embeddingTokens: number;
 };
 
 // =====================================================================
@@ -56,20 +67,32 @@ export async function generateBotResponse(params: {
   orgName: string;
   recentMessages: ConversationMessage[];
   newMessage: string;
+  // Tool use. When `tools` is empty/undefined the path is byte-for-byte the
+  // original single-call behavior (zero regression). `executeTool` is the
+  // tenant-scoped dispatcher built by the bot gate; omit it (or pass a no-op)
+  // in test mode so tools don't mutate live data.
+  tools?: ToolSpec[];
+  executeTool?: (name: string, input: unknown) => Promise<ToolResult>;
 }): Promise<BotResult> {
-  const { bot, orgName, recentMessages, newMessage } = params;
+  const { bot, orgName, recentMessages, newMessage, tools, executeTool } = params;
+  const toolsEnabled = Array.isArray(tools) && tools.length > 0;
+  const handoffToolEnabled =
+    toolsEnabled && tools!.some((t) => t.name === "request_human_handoff");
+  const searchToolEnabled =
+    toolsEnabled && tools!.some((t) => t.name === "search_knowledge");
 
   // 1. Retrieve relevant knowledge.
   const retrieval = await retrieveContext(newMessage, bot.id, 5);
 
   // 2. Knowledge-gap handoff. If the bot HAS knowledge but none of it
   //    looks relevant to the question, escalate instead of risking a
-  //    hallucination. If the bot has NO knowledge at all, we trust the
-  //    system prompt + instructions to drive behavior — bots configured
-  //    for chitchat / objective-driven flows don't always need a KB.
-  //    Bot gate caller logs this to bot_outcomes.fallback_no_knowledge
-  //    so analytics still catch the pattern.
+  //    hallucination. SKIPPED when search_knowledge is enabled — the model
+  //    can recover by searching mid-conversation rather than bailing.
+  //    If the bot has NO knowledge at all, we trust the system prompt +
+  //    instructions. Bot gate caller logs this to
+  //    bot_outcomes.fallback_no_knowledge so analytics still catch it.
   if (
+    !searchToolEnabled &&
     retrieval.chunks.length > 0 &&
     retrieval.maxSimilarity < bot.knowledge_threshold
   ) {
@@ -85,6 +108,9 @@ export async function generateBotResponse(params: {
       sourcesUsed: [],
       maxSimilarity: retrieval.maxSimilarity,
       model: MODELS.generation,
+      toolsInvoked: [],
+      toolOutcomes: [],
+      embeddingTokens: retrieval.embeddingTokens,
     };
   }
 
@@ -92,11 +118,12 @@ export async function generateBotResponse(params: {
   //    in block 1, RAG chunks in block 2. Both get a 5-min ephemeral
   //    cache breakpoint. Across many requests in a conversation we expect
   //    80%+ cache hit on block 1 and a moderate rate on block 2.
-  const systemConfig = buildSystemConfigBlock(bot, orgName);
+  const systemConfig = buildSystemConfigBlock(bot, orgName, { handoffToolEnabled });
   const systemKnowledge = buildKnowledgeBlock(retrieval.chunks);
 
-  // 4. Last 10 messages as the conversation history Claude sees.
-  const history = recentMessages
+  // 4. Last 10 messages as the conversation history Claude sees. Plain string
+  //    content for history turns; the tool loop appends block-array turns.
+  const messages: Anthropic.MessageParam[] = recentMessages
     .slice(-10)
     .map((m) => ({
       role:
@@ -107,36 +134,132 @@ export async function generateBotResponse(params: {
     }))
     .filter((m) => m.content.length > 0);
 
-  // The new message is appended last. If we already have it as the final
-  // inbound message in `recentMessages`, the caller can omit it from
-  // `newMessage` — but defensively we still add when missing.
-  const lastInHistory = history[history.length - 1];
-  if (!lastInHistory || lastInHistory.role !== "user" || lastInHistory.content !== newMessage) {
-    history.push({ role: "user", content: newMessage });
+  // The new message is appended last. If it's already the final inbound turn,
+  // the caller can omit it — but defensively we still add when missing.
+  const lastInHistory = messages[messages.length - 1];
+  if (
+    !lastInHistory ||
+    lastInHistory.role !== "user" ||
+    lastInHistory.content !== newMessage
+  ) {
+    messages.push({ role: "user", content: newMessage });
   }
 
   const anthropic = getAnthropic();
-  const completion = await anthropic.messages.create({
-    model: MODELS.generation,
-    max_tokens: 1024,
-    system: [
-      { type: "text", text: systemConfig, cache_control: { type: "ephemeral" } },
-      { type: "text", text: systemKnowledge, cache_control: { type: "ephemeral" } },
-    ],
-    messages: history,
-  });
+  const system: Anthropic.TextBlockParam[] = [
+    { type: "text", text: systemConfig, cache_control: { type: "ephemeral" } },
+    { type: "text", text: systemKnowledge, cache_control: { type: "ephemeral" } },
+  ];
 
-  // 5. Parse handoff. Claude is instructed to emit the literal token
-  //    `[HANDOFF_REQUESTED]` when it can't or shouldn't continue. Also
-  //    honor configured keyword triggers on the inbound text.
-  const rawText = completion.content
-    .filter((c) => c.type === "text")
-    .map((c) => (c as { type: "text"; text: string }).text)
-    .join("\n")
-    .trim();
+  // 5. Generation. Without tools this is a single call (original behavior).
+  //    With tools, loop: run → if stop_reason==='tool_use', execute the tool
+  //    calls, append the assistant turn + tool_result turn, repeat. Hard cap
+  //    at MAX_TOOL_ITERS; the final overflow call drops `tools` so the model
+  //    must produce a text answer. Usage is summed across every round.
+  const MAX_TOOL_ITERS = 4;
+  const usage = emptyUsage();
+  let embeddingTokens = retrieval.embeddingTokens;
+  const toolsInvoked: string[] = [];
+  const toolOutcomes: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  const toolSourceTitles: string[] = [];
+  let toolHandoffReason: string | null = null;
+  let rawText = "";
+  let iter = 0;
 
-  let shouldHandoff = rawText.includes("[HANDOFF_REQUESTED]");
-  let handoffReason: string | null = shouldHandoff ? "model_requested" : null;
+  while (true) {
+    const offerTools = toolsEnabled && iter < MAX_TOOL_ITERS;
+    const completion = await anthropic.messages.create({
+      model: MODELS.generation,
+      // Tool-use turns carry tool_use JSON on top of the prose reply; give the
+      // tool-enabled path headroom so a reply + tool call isn't truncated. The
+      // no-tools path stays at 1024 (byte-for-byte original behavior).
+      max_tokens: toolsEnabled ? 2048 : 1024,
+      system,
+      messages,
+      // Keep `tools` present on EVERY iteration so the cached prefix
+      // (tools → system) stays byte-stable and the two system cache
+      // breakpoints stay warm. On the overflow round we force a text answer
+      // with tool_choice:none rather than removing tools (which would bust the
+      // cache on the most expensive call).
+      ...(toolsEnabled
+        ? {
+            tools: tools as Anthropic.Tool[],
+            ...(offerTools ? {} : { tool_choice: { type: "none" as const } }),
+          }
+        : {}),
+    });
+    usage.input_tokens += completion.usage.input_tokens;
+    usage.output_tokens += completion.usage.output_tokens;
+    usage.cache_creation_input_tokens +=
+      completion.usage.cache_creation_input_tokens ?? 0;
+    usage.cache_read_input_tokens += completion.usage.cache_read_input_tokens ?? 0;
+
+    if (completion.stop_reason !== "tool_use") {
+      // If the model started a tool call but hit max_tokens before finishing,
+      // the tool_use block is abandoned. Don't silently drop it + answer with a
+      // misleading fallback — escalate so a human picks it up.
+      if (
+        completion.stop_reason === "max_tokens" &&
+        completion.content.some((c) => c.type === "tool_use")
+      ) {
+        toolHandoffReason = "tool_use_truncated";
+      }
+      rawText = completion.content
+        .filter((c) => c.type === "text")
+        .map((c) => (c as { type: "text"; text: string }).text)
+        .join("\n")
+        .trim();
+      break;
+    }
+
+    // Echo the assistant turn (text + tool_use blocks) verbatim, then run each
+    // tool and append a single tool_result user turn.
+    messages.push({
+      role: "assistant",
+      content: completion.content as Anthropic.ContentBlockParam[],
+    });
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of completion.content) {
+      if (block.type !== "tool_use") continue;
+      toolsInvoked.push(block.name);
+      const r: ToolResult = executeTool
+        ? await executeTool(block.name, block.input)
+        : { content: "(test mode — tool not executed)" };
+      if (r.outcome) toolOutcomes.push(r.outcome);
+      if (r.handoff) toolHandoffReason = r.handoff.reason;
+      if (r.sourceTitles) toolSourceTitles.push(...r.sourceTitles);
+      if (r.embeddingTokens) embeddingTokens += r.embeddingTokens;
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: r.content,
+        is_error: r.isError,
+      });
+    }
+    // Defensive: a 'tool_use' stop with no executable tool_use block would make
+    // an empty user turn (which the API rejects). Answer with any text + stop.
+    if (toolResults.length === 0) {
+      rawText = completion.content
+        .filter((c) => c.type === "text")
+        .map((c) => (c as { type: "text"; text: string }).text)
+        .join("\n")
+        .trim();
+      break;
+    }
+    messages.push({ role: "user", content: toolResults });
+    iter += 1;
+  }
+
+  // 6. Parse handoff. A request_human_handoff tool call OR the legacy
+  //    `[HANDOFF_REQUESTED]` token OR a configured keyword trigger all escalate.
+  let shouldHandoff = toolHandoffReason !== null || rawText.includes("[HANDOFF_REQUESTED]");
+  let handoffReason: string | null = toolHandoffReason
+    ? toolHandoffReason === "tool_use_truncated"
+      ? "tool_use_truncated"
+      : "tool_requested"
+    : rawText.includes("[HANDOFF_REQUESTED]")
+      ? "model_requested"
+      : null;
   if (!shouldHandoff && bot.handoff_triggers && bot.handoff_triggers.length > 0) {
     const lc = newMessage.toLowerCase();
     if (bot.handoff_triggers.some((kw) => kw && lc.includes(kw.toLowerCase()))) {
@@ -154,20 +277,20 @@ export async function generateBotResponse(params: {
         : "One moment — connecting you with someone."),
     shouldHandoff,
     handoffReason,
-    usage: {
-      input_tokens: completion.usage.input_tokens,
-      output_tokens: completion.usage.output_tokens,
-      cache_creation_input_tokens:
-        completion.usage.cache_creation_input_tokens ?? 0,
-      cache_read_input_tokens: completion.usage.cache_read_input_tokens ?? 0,
-    },
+    usage,
     sourcesUsed: Array.from(
       new Set(
-        retrieval.chunks.map((c) => c.sourceTitle).filter((t): t is string => !!t),
+        [
+          ...retrieval.chunks.map((c) => c.sourceTitle),
+          ...toolSourceTitles,
+        ].filter((t): t is string => !!t),
       ),
     ),
     maxSimilarity: retrieval.maxSimilarity,
     model: MODELS.generation,
+    toolsInvoked,
+    toolOutcomes,
+    embeddingTokens,
   };
 }
 
@@ -264,7 +387,11 @@ function rulesBlock(rules: Record<string, unknown>): string {
   return `BEHAVIOR RULES:\n${lines.join("\n")}`;
 }
 
-function buildSystemConfigBlock(bot: BotRow, orgName: string): string {
+function buildSystemConfigBlock(
+  bot: BotRow,
+  orgName: string,
+  opts?: { handoffToolEnabled?: boolean },
+): string {
   const pieces: string[] = [
     `You are ${bot.name}, an AI assistant for ${orgName}.`,
     "",
@@ -278,11 +405,16 @@ function buildSystemConfigBlock(bot: BotRow, orgName: string): string {
   pieces.push(`LANGUAGE: respond in ${bot.language} unless the user clearly switches.`, "");
   const rules = rulesBlock(bot.behavior_rules);
   if (rules) pieces.push(rules, "");
+  // When the request_human_handoff TOOL is enabled, instruct the model to use
+  // it instead of the legacy literal token (both still escalate downstream).
+  const handoffInstruction = opts?.handoffToolEnabled
+    ? "- If the user asks for a human, seems frustrated, or matches a handoff trigger, call the request_human_handoff tool."
+    : "- If the user asks for a human, seems frustrated, or matches a handoff trigger, respond with exactly: [HANDOFF_REQUESTED]";
   pieces.push(
     "IMPORTANT:",
     "- Ground factual answers in the knowledge base below. If a fact isn't there, say so honestly and either ask a clarifying question or hand off.",
     "- Never invent information (prices, availability, policies, dates).",
-    "- If the user asks for a human, seems frustrated, or matches a handoff trigger, respond with exactly: [HANDOFF_REQUESTED]",
+    handoffInstruction,
     "- Stay aligned with PRIMARY OBJECTIVE on every turn.",
   );
   return pieces.join("\n");

@@ -60,6 +60,7 @@ export async function createBot(payload: {
   handoff_triggers?: string[];
   off_hours_message?: string | null;
   business_hours?: Record<string, unknown>;
+  tools_config?: Record<string, { enabled?: boolean }>;
 }): Promise<ActionResult<{ botId: string }>> {
   const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
   if ("error" in auth) return { ok: false, error: auth.error };
@@ -77,6 +78,12 @@ export async function createBot(payload: {
   // Plan gate — bot count cap. Fails open for un-provisioned orgs.
   const botGate = await assertCanAddBot(auth.orgId);
   if (!botGate.ok) return { ok: false, error: botGate.error };
+
+  // Seed sensible tool defaults per objective so new bots can act out of the
+  // box (e.g. lead_generation gets capture_lead + tag_contact + handoff).
+  // Existing bots keep '{}' (no tools) — set in the DB default.
+  const { defaultToolsConfig } = await import("@/lib/ai/tools");
+  const toolsConfig = payload.tools_config ?? defaultToolsConfig(payload.objective);
 
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -96,6 +103,7 @@ export async function createBot(payload: {
       handoff_triggers: payload.handoff_triggers ?? null,
       off_hours_message: payload.off_hours_message ?? null,
       business_hours: payload.business_hours ?? { active: false },
+      tools_config: toolsConfig,
       active: true,
     })
     .select("id")
@@ -131,7 +139,7 @@ export async function updateBot(
     "name", "instructions", "objective", "objective_config",
     "tone", "personality", "greeting_message", "off_hours_message",
     "business_hours", "knowledge_threshold", "language", "behavior_rules",
-    "handoff_triggers", "active",
+    "handoff_triggers", "tools_config", "active",
   ]);
   const filtered: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {
@@ -386,6 +394,7 @@ export async function testBot(
     sourcesUsed: string[];
     maxSimilarity: number;
     knowledgeThreshold: number;
+    toolsInvoked: string[];
   }>
 > {
   const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
@@ -407,6 +416,7 @@ export async function testBot(
     .maybeSingle();
 
   const { generateBotResponse } = await import("@/lib/ai/chatbot");
+  const { selectEnabledTools } = await import("@/lib/ai/tools");
   const { checkAiQuota, consumeAiTokens } = await import("@/lib/billing/usage");
   const quota = await checkAiQuota(auth.orgId);
   if (!quota.ok) {
@@ -417,6 +427,13 @@ export async function testBot(
     };
   }
   try {
+    // Test mode: offer the bot's enabled tools so testers can verify the model
+    // CALLS them, but the executor is a NO-OP — it never mutates live
+    // contacts/conversations. request_human_handoff still signals handoff so
+    // the test reflects it.
+    const tools = selectEnabledTools(
+      (bot as { tools_config?: unknown }).tools_config,
+    );
     const result = await generateBotResponse({
       bot: bot as Parameters<typeof generateBotResponse>[0]["bot"],
       orgName: org?.name ?? "us",
@@ -426,10 +443,18 @@ export async function testBot(
         sender_type: h.direction === "inbound" ? "contact" : "bot",
       })),
       newMessage,
+      tools,
+      executeTool:
+        tools.length > 0
+          ? async (name) =>
+              name === "request_human_handoff"
+                ? { content: "(test mode) would hand off to a human", handoff: { reason: "test" } }
+                : { content: "(test mode — tool not executed)" }
+          : undefined,
     });
     await consumeAiTokens(
       auth.orgId,
-      result.usage.input_tokens + result.usage.output_tokens,
+      result.usage.input_tokens + result.usage.output_tokens + result.embeddingTokens,
     );
     return {
       ok: true,
@@ -439,6 +464,7 @@ export async function testBot(
         sourcesUsed: result.sourcesUsed,
         maxSimilarity: result.maxSimilarity,
         knowledgeThreshold: bot.knowledge_threshold,
+        toolsInvoked: result.toolsInvoked,
       },
     };
   } catch (err) {

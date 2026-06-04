@@ -26,8 +26,32 @@ type BotRow = {
   language: string;
   behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string };
   handoff_triggers: string[] | null;
+  tools_config?: Record<string, { enabled?: boolean }> | null;
   active: boolean;
 };
+
+const TOOL_OPTIONS: Array<{ key: string; label: string; blurb: string }> = [
+  {
+    key: "capture_lead",
+    label: "Capture leads",
+    blurb: "Save a customer's name / email / phone to their profile as they share it.",
+  },
+  {
+    key: "tag_contact",
+    label: "Tag contacts",
+    blurb: "Let the bot label customers (e.g. pricing, vip) for routing & segments.",
+  },
+  {
+    key: "request_human_handoff",
+    label: "Request human handoff",
+    blurb: "Escalate to a teammate via a tool instead of a keyword — cleaner + more reliable.",
+  },
+  {
+    key: "search_knowledge",
+    label: "Search knowledge (agentic)",
+    blurb: "Let the bot decide when to search its knowledge base mid-conversation.",
+  },
+];
 
 export function SettingsTab({ bot }: { bot: BotRow }) {
   const router = useRouter();
@@ -50,6 +74,12 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
   const [triggers, setTriggers] = useState((bot.handoff_triggers ?? []).join(", "));
   const [hoursActive, setHoursActive] = useState(Boolean(bot.business_hours?.active));
   const [offHours, setOffHours] = useState(bot.off_hours_message ?? "");
+  const [toolsOn, setToolsOn] = useState<Record<string, boolean>>(() => {
+    const cfg = bot.tools_config ?? {};
+    return Object.fromEntries(
+      TOOL_OPTIONS.map((t) => [t.key, Boolean(cfg[t.key]?.enabled)]),
+    );
+  });
 
   function onSave() {
     startTransition(async () => {
@@ -79,6 +109,9 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
           active: hoursActive,
         },
         off_hours_message: offHours.trim() || null,
+        tools_config: Object.fromEntries(
+          TOOL_OPTIONS.map((t) => [t.key, { enabled: !!toolsOn[t.key] }]),
+        ),
         active,
       });
       if (!r.ok) {
@@ -260,6 +293,39 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
               className="resize-y"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/10 bg-card/60">
+        <CardHeader>
+          <CardTitle className="text-base">Actions (tools)</CardTitle>
+          <CardDescription>
+            Let the bot DO things mid-conversation, not just chat. Each runs
+            scoped to this workspace only.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {TOOL_OPTIONS.map((t) => (
+            <div
+              key={t.key}
+              className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/[0.02] px-3 py-2.5"
+            >
+              <div className="min-w-0">
+                <Label htmlFor={`tool-${t.key}`} className="text-sm text-white">
+                  {t.label}
+                </Label>
+                <p className="mt-0.5 text-[11px] text-white/55">{t.blurb}</p>
+              </div>
+              <Switch
+                id={`tool-${t.key}`}
+                checked={!!toolsOn[t.key]}
+                onCheckedChange={(v) =>
+                  setToolsOn((prev) => ({ ...prev, [t.key]: v }))
+                }
+                disabled={pending}
+              />
+            </div>
+          ))}
         </CardContent>
       </Card>
 

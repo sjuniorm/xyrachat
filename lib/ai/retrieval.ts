@@ -5,6 +5,9 @@ import { getOpenAI, MODELS } from "@/lib/ai/clients";
 export type RetrievalResult = {
   chunks: Array<{ text: string; similarity: number; sourceTitle: string | null }>;
   maxSimilarity: number;
+  // OpenAI embedding tokens spent on the query — folded into the org AI budget
+  // by the caller so embedding cost is charged honestly.
+  embeddingTokens: number;
 };
 
 // Embed the query and run match_embeddings (server-side cosine search).
@@ -21,6 +24,7 @@ export async function retrieveContext(
     input: query,
   });
   const queryVec = embed.data[0].embedding;
+  const embeddingTokens = embed.usage?.total_tokens ?? 0;
 
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("match_embeddings", {
@@ -45,5 +49,5 @@ export async function retrieveContext(
     (max, c) => (c.similarity > max ? c.similarity : max),
     0,
   );
-  return { chunks, maxSimilarity };
+  return { chunks, maxSimilarity, embeddingTokens };
 }

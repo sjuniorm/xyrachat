@@ -7,6 +7,7 @@ import {
 } from "@/lib/ai/chatbot";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
+import { selectEnabledTools, executeTool, type ToolExecContext } from "@/lib/ai/tools";
 
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
@@ -244,6 +245,19 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   ]);
   const recent = ((msgs ?? []) as ConversationMessage[]).slice().reverse();
 
+  // Tool use: assemble the bot's enabled tools + a tenant-scoped executor.
+  // The executor takes every id from this server-built context — never from
+  // the model's tool input — so a tool can only ever touch THIS org's
+  // contact/conversation (org_id is already proven === bot.org_id above).
+  const tools = selectEnabledTools((bot as BotRow).tools_config);
+  const toolCtx: ToolExecContext = {
+    admin,
+    orgId: input.channel.org_id,
+    botId: bot.id,
+    conversationId: input.conversationId,
+    contactId: input.contactId,
+  };
+
   let result;
   try {
     result = await generateBotResponse({
@@ -251,6 +265,11 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       orgName: org?.name ?? "us",
       recentMessages: recent,
       newMessage: queryText,
+      tools,
+      executeTool:
+        tools.length > 0
+          ? (name, toolInput) => executeTool(name, toolInput, toolCtx)
+          : undefined,
     });
   } catch (err) {
     console.error("[bot-gate] generateBotResponse threw", err);
@@ -268,13 +287,21 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     });
   }
 
-  // Charge the exact tokens billed. Even if this overshoots the cap
-  // slightly on a race (two concurrent inbounds both passing the pre-
-  // flight), we'd rather charge an honest amount than refuse mid-call.
+  // Charge the exact tokens billed (summed across any tool-use rounds). Even
+  // if this overshoots the cap slightly on a race (two concurrent inbounds
+  // both passing the pre-flight), we'd rather charge an honest amount than
+  // refuse mid-call.
   await consumeAiTokens(
     input.channel.org_id,
-    result.usage.input_tokens + result.usage.output_tokens,
+    result.usage.input_tokens + result.usage.output_tokens + result.embeddingTokens,
   );
+
+  // Log structured tool outcomes (e.g. capture_lead → 'lead_captured'). The
+  // dispatcher only returns outcome types that are valid in the bot_outcomes
+  // CHECK; handoff is logged separately by the handoff block below.
+  for (const o of result.toolOutcomes) {
+    await logOutcome(bot.id, input.conversationId, input.contactId, o.type, o.payload);
+  }
 
   await sendOutbound(input.channel.type, {
     conversationId: input.conversationId,
@@ -287,6 +314,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       cache_creation_input_tokens: result.usage.cache_creation_input_tokens,
       sources_used: result.sourcesUsed,
       max_similarity: result.maxSimilarity,
+      tools_invoked: result.toolsInvoked,
     },
     channelId: input.channel.id,
     contactId: input.contactId,
