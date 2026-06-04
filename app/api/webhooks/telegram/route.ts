@@ -326,6 +326,8 @@ async function handleInbound(channel: TelegramChannel, msg: TelegramMessage) {
       content: extracted.content,
       media_type: extracted.media_type,
       isFirstFromContact: false, // computed at higher cost; defer to greeting logic
+      media_url: extracted.media_url,
+      messageId: insertedId,
     },
   });
 

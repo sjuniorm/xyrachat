@@ -8,6 +8,7 @@ import {
 import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 import { selectEnabledTools, executeTool, type ToolExecContext } from "@/lib/ai/tools";
+import { transcribeInboundAudio } from "@/lib/ai/transcription";
 
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
@@ -26,6 +27,11 @@ export type BotGateInput = {
     content: string | null;
     media_type: string | null;
     isFirstFromContact: boolean;
+    // Set for audio inbound so Gate 6 can transcribe: media_url is the
+    // provider media reference (WA media_id / TG file_id / IG url), messageId
+    // is the stored row to write the transcript back to.
+    media_url?: string | null;
+    messageId?: string | null;
   };
 };
 
@@ -157,17 +163,51 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   }
 
   // ---- GATE 6: voice transcription --------------------------------
-  // If the inbound is audio with no text, transcribe via Whisper before
-  // we let the bot see it. We update the message row in-place so future
-  // re-reads see the transcript as content.
+  // If the inbound is audio with no text, transcribe via Whisper before the
+  // bot sees it, and write the transcript back to the message row in-place so
+  // the inbox + future re-reads treat it as text.
   let queryText = input.newMessage.content?.trim() ?? "";
   if (!queryText && input.newMessage.media_type === "audio") {
-    // Voice transcription is a follow-on deliverable — the helper is in
-    // the same lib but kept separate. For now we log + skip.
-    await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
-      reason: "voice_transcription_not_wired",
+    const mediaRef = input.newMessage.media_url ?? null;
+    const messageId = input.newMessage.messageId ?? null;
+    if (!mediaRef || !messageId) {
+      await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
+        reason: "voice_no_media_ref",
+      });
+      return { skipped: true, reason: "voice_no_media_ref" };
+    }
+    // Transcription spends the org AI budget — pre-flight before calling Whisper.
+    const voiceQuota = await checkAiQuota(input.channel.org_id);
+    if (!voiceQuota.ok) {
+      await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
+        reason: "token_budget_exhausted",
+      });
+      return { skipped: true, reason: "token_budget_exhausted" };
+    }
+    const transcript = await transcribeInboundAudio({
+      channelType: input.channel.type,
+      channelId: input.channel.id,
+      mediaRef,
+      admin,
     });
-    return { skipped: true, reason: "voice_unsupported_yet" };
+    if (!transcript) {
+      await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
+        reason: "voice_transcription_failed",
+      });
+      return { skipped: true, reason: "voice_transcription_failed" };
+    }
+    // Persist atomically (server-side JSONB merge + idempotent). The RPC
+    // returns the id only to the writer that actually set the transcript, so
+    // we charge the budget exactly once even if the on-demand path races us.
+    const { data: wroteId } = await admin.rpc("set_message_transcription", {
+      p_message_id: messageId,
+      p_text: transcript.text,
+      p_model: transcript.model,
+    });
+    if (wroteId) {
+      await consumeAiTokens(input.channel.org_id, transcript.budgetTokens);
+    }
+    queryText = transcript.text;
   }
   if (!queryText) {
     return { skipped: true, reason: "no_text_to_respond_to" };

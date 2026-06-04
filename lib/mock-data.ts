@@ -56,6 +56,7 @@ export type Message = {
     };
     ig_story?: { id: string; url: string | null };
     ig_reactions?: Array<{ from: string; emoji: string }>;
+    transcription?: { text: string; model: string };
     email?: {
       subject?: string;
       from_address?: string;

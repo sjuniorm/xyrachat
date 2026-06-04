@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { VoiceNoteTranscript } from "@/components/inbox/voice-note-transcript";
 import type { Message } from "@/lib/mock-data";
 
 function formatTime(iso: string): string {
@@ -120,6 +121,15 @@ export function MessageBubble({
     return translation.translated_text;
   })();
 
+  // A voice note's transcript is rendered under the <audio> player by
+  // VoiceNoteTranscript. Since we ALSO store it as message.content (for the
+  // bot, RAG + search), suppress the duplicate body line for that case.
+  const transcriptText = message.metadata?.transcription?.text;
+  const isAudioTranscriptBody =
+    !!transcriptText &&
+    renderedBody === transcriptText &&
+    (message.attachments?.some((a) => a.type === "audio") ?? false);
+
   return (
     <div
       className={cn(
@@ -216,7 +226,14 @@ export function MessageBubble({
                         className="max-h-64 rounded-lg"
                       />
                     ) : att.type === "audio" ? (
-                      <audio src={att.url} controls className="w-full" />
+                      <div className="space-y-1">
+                        <audio src={att.url} controls className="w-full" />
+                        <VoiceNoteTranscript
+                          messageId={message.id}
+                          isOutbound={isOutbound}
+                          initialTranscript={message.metadata?.transcription?.text}
+                        />
+                      </div>
                     ) : att.type === "story_mention" ? (
                       <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
                         <ImageIcon className="size-3.5" />
@@ -259,9 +276,11 @@ export function MessageBubble({
                   </div>
                 ))}
 
-                <p className="whitespace-pre-wrap break-words">
-                  {renderedBody}
-                </p>
+                {renderedBody && !isAudioTranscriptBody && (
+                  <p className="whitespace-pre-wrap break-words">
+                    {renderedBody}
+                  </p>
+                )}
 
                 {translation && !showOriginal && (
                   <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/60">

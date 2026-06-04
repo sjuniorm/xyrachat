@@ -540,6 +540,8 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       content: extracted.content,
       media_type: extracted.media_type,
       isFirstFromContact: false,
+      media_url: extracted.media_url,
+      messageId: insertedId,
     },
   });
 

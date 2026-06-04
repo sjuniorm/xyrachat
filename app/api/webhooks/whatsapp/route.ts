@@ -488,6 +488,8 @@ async function handleInbound(
         content: extracted.content,
         media_type: extracted.media_type,
         isFirstFromContact: false,
+        media_url: extracted.media_url,
+        messageId: insertedId,
       },
     });
 
