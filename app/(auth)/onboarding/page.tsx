@@ -56,6 +56,18 @@ async function createOrgAction(formData: FormData) {
 
   await trackServer("org_created", user.id, { org_id: orgId as string });
 
+  // Branded welcome email — fail-soft, never blocks onboarding. Delivery is
+  // gated on the Resend domain being configured; until then it skips cleanly.
+  // The try/catch also guards the dynamic import so nothing here can throw.
+  if (user.email) {
+    try {
+      const { sendWelcomeEmail } = await import("@/lib/email/send");
+      await sendWelcomeEmail(user.email, name);
+    } catch {
+      // swallow — a welcome-email hiccup must never block onboarding
+    }
+  }
+
   redirect("/dashboard");
 }
 
