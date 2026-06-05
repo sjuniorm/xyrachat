@@ -273,14 +273,34 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   }
 
   // ---- GATE 4: business hours -------------------------------------
-  const hours = (bot.business_hours ?? {}) as {
+  // A per-channel schedule (bot_assignments.business_hours) overrides the bot's
+  // own hours for THIS channel — e.g. the bot on WA 9-5 but IG 24/7. Falls back
+  // to bots.business_hours when there's no override (NULL). On the override path
+  // there may be no assignment row at all → also falls back to the bot's hours.
+  const { data: channelAssignment } = await admin
+    .from("bot_assignments")
+    .select("business_hours")
+    .eq("channel_id", input.channel.id)
+    .eq("bot_id", bot.id)
+    .maybeSingle();
+  const hours = ((channelAssignment?.business_hours ?? bot.business_hours) ?? {}) as {
     active?: boolean;
     timezone?: string;
     [day: string]: unknown;
   };
   if (hours.active) {
     const tz = hours.timezone ?? "UTC";
-    const within = isWithinHours(hours, tz, new Date());
+    // Fail SAFE: a bad/renamed IANA zone makes Intl throw. Sanitize already
+    // rejects invalid zones on save, but an Intl edge or legacy row shouldn't
+    // crash the gate (the throw would abort the rest of the webhook batch).
+    // On error treat as within-hours so the bot keeps replying.
+    let within = true;
+    try {
+      within = isWithinHours(hours, tz, new Date());
+    } catch (err) {
+      console.warn("[bot-gate] business-hours eval failed; treating as open", { tz, err });
+      within = true;
+    }
     if (!within) {
       if (bot.off_hours_message) {
         // Send the configured off-hours auto-reply as the bot.

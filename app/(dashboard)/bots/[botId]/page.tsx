@@ -48,7 +48,7 @@ export default async function BotDetailPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("bot_assignments")
-      .select("channel_id, active, routing_description")
+      .select("channel_id, active, routing_description, business_hours")
       .eq("bot_id", botId),
     supabase
       .from("channels")
@@ -129,7 +129,7 @@ export default async function BotDetailPage({
               key={(assignments ?? [])
                 .map(
                   (a) =>
-                    `${a.channel_id}:${a.active ? 1 : 0}:${a.routing_description ?? ""}`,
+                    `${a.channel_id}:${a.active ? 1 : 0}:${a.routing_description ?? ""}:${a.business_hours ? "s" : "_"}`,
                 )
                 .sort()
                 .join("|")}
@@ -140,12 +140,15 @@ export default async function BotDetailPage({
                   channel_id: string;
                   active: boolean;
                   routing_description: string | null;
+                  business_hours: unknown | null;
                 }>
               }
             />
           </TabsContent>
           <TabsContent value="settings" className="mt-6">
-            <SettingsTab bot={bot} />
+            {/* Re-seed the form after a save (router.refresh) so the business-hours
+                editor reflects the persisted/sanitized value, not pre-save local state. */}
+            <SettingsTab key={JSON.stringify(bot.business_hours ?? {})} bot={bot} />
           </TabsContent>
         </Tabs>
       </div>

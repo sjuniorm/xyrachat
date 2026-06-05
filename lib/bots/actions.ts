@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { chunkText, embedChunks } from "@/lib/ai/embeddings";
 import { scrapeUrl } from "@/lib/ai/scraper";
 import { assertCanAddBot, assertCanAddKnowledgeSource } from "@/lib/billing/gates";
+import { sanitizeBusinessHours } from "@/lib/bots/business-hours";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -102,7 +103,11 @@ export async function createBot(payload: {
       behavior_rules: payload.behavior_rules ?? {},
       handoff_triggers: payload.handoff_triggers ?? null,
       off_hours_message: payload.off_hours_message ?? null,
-      business_hours: payload.business_hours ?? { active: false },
+      // Sanitize so a bad IANA tz / malformed window can't be persisted and
+      // later throw in the gate (parity with setAssignmentSchedule).
+      business_hours: payload.business_hours
+        ? sanitizeBusinessHours(payload.business_hours)
+        : { active: false },
       tools_config: toolsConfig,
       active: true,
     })
@@ -147,6 +152,11 @@ export async function updateBot(
   }
   if (Object.keys(filtered).length === 0) {
     return { ok: false, error: "Nothing to update." };
+  }
+  // Self-defending: sanitize business_hours regardless of caller so a bad tz /
+  // malformed window never reaches bots.business_hours (the gate reads it).
+  if ("business_hours" in filtered) {
+    filtered.business_hours = sanitizeBusinessHours(filtered.business_hours);
   }
 
   const { error } = await admin.from("bots").update(filtered).eq("id", botId);
@@ -260,6 +270,44 @@ export async function setAssignmentRouting(
   const { error } = await admin
     .from("bot_assignments")
     .update({ routing_description: routingDescription.trim().slice(0, 280) || null })
+    .eq("bot_id", botId)
+    .eq("channel_id", channelId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/bots/${botId}`);
+  return { ok: true };
+}
+
+// =====================================================================
+// Per-channel schedule — overrides the bot's own business_hours for ONE
+// channel (e.g. WA 9-5 but IG 24/7). Pass null to clear the override so the
+// channel inherits the bot's default hours again. Per (bot, channel).
+// =====================================================================
+export async function setAssignmentSchedule(
+  botId: string,
+  channelId: string,
+  businessHours: unknown | null,
+): Promise<ActionResult> {
+  const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const admin = createAdminClient();
+  const { data: bot } = await admin
+    .from("bots")
+    .select("org_id")
+    .eq("id", botId)
+    .maybeSingle();
+  if (!bot || bot.org_id !== auth.orgId) {
+    return { ok: false, error: "Bot not in your org." };
+  }
+
+  // Sanitize before persisting so a tampered client can't store garbage the
+  // gate would choke on. null clears the override (inherit bot default).
+  const value = businessHours == null ? null : sanitizeBusinessHours(businessHours);
+
+  const { error } = await admin
+    .from("bot_assignments")
+    .update({ business_hours: value })
     .eq("bot_id", botId)
     .eq("channel_id", channelId);
   if (error) return { ok: false, error: error.message };

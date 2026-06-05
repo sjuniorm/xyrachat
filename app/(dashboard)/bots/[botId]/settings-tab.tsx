@@ -11,6 +11,22 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { deleteBot, updateBot } from "@/lib/bots/actions";
+import { BusinessHoursEditor } from "@/components/bots/business-hours-editor";
+import {
+  DAY_KEYS,
+  defaultBusinessHours,
+  sanitizeBusinessHours,
+  type BusinessHours,
+} from "@/lib/bots/business-hours";
+
+// The agent's local zone, used to pre-fill a fresh schedule instead of UTC.
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 type BotRow = {
   id: string;
@@ -21,7 +37,7 @@ type BotRow = {
   personality: { emoji_usage?: string; response_length?: string; signature?: string };
   greeting_message: string | null;
   off_hours_message: string | null;
-  business_hours: { active?: boolean; timezone?: string };
+  business_hours: Record<string, unknown>;
   knowledge_threshold: number;
   language: string;
   behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string };
@@ -75,6 +91,15 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
   );
   const [triggers, setTriggers] = useState((bot.handoff_triggers ?? []).join(", "));
   const [hoursActive, setHoursActive] = useState(Boolean(bot.business_hours?.active));
+  // Full schedule object (timezone + per-day windows). Existing bots that only
+  // had { active } get a sensible 9-5 Mon-Fri default pre-filled to edit.
+  const [hours, setHours] = useState<BusinessHours>(() => {
+    const initial = sanitizeBusinessHours(bot.business_hours);
+    const hasWindow = DAY_KEYS.some((d) => (initial[d]?.length ?? 0) > 0);
+    return hasWindow
+      ? initial
+      : { ...defaultBusinessHours(initial.timezone), active: initial.active };
+  });
   const [offHours, setOffHours] = useState(bot.off_hours_message ?? "");
   const [toolsOn, setToolsOn] = useState<Record<string, boolean>>(() => {
     const cfg = bot.tools_config ?? {};
@@ -106,10 +131,7 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        business_hours: {
-          ...(bot.business_hours ?? {}),
-          active: hoursActive,
-        },
+        business_hours: sanitizeBusinessHours({ ...hours, active: hoursActive }),
         off_hours_message: offHours.trim() || null,
         auto_reopen_closed: autoReopen,
         tools_config: Object.fromEntries(
@@ -382,8 +404,8 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
         <CardHeader>
           <CardTitle className="text-base">Business hours</CardTitle>
           <CardDescription>
-            Limit when the bot replies. Per-day windows can be edited via SQL
-            for now — UI editor lands in a follow-up. The active toggle works.
+            Limit when the bot replies. Set a per-channel schedule in the Assign
+            tab to override these hours for a single channel.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -394,9 +416,21 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
             <Switch
               id="hours-active"
               checked={hoursActive}
-              onCheckedChange={setHoursActive}
+              onCheckedChange={(v) => {
+                setHoursActive(v);
+                if (v) {
+                  setHours((prev) =>
+                    prev.timezone && prev.timezone !== "UTC"
+                      ? prev
+                      : { ...prev, timezone: browserTimeZone() },
+                  );
+                }
+              }}
             />
           </div>
+          {hoursActive && (
+            <BusinessHoursEditor value={hours} onChange={setHours} disabled={pending} />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="off-hours">Off-hours message</Label>
             <Textarea
