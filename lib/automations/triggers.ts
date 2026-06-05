@@ -84,13 +84,18 @@ export async function dispatchTrigger(input: {
     }
 
     // Fire-and-forget so a slow Meta/Telegram round-trip in the executor
-    // doesn't pin the webhook's response.
+    // doesn't pin the webhook's response. Merge the trigger's message text into
+    // triggerData as `message_text` so if/else conditions + {{message_text}}
+    // can use it (and it survives across a scheduled resume).
     void executeAutomation({
       automation,
       contact,
       channel: input.channel,
       conversationId: input.conversationId ?? null,
-      triggerData: input.triggerData,
+      triggerData: {
+        ...(input.triggerData ?? {}),
+        ...(input.matchText ? { message_text: input.matchText } : {}),
+      },
     }).catch((err) => {
       console.error("[automation] executor crashed", { id: automation.id, err });
     });

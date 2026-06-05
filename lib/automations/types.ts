@@ -23,8 +23,10 @@ export type TriggerConfig = {
   match?: "any" | "exact";
 };
 
-// Action variants. Discriminated union — the executor branches on `type`.
-export type Action =
+// Leaf actions — the "do something" steps. These can appear at the top level
+// OR inside an if/else branch. They never nest (no wait/condition inside a
+// branch), which keeps branch execution inline + bounded.
+export type LeafAction =
   | { type: "send_dm"; text: string }
   | { type: "tag_contact"; tag: string }
   | { type: "assign_agent"; agent_id: string | null }
@@ -37,8 +39,48 @@ export type Action =
       only_online?: boolean;
     }
   | { type: "webhook"; url: string; secret?: string }
-  | { type: "add_to_sequence"; sequence_id: string } // placeholder
-  | { type: "wait"; ms: number }; // deferred — see executor
+  | { type: "add_to_sequence"; sequence_id: string }; // placeholder
+
+// A single if/else condition. `tag` checks the contact's tags; `message`
+// checks the triggering message text (merged into triggerData as message_text).
+export type AutomationCondition =
+  | { field: "tag"; op: "has" | "not_has"; value: string }
+  | { field: "message"; op: "contains" | "not_contains"; value: string };
+
+// Action variants. Discriminated union — the executor branches on `type`.
+// Top-level actions add `wait` (timed delay) + `condition` (if/else) on top of
+// the leaf actions. Branch arrays are LeafAction[] — TS enforces no nesting.
+export type Action =
+  | LeafAction
+  | { type: "wait"; ms: number }
+  | {
+      type: "condition";
+      match: "all" | "any";
+      conditions: AutomationCondition[];
+      then: LeafAction[];
+      else: LeafAction[];
+    };
+
+// Evaluate if/else conditions against the contact's tags + the trigger message.
+// Pure — the caller supplies the already-fetched tags + message text.
+export function evaluateConditions(
+  conditions: AutomationCondition[],
+  match: "all" | "any",
+  ctx: { tags: string[]; messageText: string },
+): boolean {
+  if (conditions.length === 0) return true; // no conditions → always "then"
+  const tags = ctx.tags.map((t) => t.toLowerCase());
+  const msg = ctx.messageText.toLowerCase();
+  const results = conditions.map((c) => {
+    if (c.field === "tag") {
+      const has = tags.includes(c.value.trim().toLowerCase());
+      return c.op === "has" ? has : !has;
+    }
+    const contains = c.value.trim() !== "" && msg.includes(c.value.trim().toLowerCase());
+    return c.op === "contains" ? contains : !contains;
+  });
+  return match === "all" ? results.every(Boolean) : results.some(Boolean);
+}
 
 export type AutomationRow = {
   id: string;

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
-  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock,
+  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,8 @@ import {
 import {
   allowedTriggersForChannel,
   type Action,
+  type LeafAction,
+  type AutomationCondition,
   type TriggerConfig,
   type TriggerType,
 } from "@/lib/automations/types";
@@ -56,9 +58,36 @@ const ACTION_OPTIONS: Array<{
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
   { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
+  { type: "condition", label: "If / else", icon: GitBranch, available: true },
   { type: "wait", label: "Wait / delay", icon: Clock, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
 ];
+
+// Leaf action types offered inside an if/else branch (no nesting).
+const BRANCH_ACTION_OPTIONS: Array<{ type: LeafAction["type"]; label: string }> = [
+  { type: "send_dm", label: "Send DM" },
+  { type: "tag_contact", label: "Tag" },
+  { type: "assign_agent", label: "Assign" },
+  { type: "assign_smart", label: "Smart routing" },
+  { type: "webhook", label: "Webhook" },
+];
+
+function freshLeaf(type: LeafAction["type"], members: Member[]): LeafAction {
+  switch (type) {
+    case "send_dm":
+      return { type, text: "" };
+    case "tag_contact":
+      return { type, tag: "" };
+    case "assign_agent":
+      return { type, agent_id: members[0]?.id ?? null };
+    case "assign_smart":
+      return { type, strategy: "round_robin", only_online: true };
+    case "webhook":
+      return { type, url: "" };
+    default:
+      return { type: "send_dm", text: "" };
+  }
+}
 
 // Friendly value+unit <-> milliseconds for the wait action editor.
 const WAIT_UNIT_MS = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 } as const;
@@ -153,6 +182,15 @@ export function AutomationBuilder({
         break;
       case "wait":
         fresh = { type, ms: WAIT_UNIT_MS.hours }; // default: 1 hour
+        break;
+      case "condition":
+        fresh = {
+          type,
+          match: "all",
+          conditions: [{ field: "tag", op: "has", value: "" }],
+          then: [],
+          else: [],
+        };
         break;
       case "webhook":
         fresh = { type, url: "" };
@@ -400,6 +438,7 @@ export function AutomationBuilder({
               index={i}
               action={a}
               members={members}
+              allowMessageCondition={triggerMeta?.needsKeywords ?? false}
               onChange={(next) => {
                 const arr = [...actions];
                 arr[i] = next;
@@ -451,6 +490,7 @@ function ActionRow({
   index,
   action,
   members,
+  allowMessageCondition,
   onChange,
   onRemove,
   onMoveUp,
@@ -459,6 +499,7 @@ function ActionRow({
   index: number;
   action: Action;
   members: Member[];
+  allowMessageCondition: boolean;
   onChange: (next: Action) => void;
   onRemove: () => void;
   onMoveUp?: () => void;
@@ -505,6 +546,71 @@ function ActionRow({
         </div>
       </div>
 
+      {action.type !== "wait" && action.type !== "condition" && (
+        <LeafFields
+          action={action}
+          members={members}
+          onChange={(next) => onChange(next)}
+        />
+      )}
+
+      {action.type === "condition" && (
+        <ConditionEditor
+          action={action}
+          members={members}
+          allowMessageCondition={allowMessageCondition}
+          onChange={onChange}
+        />
+      )}
+
+      {action.type === "wait" && (() => {
+        const { value, unit } = msToWait(action.ms);
+        const setWait = (v: number, u: WaitUnit) =>
+          onChange({ type: "wait", ms: Math.max(1, Math.floor(v || 1)) * WAIT_UNIT_MS[u] });
+        return (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={value}
+                onChange={(e) => setWait(Number(e.target.value), unit)}
+                className="h-8 w-24 text-xs"
+              />
+              <select
+                value={unit}
+                onChange={(e) => setWait(value, e.target.value as WaitUnit)}
+                className="h-8 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
+              >
+                <option value="minutes" className="bg-zinc-900">minutes</option>
+                <option value="hours" className="bg-zinc-900">hours</option>
+                <option value="days" className="bg-zinc-900">days</option>
+              </select>
+              <span className="text-[11px] text-white/50">before the next step</span>
+            </div>
+            <p className="text-[10px] text-white/40">
+              Steps after this run later (max 30 days). Processed every minute.
+            </p>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+// Per-type field editors for a LEAF action — shared by the top-level ActionRow
+// and if/else branches.
+function LeafFields({
+  action,
+  members,
+  onChange,
+}: {
+  action: LeafAction;
+  members: Member[];
+  onChange: (next: LeafAction) => void;
+}) {
+  return (
+    <>
       {action.type === "send_dm" && (
         <>
           <Textarea
@@ -515,7 +621,7 @@ function ActionRow({
             className="text-xs"
           />
           <p className="mt-1 text-[10px] text-white/40">
-            Variables: <code>{"{{contact_name}}"}</code>, <code>{"{{first_name}}"}</code>, <code>{"{{contact_phone}}"}</code>, <code>{"{{contact_email}}"}</code>, <code>{"{{username}}"}</code>
+            Variables: <code>{"{{contact_name}}"}</code>, <code>{"{{first_name}}"}</code>, <code>{"{{contact_phone}}"}</code>, <code>{"{{contact_email}}"}</code>, <code>{"{{username}}"}</code>, <code>{"{{message_text}}"}</code>
           </p>
         </>
       )}
@@ -532,9 +638,7 @@ function ActionRow({
       {action.type === "assign_agent" && (
         <select
           value={action.agent_id ?? ""}
-          onChange={(e) =>
-            onChange({ ...action, agent_id: e.target.value || null })
-          }
+          onChange={(e) => onChange({ ...action, agent_id: e.target.value || null })}
           className="h-8 w-full rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
         >
           <option value="" className="bg-zinc-900">Unassigned</option>
@@ -575,47 +679,13 @@ function ActionRow({
             <input
               type="checkbox"
               checked={action.only_online ?? false}
-              onChange={(e) =>
-                onChange({ ...action, only_online: e.target.checked })
-              }
+              onChange={(e) => onChange({ ...action, only_online: e.target.checked })}
               className="accent-[color:var(--xyra-purple)]"
             />
             Only consider agents marked online (falls back to all when nobody is online)
           </label>
         </div>
       )}
-
-      {action.type === "wait" && (() => {
-        const { value, unit } = msToWait(action.ms);
-        const setWait = (v: number, u: WaitUnit) =>
-          onChange({ type: "wait", ms: Math.max(1, Math.floor(v || 1)) * WAIT_UNIT_MS[u] });
-        return (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                min={1}
-                value={value}
-                onChange={(e) => setWait(Number(e.target.value), unit)}
-                className="h-8 w-24 text-xs"
-              />
-              <select
-                value={unit}
-                onChange={(e) => setWait(value, e.target.value as WaitUnit)}
-                className="h-8 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
-              >
-                <option value="minutes" className="bg-zinc-900">minutes</option>
-                <option value="hours" className="bg-zinc-900">hours</option>
-                <option value="days" className="bg-zinc-900">days</option>
-              </select>
-              <span className="text-[11px] text-white/50">before the next step</span>
-            </div>
-            <p className="text-[10px] text-white/40">
-              Steps after this run later (max 30 days). Processed every minute.
-            </p>
-          </div>
-        );
-      })()}
 
       {action.type === "webhook" && (
         <div className="space-y-1.5">
@@ -633,6 +703,219 @@ function ActionRow({
           />
         </div>
       )}
+    </>
+  );
+}
+
+// Compact editor for one if/else branch's leaf-action list.
+function BranchList({
+  label,
+  actions,
+  members,
+  onChange,
+}: {
+  label: string;
+  actions: LeafAction[];
+  members: Member[];
+  onChange: (next: LeafAction[]) => void;
+}) {
+  return (
+    <div className="rounded-md border border-white/10 bg-white/[0.02] p-2.5">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-[11px] font-medium text-white/80">{label}</span>
+        <div className="flex flex-wrap gap-1">
+          {BRANCH_ACTION_OPTIONS.map((o) => (
+            <button
+              key={o.type}
+              type="button"
+              onClick={() => onChange([...actions, freshLeaf(o.type, members)])}
+              className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70 hover:bg-white/10"
+            >
+              + {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {actions.length === 0 ? (
+        <p className="text-[10px] text-white/40">No actions — nothing happens on this branch.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {actions.map((a, j) => (
+            <div key={j} className="rounded border border-white/10 bg-white/[0.03] p-2">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[10px] font-medium capitalize text-white/70">
+                  {a.type.replace("_", " ")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onChange(actions.filter((_, k) => k !== j))}
+                  className="text-white/40 hover:text-red-300"
+                  aria-label="Remove"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </div>
+              <LeafFields
+                action={a}
+                members={members}
+                onChange={(na) => {
+                  const arr = [...actions];
+                  arr[j] = na;
+                  onChange(arr);
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// If/else editor: conditions (match all/any) + a Then + Otherwise branch.
+function ConditionEditor({
+  action,
+  members,
+  allowMessageCondition,
+  onChange,
+}: {
+  action: Extract<Action, { type: "condition" }>;
+  members: Member[];
+  allowMessageCondition: boolean;
+  onChange: (next: Action) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-[11px] text-white/70">
+        <span>Match</span>
+        <select
+          value={action.match}
+          onChange={(e) => onChange({ ...action, match: e.target.value as "all" | "any" })}
+          className="h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-[11px] text-white"
+        >
+          <option value="all" className="bg-zinc-900">all</option>
+          <option value="any" className="bg-zinc-900">any</option>
+        </select>
+        <span>of these conditions:</span>
+      </div>
+
+      {action.conditions.map((c, ci) => (
+        <ConditionRow
+          key={ci}
+          condition={c}
+          allowMessageCondition={allowMessageCondition}
+          onChange={(nc) => {
+            const arr = [...action.conditions];
+            arr[ci] = nc;
+            onChange({ ...action, conditions: arr });
+          }}
+          onRemove={() =>
+            onChange({ ...action, conditions: action.conditions.filter((_, k) => k !== ci) })
+          }
+        />
+      ))}
+      <button
+        type="button"
+        onClick={() =>
+          onChange({
+            ...action,
+            conditions: [...action.conditions, { field: "tag", op: "has", value: "" }],
+          })
+        }
+        className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] text-white/70 hover:bg-white/10"
+      >
+        + condition
+      </button>
+
+      <BranchList
+        label="Then"
+        actions={action.then}
+        members={members}
+        onChange={(t) => onChange({ ...action, then: t })}
+      />
+      <BranchList
+        label="Otherwise"
+        actions={action.else}
+        members={members}
+        onChange={(e) => onChange({ ...action, else: e })}
+      />
+    </div>
+  );
+}
+
+function ConditionRow({
+  condition,
+  allowMessageCondition,
+  onChange,
+  onRemove,
+}: {
+  condition: AutomationCondition;
+  allowMessageCondition: boolean;
+  onChange: (next: AutomationCondition) => void;
+  onRemove: () => void;
+}) {
+  // Ops available per field.
+  const ops =
+    condition.field === "tag"
+      ? ([
+          { v: "has", label: "has tag" },
+          { v: "not_has", label: "doesn't have tag" },
+        ] as const)
+      : ([
+          { v: "contains", label: "message contains" },
+          { v: "not_contains", label: "message doesn't contain" },
+        ] as const);
+  // Only offer the Message field on triggers that carry message text (keyword
+  // triggers); otherwise it would silently always take one branch. Keep it
+  // selectable if an existing condition already uses it.
+  const showMessage = allowMessageCondition || condition.field === "message";
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <select
+        value={condition.field}
+        onChange={(e) => {
+          const field = e.target.value as AutomationCondition["field"];
+          // Reset op to the first valid one for the new field.
+          onChange(
+            field === "tag"
+              ? { field: "tag", op: "has", value: condition.value }
+              : { field: "message", op: "contains", value: condition.value },
+          );
+        }}
+        className="h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-[11px] text-white"
+      >
+        <option value="tag" className="bg-zinc-900">Tag</option>
+        {showMessage && (
+          <option value="message" className="bg-zinc-900">Message</option>
+        )}
+      </select>
+      <select
+        value={condition.op}
+        onChange={(e) =>
+          onChange({ ...condition, op: e.target.value } as AutomationCondition)
+        }
+        className="h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-[11px] text-white"
+      >
+        {ops.map((o) => (
+          <option key={o.v} value={o.v} className="bg-zinc-900">
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Input
+        value={condition.value}
+        onChange={(e) => onChange({ ...condition, value: e.target.value })}
+        placeholder={condition.field === "tag" ? "vip" : "price"}
+        className="h-7 flex-1 text-[11px]"
+      />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-white/40 hover:text-red-300"
+        aria-label="Remove condition"
+      >
+        <Trash2 className="size-3" />
+      </button>
     </div>
   );
 }

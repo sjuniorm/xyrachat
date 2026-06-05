@@ -1,7 +1,13 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
-import { renderTemplate, type Action, type AutomationRow } from "./types";
+import {
+  renderTemplate,
+  evaluateConditions,
+  type Action,
+  type LeafAction,
+  type AutomationRow,
+} from "./types";
 
 // Result the executor logs to automation_logs.
 export type ExecResult = {
@@ -59,11 +65,137 @@ function computeStatus(
   return steps.every((s) => !s.ok) ? "failed" : "success";
 }
 
-// Runs a list of actions in order against a contact/channel context. On a
-// `wait` action it persists the REMAINING actions to
-// automation_scheduled_actions (with run_at) and STOPS — the per-minute runner
-// resumes them later (which may itself hit the next wait). Returns where it
-// stopped so the caller can log + count.
+// Executes a single LEAF action (the "do something" steps). Shared by the
+// top-level loop AND if/else branches so the logic — including send
+// idempotency — lives in one place. Returns the (possibly lazily-created)
+// conversationId. Does not throw for handled errors; the caller try/catches.
+async function execLeafAction(
+  admin: ReturnType<typeof createAdminClient>,
+  action: LeafAction,
+  ctx: ActionCtx,
+  conversationId: string | null,
+  stampKey: string | null,
+): Promise<{ ok: boolean; error?: string; conversationId: string | null }> {
+  const { automation, contact, channel } = ctx;
+  switch (action.type) {
+    case "send_dm": {
+      let convId = conversationId;
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      if (!convId) return { ok: false, error: "No conversation", conversationId: convId };
+      // Idempotency for resumed/retried rows: skip if this exact step already
+      // produced an outbound (a prior attempt or a reclaim re-run).
+      if (stampKey) {
+        const { data: already } = await admin
+          .from("messages")
+          .select("id")
+          .eq("conversation_id", convId)
+          .eq("metadata->>sched_step", stampKey)
+          .limit(1)
+          .maybeSingle();
+        if (already) return { ok: true, conversationId: convId };
+      }
+      const rendered = renderTemplate(action.text, contact, ctx.triggerData as Record<string, string | null | undefined>);
+      const send = await sendChannelMessage({
+        channel,
+        recipient: pickRecipient(channel.type, contact),
+        content: rendered,
+        conversationId: convId,
+        extraMetadata: stampKey ? { sched_step: stampKey } : undefined,
+      });
+      return send.ok
+        ? { ok: true, conversationId: convId }
+        : { ok: false, error: send.error ?? "send failed", conversationId: convId };
+    }
+    case "tag_contact": {
+      const tag = action.tag.trim();
+      if (!tag) return { ok: false, error: "Empty tag", conversationId };
+      const { data: row } = await admin
+        .from("contacts")
+        .select("tags")
+        .eq("id", contact.id)
+        .maybeSingle();
+      const current = (row?.tags ?? []) as string[];
+      if (!current.includes(tag)) {
+        await admin
+          .from("contacts")
+          .update({ tags: [...current, tag] })
+          .eq("id", contact.id);
+      }
+      return { ok: true, conversationId };
+    }
+    case "assign_agent": {
+      let convId = conversationId;
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      if (!convId) return { ok: false, error: "No conversation", conversationId: convId };
+      await admin
+        .from("conversations")
+        .update({ assigned_to: action.agent_id ?? null })
+        .eq("id", convId);
+      return { ok: true, conversationId: convId };
+    }
+    case "assign_smart": {
+      let convId = conversationId;
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      if (!convId) return { ok: false, error: "No conversation", conversationId: convId };
+      const picked = await pickSmartAgent({
+        admin,
+        orgId: automation.org_id,
+        strategy: action.strategy,
+        onlyOnline: action.only_online ?? false,
+        lastAssignedAgentId: automation.last_assigned_agent_id ?? null,
+      });
+      if (!picked) return { ok: false, error: "No eligible agents", conversationId: convId };
+      await admin.from("conversations").update({ assigned_to: picked }).eq("id", convId);
+      if (action.strategy === "round_robin") {
+        await admin
+          .from("automations")
+          .update({ last_assigned_agent_id: picked })
+          .eq("id", automation.id);
+      }
+      return { ok: true, conversationId: convId };
+    }
+    case "webhook": {
+      const res = await fetch(action.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(action.secret ? { Authorization: `Bearer ${action.secret}` } : {}),
+        },
+        body: JSON.stringify({
+          automation_id: automation.id,
+          automation_name: automation.name,
+          contact: {
+            id: contact.id,
+            name: contact.name,
+            phone: contact.phone,
+            email: contact.email,
+            instagram_id: contact.instagram_id,
+            telegram_id: contact.telegram_id,
+          },
+          trigger: { type: automation.trigger_type, data: ctx.triggerData ?? {} },
+          fired_at: new Date().toISOString(),
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}`, conversationId };
+      }
+      return { ok: true, conversationId };
+    }
+    case "add_to_sequence":
+      return { ok: false, error: "sequences not built yet", conversationId };
+    default:
+      // Runtime guard: branches are typed LeafAction[], but a hand-crafted API
+      // payload could smuggle a wait/condition past TS. Refuse rather than
+      // crash on an unhandled shape.
+      return { ok: false, error: "Unsupported branch action", conversationId };
+  }
+}
+
+// Runs a list of actions in order. Leaf actions delegate to execLeafAction.
+// `wait` persists the REMAINING actions + STOPS (the runner resumes later).
+// `condition` evaluates if/else against the contact's tags + the trigger
+// message and runs the chosen branch's leaf actions inline.
 async function runActionList(
   admin: ReturnType<typeof createAdminClient>,
   actions: Action[],
@@ -82,202 +214,126 @@ async function runActionList(
   for (let i = 0; i < actions.length; i++) {
     const action = actions[i];
     try {
-      switch (action.type) {
-        case "send_dm": {
-          // Lazily create / find a conversation so the bot DM appears in
-          // the inbox like any agent message would.
-          if (!conversationId) {
-            conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
-          }
-          if (!conversationId) {
-            steps.push({ type: action.type, ok: false, error: "No conversation" });
-            firstFailure ??= "No conversation";
-            break;
-          }
-          // Idempotency for resumed/retried rows: skip if this exact step
-          // already produced an outbound (a prior attempt or a reclaim re-run).
-          const stamp = ctx.scheduledActionId ? `${ctx.scheduledActionId}:${i}` : null;
-          if (stamp) {
-            const { data: already } = await admin
-              .from("messages")
-              .select("id")
-              .eq("conversation_id", conversationId)
-              .eq("metadata->>sched_step", stamp)
-              .limit(1)
-              .maybeSingle();
-            if (already) {
-              steps.push({ type: action.type, ok: true });
-              break;
-            }
-          }
-          const rendered = renderTemplate(action.text, contact, ctx.triggerData as Record<string, string | null | undefined>);
-          const send = await sendChannelMessage({
-            channel,
-            recipient: pickRecipient(channel.type, contact),
-            content: rendered,
-            conversationId,
-            extraMetadata: stamp ? { sched_step: stamp } : undefined,
-          });
-          if (!send.ok) {
-            steps.push({ type: action.type, ok: false, error: send.error ?? "send failed" });
-            firstFailure ??= send.error ?? "send failed";
-          } else {
-            steps.push({ type: action.type, ok: true });
-          }
-          break;
+      if (action.type === "wait") {
+        const ms = typeof action.ms === "number" && action.ms > 0 ? action.ms : 0;
+        const remaining = actions.slice(i + 1);
+        // Zero/negative wait, or nothing after it → no-op, keep running.
+        if (ms <= 0 || remaining.length === 0) {
+          steps.push({ type: action.type, ok: true });
+          continue;
         }
-        case "tag_contact": {
-          const tag = action.tag.trim();
-          if (!tag) {
-            steps.push({ type: action.type, ok: false, error: "Empty tag" });
-            firstFailure ??= "Empty tag";
-            break;
-          }
+        // Cap outstanding chains per (automation, contact) so a re-firing
+        // keyword automation can't accumulate unbounded delayed sends.
+        const { count: inflight } = await admin
+          .from("automation_scheduled_actions")
+          .select("id", { count: "exact", head: true })
+          .eq("automation_id", automation.id)
+          .eq("contact_id", contact.id)
+          .in("status", ["pending", "processing"]);
+        if ((inflight ?? 0) >= MAX_INFLIGHT_PER_CONTACT) {
+          steps.push({ type: action.type, ok: false, error: "too many in-flight waits for this contact; skipped" });
+          firstFailure ??= "in-flight wait cap reached";
+          return { steps, firstFailure, conversationId, scheduled: false };
+        }
+        const runAt = new Date(Date.now() + Math.min(ms, MAX_WAIT_MS)).toISOString();
+        const { error } = await admin.from("automation_scheduled_actions").insert({
+          automation_id: automation.id,
+          org_id: automation.org_id,
+          contact_id: contact.id,
+          channel_id: channel.id,
+          conversation_id: conversationId,
+          remaining_actions: remaining,
+          trigger_data: ctx.triggerData ?? {},
+          run_at: runAt,
+          status: "pending",
+        });
+        if (error) {
+          // Scheduling failed — STOP rather than firing the tail immediately.
+          steps.push({ type: action.type, ok: false, error: error.message });
+          firstFailure ??= error.message;
+          return { steps, firstFailure, conversationId, scheduled: false };
+        }
+        steps.push({ type: action.type, ok: true });
+        return { steps, firstFailure, conversationId, scheduled: true };
+      }
+
+      if (action.type === "condition") {
+        // STICKY branch choice: on a resumed/retried row, replay the branch we
+        // picked the first time. Otherwise a branch leaf that mutated a tag the
+        // condition gates on could flip the decision on retry (and double-send
+        // across both branches, since their idempotency stamps differ).
+        const decisions =
+          (ctx.triggerData?._branch_decisions as Record<string, "then" | "else"> | undefined) ?? {};
+        const decisionKey = String(i);
+        let branchName: "then" | "else";
+        if (decisions[decisionKey] === "then" || decisions[decisionKey] === "else") {
+          branchName = decisions[decisionKey];
+        } else {
           const { data: row } = await admin
             .from("contacts")
             .select("tags")
             .eq("id", contact.id)
             .maybeSingle();
-          const current = (row?.tags ?? []) as string[];
-          if (!current.includes(tag)) {
+          const tags = (row?.tags ?? []) as string[];
+          const messageText =
+            typeof ctx.triggerData?.message_text === "string"
+              ? (ctx.triggerData.message_text as string)
+              : "";
+          branchName = evaluateConditions(action.conditions, action.match, { tags, messageText })
+            ? "then"
+            : "else";
+          // Persist the decision so a retry of this scheduled row can't flip it.
+          if (ctx.scheduledActionId) {
+            const merged = {
+              ...(ctx.triggerData ?? {}),
+              _branch_decisions: { ...decisions, [decisionKey]: branchName },
+            };
+            ctx.triggerData = merged;
             await admin
-              .from("contacts")
-              .update({ tags: [...current, tag] })
-              .eq("id", contact.id);
+              .from("automation_scheduled_actions")
+              .update({ trigger_data: merged })
+              .eq("id", ctx.scheduledActionId);
           }
-          steps.push({ type: action.type, ok: true });
-          break;
         }
-        case "assign_agent": {
-          if (!conversationId) {
-            conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+        const branch = branchName === "then" ? action.then : action.else;
+        let branchAllOk = true;
+        for (let j = 0; j < branch.length; j++) {
+          const leaf = branch[j];
+          const stampKey = ctx.scheduledActionId
+            ? `${ctx.scheduledActionId}:${i}.${branchName}.${j}`
+            : null;
+          try {
+            const r = await execLeafAction(admin, leaf, ctx, conversationId, stampKey);
+            conversationId = r.conversationId;
+            if (r.ok) {
+              steps.push({ type: leaf.type, ok: true });
+            } else {
+              branchAllOk = false;
+              steps.push({ type: leaf.type, ok: false, error: r.error });
+              firstFailure ??= r.error ?? "branch action failed";
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            branchAllOk = false;
+            steps.push({ type: leaf.type, ok: false, error: msg });
+            firstFailure ??= msg;
           }
-          if (!conversationId) {
-            steps.push({ type: action.type, ok: false, error: "No conversation" });
-            firstFailure ??= "No conversation";
-            break;
-          }
-          await admin
-            .from("conversations")
-            .update({ assigned_to: action.agent_id ?? null })
-            .eq("id", conversationId);
-          steps.push({ type: action.type, ok: true });
-          break;
         }
-        case "assign_smart": {
-          if (!conversationId) {
-            conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
-          }
-          if (!conversationId) {
-            steps.push({ type: action.type, ok: false, error: "No conversation" });
-            firstFailure ??= "No conversation";
-            break;
-          }
-          const picked = await pickSmartAgent({
-            admin,
-            orgId: automation.org_id,
-            strategy: action.strategy,
-            onlyOnline: action.only_online ?? false,
-            lastAssignedAgentId: automation.last_assigned_agent_id ?? null,
-          });
-          if (!picked) {
-            steps.push({ type: action.type, ok: false, error: "No eligible agents" });
-            firstFailure ??= "No eligible agents";
-            break;
-          }
-          await admin
-            .from("conversations")
-            .update({ assigned_to: picked })
-            .eq("id", conversationId);
-          if (action.strategy === "round_robin") {
-            await admin
-              .from("automations")
-              .update({ last_assigned_agent_id: picked })
-              .eq("id", automation.id);
-          }
-          steps.push({ type: action.type, ok: true });
-          break;
-        }
-        case "webhook": {
-          const res = await fetch(action.url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(action.secret ? { Authorization: `Bearer ${action.secret}` } : {}),
-            },
-            body: JSON.stringify({
-              automation_id: automation.id,
-              automation_name: automation.name,
-              contact: {
-                id: contact.id,
-                name: contact.name,
-                phone: contact.phone,
-                email: contact.email,
-                instagram_id: contact.instagram_id,
-                telegram_id: contact.telegram_id,
-              },
-              trigger: { type: automation.trigger_type, data: ctx.triggerData ?? {} },
-              fired_at: new Date().toISOString(),
-            }),
-          });
-          if (!res.ok) {
-            const text = await res.text().catch(() => "");
-            steps.push({ type: action.type, ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` });
-            firstFailure ??= `Webhook ${res.status}`;
-          } else {
-            steps.push({ type: action.type, ok: true });
-          }
-          break;
-        }
-        case "add_to_sequence":
-          steps.push({ type: action.type, ok: false, error: "sequences not built yet" });
-          break;
-        case "wait": {
-          const ms = typeof action.ms === "number" && action.ms > 0 ? action.ms : 0;
-          const remaining = actions.slice(i + 1);
-          // A zero/negative wait, or a wait with nothing after it, is a no-op —
-          // keep running (don't schedule an empty resume).
-          if (ms <= 0 || remaining.length === 0) {
-            steps.push({ type: action.type, ok: true });
-            break;
-          }
-          // Cap outstanding chains per (automation, contact) so a re-firing
-          // keyword automation can't accumulate unbounded delayed sends.
-          const { count: inflight } = await admin
-            .from("automation_scheduled_actions")
-            .select("id", { count: "exact", head: true })
-            .eq("automation_id", automation.id)
-            .eq("contact_id", contact.id)
-            .in("status", ["pending", "processing"]);
-          if ((inflight ?? 0) >= MAX_INFLIGHT_PER_CONTACT) {
-            steps.push({ type: action.type, ok: false, error: "too many in-flight waits for this contact; skipped" });
-            firstFailure ??= "in-flight wait cap reached";
-            // Stop — do NOT fire the tail inline (that would defeat the delay).
-            return { steps, firstFailure, conversationId, scheduled: false };
-          }
-          const runAt = new Date(Date.now() + Math.min(ms, MAX_WAIT_MS)).toISOString();
-          const { error } = await admin.from("automation_scheduled_actions").insert({
-            automation_id: automation.id,
-            org_id: automation.org_id,
-            contact_id: contact.id,
-            channel_id: channel.id,
-            conversation_id: conversationId,
-            remaining_actions: remaining,
-            trigger_data: ctx.triggerData ?? {},
-            run_at: runAt,
-            status: "pending",
-          });
-          if (error) {
-            // Scheduling failed — STOP rather than firing the post-wait tail
-            // immediately (which would silently ignore the delay).
-            steps.push({ type: action.type, ok: false, error: error.message });
-            firstFailure ??= error.message;
-            return { steps, firstFailure, conversationId, scheduled: false };
-          }
-          steps.push({ type: action.type, ok: true });
-          // Stop here; the remaining actions run when the schedule fires.
-          return { steps, firstFailure, conversationId, scheduled: true };
-        }
+        // Reflect the branch outcome so a fully-failed branch yields all-ok:false
+        // (→ computeStatus 'failed') instead of being masked as success.
+        steps.push({ type: action.type, ok: branchAllOk });
+        continue;
+      }
+
+      // Leaf action.
+      const stampKey = ctx.scheduledActionId ? `${ctx.scheduledActionId}:${i}` : null;
+      const r = await execLeafAction(admin, action, ctx, conversationId, stampKey);
+      conversationId = r.conversationId;
+      if (r.ok) {
+        steps.push({ type: action.type, ok: true });
+      } else {
+        steps.push({ type: action.type, ok: false, error: r.error });
+        firstFailure ??= r.error ?? "action failed";
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -400,11 +456,17 @@ export async function resumeAutomation(row: {
     conversationId: row.conversation_id ?? null,
     scheduledActionId: row.scheduled_action_id,
   });
-  const status = computeStatus(r.steps, r.firstFailure);
+  // On the resume path, ANY failure is retryable: every send is stamped
+  // (sched_step) so re-running already-landed steps is a no-op. So we return
+  // 'failed' on any firstFailure (not only all-failed) and let the runner
+  // retry up to MAX_ATTEMPTS.
+  const status: ExecResult["status"] = r.firstFailure ? "failed" : "success";
 
   // Continuation log row (so the detail page shows the resumed steps). We do
-  // NOT bump run_count (same trigger), but DO record a failure so the
-  // success/failure ratio still reflects resume failures.
+  // NOT bump run_count (same trigger) or failure_count here — counters are a
+  // per-trigger measure owned by the initial fire; the runner records terminal
+  // outcomes on the scheduled row (last_error/status) and bumps failure_count
+  // once when a chain is finally parked failed.
   await admin.from("automation_logs").insert({
     automation_id: automation.id,
     contact_id: contact.id,
@@ -414,12 +476,6 @@ export async function resumeAutomation(row: {
     status,
     error_message: r.firstFailure,
   });
-  if (status === "failed") {
-    await admin
-      .from("automations")
-      .update({ failure_count: (automation.failure_count ?? 0) + 1 })
-      .eq("id", automation.id);
-  }
 
   return { status, steps: r.steps, error_message: r.firstFailure };
 }

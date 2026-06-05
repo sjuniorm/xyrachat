@@ -183,6 +183,18 @@ export async function setAutomationActive(
 // =====================================================================
 // Helpers
 // =====================================================================
+// Leaf action types permitted inside an if/else branch (no nested
+// wait/condition). Branches are typed LeafAction[], but a hand-crafted API
+// payload could try to smuggle a non-leaf in — reject it at the boundary.
+const LEAF_TYPES = new Set([
+  "send_dm",
+  "tag_contact",
+  "assign_agent",
+  "assign_smart",
+  "webhook",
+  "add_to_sequence",
+]);
+
 function validateAction(action: Action): string | null {
   switch (action.type) {
     case "send_dm":
@@ -213,6 +225,26 @@ function validateAction(action: Action): string | null {
         return "Wait step needs a positive duration.";
       }
       return null;
+    case "condition": {
+      if (!Array.isArray(action.conditions) || action.conditions.length === 0) {
+        return "Each If/else step needs at least one condition.";
+      }
+      for (const c of action.conditions) {
+        if (!c.value?.trim()) {
+          return "Each If/else condition needs a value.";
+        }
+      }
+      // Branch actions must be leaves (no nested wait/condition) — enforce
+      // structurally, then validate each with the same per-leaf rules.
+      for (const leaf of [...action.then, ...action.else]) {
+        if (!LEAF_TYPES.has(leaf.type)) {
+          return "If/else branches can only contain simple actions (no nested waits or conditions).";
+        }
+        const err = validateAction(leaf);
+        if (err) return err;
+      }
+      return null;
+    }
     default: {
       const _exhaustive: never = action;
       void _exhaustive;
