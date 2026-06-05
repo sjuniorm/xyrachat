@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -13,9 +14,11 @@ import {
   Plug,
   MessagesSquare,
   LifeBuoy,
+  Rocket,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LATEST_VERSION } from "@/lib/changelog";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
@@ -28,16 +31,39 @@ const ITEMS: NavItem[] = [
   { href: "/automations", label: "Automations", icon: Sparkles },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/team-chat", label: "Team chat", icon: MessagesSquare },
+  { href: "/changelog", label: "What's new", icon: Rocket },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/help", label: "Help", icon: LifeBuoy },
 ];
 
+const SEEN_KEY = "xyra:changelog:lastSeen";
+
 export function SidebarNav() {
   const pathname = usePathname();
+  // Unseen-release dot on "What's new". Defaults false so SSR + first client
+  // render match (localStorage isn't available on the server); the effect
+  // reconciles after mount. Viewing /changelog marks the latest version seen.
+  const [unseen, setUnseen] = useState(false);
+  useEffect(() => {
+    try {
+      const onChangelog =
+        pathname === "/changelog" || pathname.startsWith("/changelog/");
+      if (onChangelog) {
+        localStorage.setItem(SEEN_KEY, LATEST_VERSION);
+        setUnseen(false);
+      } else {
+        setUnseen(localStorage.getItem(SEEN_KEY) !== LATEST_VERSION);
+      }
+    } catch {
+      // Private mode / blocked storage: just don't show the dot.
+    }
+  }, [pathname]);
+
   return (
     <nav className="flex flex-col gap-1 px-3">
       {ITEMS.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
+        const showDot = href === "/changelog" && unseen && !active;
         return (
           <Link
             key={href}
@@ -50,7 +76,16 @@ export function SidebarNav() {
             )}
           >
             <Icon className="size-4" aria-hidden />
-            {label}
+            <span>{label}</span>
+            {showDot && (
+              <>
+                <span className="sr-only">(new updates)</span>
+                <span
+                  className="ml-auto size-2 rounded-full bg-[color:var(--xyra-glow)] shadow-[0_0_8px_var(--xyra-glow)]"
+                  aria-hidden
+                />
+              </>
+            )}
           </Link>
         );
       })}
