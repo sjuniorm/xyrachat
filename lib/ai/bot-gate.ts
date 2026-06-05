@@ -218,7 +218,18 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     .maybeSingle();
   if (!conv) return { skipped: true, reason: "conversation_missing" };
   if (conv.assigned_to) return { skipped: true, reason: "conversation_assigned" };
-  if (conv.status !== "bot" && conv.status !== "open") {
+  if (conv.status === "closed") {
+    // A new inbound on a closed chat normally stays closed. When the bot has
+    // auto_reopen_closed on, reopen it so the bot picks the thread back up.
+    if ((bot as BotRow).auto_reopen_closed) {
+      await admin
+        .from("conversations")
+        .update({ status: "open" })
+        .eq("id", input.conversationId);
+    } else {
+      return { skipped: true, reason: "status_closed" };
+    }
+  } else if (conv.status !== "bot" && conv.status !== "open") {
     return { skipped: true, reason: `status_${conv.status}` };
   }
 

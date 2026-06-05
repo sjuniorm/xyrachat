@@ -26,6 +26,8 @@ export type BotRow = {
   handoff_triggers: string[] | null;
   // Per-bot tool-use config (JSONB). Empty {} = no tools (current behavior).
   tools_config?: Record<string, { enabled?: boolean }> | null;
+  // When true, a new inbound on a closed conversation reopens it for the bot.
+  auto_reopen_closed?: boolean;
   active: boolean;
 };
 

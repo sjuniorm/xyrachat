@@ -139,7 +139,7 @@ export async function updateBot(
     "name", "instructions", "objective", "objective_config",
     "tone", "personality", "greeting_message", "off_hours_message",
     "business_hours", "knowledge_threshold", "language", "behavior_rules",
-    "handoff_triggers", "tools_config", "active",
+    "handoff_triggers", "tools_config", "auto_reopen_closed", "active",
   ]);
   const filtered: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {

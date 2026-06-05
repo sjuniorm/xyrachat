@@ -27,6 +27,7 @@ type BotRow = {
   behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string };
   handoff_triggers: string[] | null;
   tools_config?: Record<string, { enabled?: boolean }> | null;
+  auto_reopen_closed?: boolean;
   active: boolean;
 };
 
@@ -57,6 +58,7 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [active, setActive] = useState(bot.active);
+  const [autoReopen, setAutoReopen] = useState(Boolean(bot.auto_reopen_closed));
   const [name, setName] = useState(bot.name);
   const [instructions, setInstructions] = useState(bot.instructions ?? "");
   const [greeting, setGreeting] = useState(bot.greeting_message ?? "");
@@ -109,6 +111,7 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
           active: hoursActive,
         },
         off_hours_message: offHours.trim() || null,
+        auto_reopen_closed: autoReopen,
         tools_config: Object.fromEntries(
           TOOL_OPTIONS.map((t) => [t.key, { enabled: !!toolsOn[t.key] }]),
         ),
@@ -141,16 +144,35 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
             Pause the bot to stop it from replying without losing config or knowledge.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex items-center justify-between gap-3">
-          <Label htmlFor="active-toggle" className="text-sm">
-            Bot is {active ? "active" : "paused"}
-          </Label>
-          <Switch
-            id="active-toggle"
-            checked={active}
-            onCheckedChange={setActive}
-            disabled={pending}
-          />
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="active-toggle" className="text-sm">
+              Bot is {active ? "active" : "paused"}
+            </Label>
+            <Switch
+              id="active-toggle"
+              checked={active}
+              onCheckedChange={setActive}
+              disabled={pending}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-3 border-t border-white/5 pt-3">
+            <div className="min-w-0">
+              <Label htmlFor="auto-reopen" className="text-sm text-white">
+                Auto-reopen closed chats
+              </Label>
+              <p className="mt-0.5 text-[11px] text-white/55">
+                A new message on a closed conversation reopens it so the bot
+                replies again (instead of staying closed).
+              </p>
+            </div>
+            <Switch
+              id="auto-reopen"
+              checked={autoReopen}
+              onCheckedChange={setAutoReopen}
+              disabled={pending}
+            />
+          </div>
         </CardContent>
       </Card>
 
