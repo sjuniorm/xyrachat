@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bot,
+  BotMessageSquare,
   CheckCircle,
   ChevronRight,
   Clock,
@@ -14,9 +15,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -27,6 +31,8 @@ import {
   setConversationStatus,
   snoozeConversation,
   markConversationUnread,
+  setConversationBotOnly,
+  setConversationBotOverride,
 } from "@/lib/inbox/actions";
 import type { ConversationStatus } from "@/lib/db-types";
 
@@ -40,12 +46,47 @@ const SNOOZE_PRESETS = [
 export function StatusMenu({
   conversationId,
   status,
+  bots,
+  botOnly,
+  botIdOverride,
 }: {
   conversationId: string;
   status: ConversationStatus;
+  bots: Array<{ id: string; name: string }>;
+  botOnly: boolean;
+  botIdOverride: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  function toggleBotOnly(value: boolean) {
+    startTransition(async () => {
+      const r = await setConversationBotOnly(conversationId, value);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(value ? "Bot-only mode on" : "Bot-only mode off");
+      router.refresh();
+    });
+  }
+
+  function chooseBot(value: string) {
+    const botId = value === "__auto__" ? null : value;
+    startTransition(async () => {
+      const r = await setConversationBotOverride(conversationId, botId);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(
+        botId
+          ? `Pinned ${bots.find((b) => b.id === botId)?.name ?? "bot"}`
+          : "Bot routing set to automatic",
+      );
+      router.refresh();
+    });
+  }
 
   function applyStatus(next: ConversationStatus) {
     startTransition(async () => {
@@ -136,6 +177,42 @@ export function StatusMenu({
             <Bot className="mr-2 size-4" />
             Transfer to bot
           </DropdownMenuItem>
+        )}
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs">Bot</DropdownMenuLabel>
+
+        <DropdownMenuCheckboxItem
+          checked={botOnly}
+          onCheckedChange={(v) => toggleBotOnly(Boolean(v))}
+          disabled={pending}
+        >
+          Bot-only mode
+        </DropdownMenuCheckboxItem>
+
+        {bots.length > 0 && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="cursor-pointer">
+              <BotMessageSquare className="mr-2 size-4" />
+              Use bot
+              <ChevronRight className="ml-auto size-3.5 text-white/50" />
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-52">
+              <DropdownMenuRadioGroup
+                value={botIdOverride ?? "__auto__"}
+                onValueChange={chooseBot}
+              >
+                <DropdownMenuRadioItem value="__auto__">
+                  Automatic (route by channel)
+                </DropdownMenuRadioItem>
+                {bots.map((b) => (
+                  <DropdownMenuRadioItem key={b.id} value={b.id}>
+                    <span className="truncate">{b.name}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
 
         <DropdownMenuSeparator />

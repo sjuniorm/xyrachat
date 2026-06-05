@@ -49,13 +49,42 @@ export type BotGateResult =
 export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   const admin = createAdminClient();
 
-  // ---- GATE 1: which bot (if any) handles this channel? ---------------
+  // ---- Per-conversation bot control (migration 040) -------------------
+  // Read once up front: bot_only (affects Gates 2 + 3 below) and an explicit
+  // per-conversation bot override (resolved in Gate 1).
+  const { data: convControl } = await admin
+    .from("conversations")
+    .select("bot_only, bot_id_override")
+    .eq("id", input.conversationId)
+    .maybeSingle();
+  const botOnly = Boolean(convControl?.bot_only);
+
+  // ---- GATE 1: which bot (if any) handles this conversation? -----------
+  // An agent can PIN a specific bot to this conversation (bot_id_override),
+  // which bypasses channel routing entirely. We honor it only when it still
+  // resolves to an active, non-deleted bot in this org; otherwise (unset or
+  // stale) we fall back to channel assignment + intent routing.
+  let chosenBotId: string | null = null;
+  if (convControl?.bot_id_override) {
+    const { data: pinned } = await admin
+      .from("bots")
+      .select("id")
+      .eq("id", convControl.bot_id_override)
+      .eq("org_id", input.channel.org_id) // tenant guard at selection time
+      .eq("active", true)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pinned) chosenBotId = pinned.id;
+  }
+
   // Multiple bots can share a channel. A single-bot channel skips routing
   // entirely (zero added cost, original behavior). With >1, a Haiku classifier
   // routes the inbound to the best match by routing_description, made STICKY
   // per conversation (conversations.routed_bot_id) so it runs ~once and the
   // chat doesn't bounce between bots. The classifier cost is charged inline at
   // spend (below), so there's no token total to thread to the final consume.
+  // Skipped wholesale when a valid override pinned the bot above.
+  if (!chosenBotId) {
   const { data: assignments } = await admin
     .from("bot_assignments")
     .select("bot_id, routing_description")
@@ -65,7 +94,6 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     return { skipped: true, reason: "no_bot_assigned" };
   }
 
-  let chosenBotId: string;
   if (assignments.length === 1) {
     chosenBotId = assignments[0].bot_id;
   } else {
@@ -162,6 +190,11 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       }
     }
   }
+  } // end: channel assignment + routing (skipped when an override pinned the bot)
+
+  // Defensive: every branch above either assigns chosenBotId or returns, but
+  // narrow the type for the fetch below.
+  if (!chosenBotId) return { skipped: true, reason: "no_bot_assigned" };
 
   const { data: bot } = await admin
     .from("bots")
@@ -193,6 +226,9 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   // If an agent (not a bot) wrote outbound in the last 6 hours, the human
   // has taken over. Don't talk on top of them. Internal notes don't count
   // — they never reach the customer, so they shouldn't suppress the bot.
+  // bot_only conversations skip this: the funnel is fully automated, so an
+  // earlier agent reply (before bot_only was switched on) shouldn't mute the bot.
+  if (!botOnly) {
   const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
   const { data: recentAgent } = await admin
     .from("messages")
@@ -208,16 +244,19 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   if (recentAgent) {
     return { skipped: true, reason: "auto_pause_agent_active" };
   }
+  }
 
   // ---- GATE 3: conversation status --------------------------------
-  // Allowed: status in (bot, open) AND assigned_to IS NULL.
+  // Allowed: status in (bot, open) AND assigned_to IS NULL. A bot_only
+  // conversation ignores the assigned check — the bot owns the funnel even if
+  // it's nominally assigned to someone.
   const { data: conv } = await admin
     .from("conversations")
     .select("status, assigned_to, last_inbound_at")
     .eq("id", input.conversationId)
     .maybeSingle();
   if (!conv) return { skipped: true, reason: "conversation_missing" };
-  if (conv.assigned_to) return { skipped: true, reason: "conversation_assigned" };
+  if (conv.assigned_to && !botOnly) return { skipped: true, reason: "conversation_assigned" };
   if (conv.status === "closed") {
     // A new inbound on a closed chat normally stays closed. When the bot has
     // auto_reopen_closed on, reopen it so the bot picks the thread back up.
@@ -493,9 +532,14 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   });
 
   if (result.shouldHandoff) {
+    // Hand off to a human: open the conversation AND drop bot_only. Without
+    // clearing bot_only the bot would just re-acquire the chat on the next
+    // inbound (Gate 2 + the assigned check are bypassed in bot_only), so the
+    // "let me get a human" promise would be inert and the composer would stay
+    // hidden. Clearing it restores the agent composer and the normal guards.
     await admin
       .from("conversations")
-      .update({ status: "open" })
+      .update({ status: "open", bot_only: false })
       .eq("id", input.conversationId);
     await logOutcome(bot.id, input.conversationId, input.contactId, "handoff", {
       reason: result.handoffReason,

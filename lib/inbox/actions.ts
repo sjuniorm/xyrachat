@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveServingBot } from "@/lib/inbox/server";
 import type { ConversationStatus } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -264,6 +265,99 @@ export async function deleteConversationsBulk(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/inbox");
+  return { ok: true };
+}
+
+/**
+ * Toggle bot-only mode on a conversation. When on, the inbox hides the human
+ * composer and the bot gate bypasses auto-pause + the assigned check, so the
+ * conversation runs as a fully-automated funnel.
+ */
+export async function setConversationBotOnly(
+  conversationId: string,
+  value: boolean,
+): Promise<ActionResult> {
+  if (!conversationId) return { ok: false, error: "Missing conversation id." };
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth;
+
+  const admin = createAdminClient();
+  const { data: conv } = await admin
+    .from("conversations")
+    .select("org_id, channel_id, bot_id_override, routed_bot_id")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (conv?.org_id !== auth.orgId) {
+    return { ok: false, error: "Not your org's conversation." };
+  }
+
+  // Enabling bot-only on a conversation no bot can serve creates a silent
+  // dead funnel (composer hidden, gate exits 'no_bot_assigned', customer gets
+  // no reply). Refuse unless a bot will actually answer: either an override is
+  // pinned to a live bot, or a live bot is assigned to this channel.
+  if (value) {
+    const serving = await resolveServingBot(
+      conv.channel_id,
+      conv.bot_id_override,
+      conv.routed_bot_id,
+      auth.orgId,
+    );
+    if (!serving.serves) {
+      return {
+        ok: false,
+        error: "Assign a bot to this channel (or pin one with “Use bot”) before turning on bot-only mode.",
+      };
+    }
+  }
+
+  const { error } = await admin
+    .from("conversations")
+    .update({ bot_only: value })
+    .eq("id", conversationId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/inbox");
+  revalidatePath(`/inbox/${conversationId}`);
+  return { ok: true };
+}
+
+/**
+ * Pin a specific bot to a conversation (or null = auto / route by channel).
+ * The bot gate honors this over the channel's intent routing. The bot must
+ * belong to the caller's org — verified server-side so a tampered client
+ * can't pin another org's bot into this conversation.
+ */
+export async function setConversationBotOverride(
+  conversationId: string,
+  botId: string | null,
+): Promise<ActionResult> {
+  if (!conversationId) return { ok: false, error: "Missing conversation id." };
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth;
+  if (!(await authorizeConversation(conversationId, auth.orgId))) {
+    return { ok: false, error: "Not your org's conversation." };
+  }
+
+  const admin = createAdminClient();
+  if (botId) {
+    const { data: bot } = await admin
+      .from("bots")
+      .select("id")
+      .eq("id", botId)
+      .eq("org_id", auth.orgId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!bot) return { ok: false, error: "Bot not found in your org." };
+  }
+
+  const { error } = await admin
+    .from("conversations")
+    .update({ bot_id_override: botId })
+    .eq("id", conversationId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/inbox");
+  revalidatePath(`/inbox/${conversationId}`);
   return { ok: true };
 }
 

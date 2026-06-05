@@ -149,6 +149,71 @@ export async function getConversationDetail(
   };
 }
 
+/**
+ * Resolve which bot (if any) would actually serve a conversation, mirroring
+ * the bot gate's Gate-1 selection so the inbox bot-only bar can describe the
+ * real behavior:
+ *   - serves: a pinned override resolves to a live bot, OR ≥1 live bot is
+ *     assigned to the channel. (Used by the bot-only enable guard too.)
+ *   - autoReopensClosed: whether the bot that would be chosen auto-reopens a
+ *     closed conversation. null = can't be determined statically (multiple
+ *     assigned bots with no sticky route yet — the Haiku router picks one at
+ *     inbound time). Drives whether the "closed" copy promises silence or a
+ *     reopen.
+ * Uses the admin client (callers pre-authorize the org).
+ */
+export async function resolveServingBot(
+  channelId: string,
+  botIdOverride: string | null,
+  routedBotId: string | null,
+  orgId: string,
+): Promise<{ serves: boolean; autoReopensClosed: boolean | null }> {
+  const admin = createAdminClient();
+
+  async function liveBot(id: string): Promise<{ id: string; auto_reopen_closed: boolean | null } | null> {
+    const { data } = await admin
+      .from("bots")
+      .select("id, auto_reopen_closed")
+      .eq("id", id)
+      .eq("org_id", orgId)
+      .eq("active", true)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return (data as { id: string; auto_reopen_closed: boolean | null } | null) ?? null;
+  }
+
+  // 1. An override pins the bot, bypassing channel routing.
+  if (botIdOverride) {
+    const b = await liveBot(botIdOverride);
+    if (b) return { serves: true, autoReopensClosed: Boolean(b.auto_reopen_closed) };
+  }
+
+  // 2. Live bots assigned to the channel.
+  const { data: assigns } = await admin
+    .from("bot_assignments")
+    .select("bot_id, bots!inner(id, auto_reopen_closed, active, deleted_at, org_id)")
+    .eq("channel_id", channelId)
+    .eq("active", true)
+    .eq("bots.active", true)
+    .is("bots.deleted_at", null)
+    .eq("bots.org_id", orgId);
+  const live = ((assigns ?? []) as Array<{ bots: unknown }>)
+    .map((a) => (Array.isArray(a.bots) ? a.bots[0] : a.bots))
+    .filter(Boolean) as Array<{ id: string; auto_reopen_closed: boolean | null }>;
+
+  if (live.length === 0) return { serves: false, autoReopensClosed: null };
+  if (live.length === 1) {
+    return { serves: true, autoReopensClosed: Boolean(live[0].auto_reopen_closed) };
+  }
+  // Multiple bots share the channel — prefer the sticky routed bot if it's
+  // still a live candidate; otherwise the router decides at inbound time.
+  if (routedBotId) {
+    const r = live.find((b) => b.id === routedBotId);
+    if (r) return { serves: true, autoReopensClosed: Boolean(r.auto_reopen_closed) };
+  }
+  return { serves: true, autoReopensClosed: null };
+}
+
 export async function getMessagesForConversation(
   conversationId: string,
 ): Promise<MessageRow[]> {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, Bot, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,11 @@ import type { Conversation, Message } from "@/lib/mock-data";
 import type { ConversationStatus, MessageRow } from "@/lib/db-types";
 import { adaptMessage } from "@/lib/inbox/adapt";
 import { useMessages } from "@/lib/realtime";
-import { setConversationStatus, markConversationRead } from "@/lib/inbox/actions";
+import {
+  setConversationStatus,
+  markConversationRead,
+  setConversationBotOnly,
+} from "@/lib/inbox/actions";
 import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
@@ -55,6 +59,11 @@ export function MessageThread({
   members,
   currentUserId,
   lastInboundAt,
+  bots,
+  botOnly,
+  botIdOverride,
+  botServes,
+  botAutoReopensClosed,
 }: {
   conversation: Conversation;
   initialMessageRows: MessageRow[];
@@ -63,6 +72,11 @@ export function MessageThread({
   members: TeamMember[];
   currentUserId: string;
   lastInboundAt: string | null;
+  bots: Array<{ id: string; name: string }>;
+  botOnly: boolean;
+  botIdOverride: string | null;
+  botServes: boolean;
+  botAutoReopensClosed: boolean | null;
 }) {
   const router = useRouter();
   const [closing, startClosing] = useTransition();
@@ -219,7 +233,13 @@ export function MessageThread({
 
         <ContactSheetTrigger conversation={conversation} />
 
-        <StatusMenu conversationId={conversation.id} status={status} />
+        <StatusMenu
+          conversationId={conversation.id}
+          status={status}
+          bots={bots}
+          botOnly={botOnly}
+          botIdOverride={botIdOverride}
+        />
       </header>
 
       {/* Messages */}
@@ -257,12 +277,102 @@ export function MessageThread({
         </div>
       </div>
 
-      <Composer
-        conversation={conversation}
-        quotedMessage={quoted}
-        onClearQuote={() => setQuoted(undefined)}
-        hasBotAssigned={hasBotAssigned}
-      />
+      {botOnly ? (
+        <BotOnlyBar
+          conversationId={conversation.id}
+          status={status}
+          botServes={botServes}
+          botAutoReopensClosed={botAutoReopensClosed}
+        />
+      ) : (
+        <Composer
+          conversation={conversation}
+          quotedMessage={quoted}
+          onClearQuote={() => setQuoted(undefined)}
+          hasBotAssigned={hasBotAssigned}
+        />
+      )}
+    </div>
+  );
+}
+
+// Shown in place of the composer when a conversation is in bot-only mode: the
+// funnel is automated, so humans don't message here. "Take over" flips bot-only
+// off (and the composer returns). The copy + styling reflect whether the bot is
+// ACTUALLY replying right now — a bot can be unassigned/deleted after bot-only
+// was switched on (dead funnel), and the gate still respects closed/snoozed
+// status, so we don't falsely claim "fully automated" in those states.
+function BotOnlyBar({
+  conversationId,
+  status,
+  botServes,
+  botAutoReopensClosed,
+}: {
+  conversationId: string;
+  status: ConversationStatus;
+  botServes: boolean;
+  botAutoReopensClosed: boolean | null;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  // A closed conversation only stays silent if the serving bot does NOT
+  // auto-reopen; with auto-reopen on, the gate reopens + replies on the next
+  // inbound, so we must not claim silence (the misleading direction).
+  const closedSilent = status === "closed" && botAutoReopensClosed !== true;
+
+  // Warn when the bot can't/won't actually reply, so the agent doesn't assume
+  // the funnel is handled while the customer gets silence.
+  const warn = !botServes || closedSilent || status === "snoozed";
+
+  const message = !botServes
+    ? "No bot is assigned to this channel — customers get no reply. Assign a bot or take over."
+    : status === "snoozed"
+      ? "This conversation is snoozed — the bot resumes when the snooze ends."
+      : status === "closed"
+        ? botAutoReopensClosed === true
+          ? "This conversation is closed, but the bot reopens it and replies on the next message."
+          : botAutoReopensClosed === false
+            ? "This conversation is closed — the bot won't reply until it's reopened."
+            : "This conversation is closed — the bot replies only if its settings auto-reopen closed chats."
+        : "Replies here are fully automated — take over to message the customer yourself.";
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 border-t px-4 py-3",
+        warn
+          ? "border-amber-400/30 bg-amber-400/5"
+          : "border-white/5 bg-[color:var(--xyra-purple)]/5",
+      )}
+    >
+      {warn ? (
+        <TriangleAlert className="size-4 shrink-0 text-amber-300" />
+      ) : (
+        <Bot className="size-4 shrink-0 text-[color:var(--xyra-glow)]" />
+      )}
+      <p className="min-w-0 flex-1 text-xs text-white/70">
+        <span className="font-medium text-white/90">Bot-only mode.</span> {message}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={pending}
+        className="h-8 shrink-0"
+        onClick={() => {
+          startTransition(async () => {
+            const r = await setConversationBotOnly(conversationId, false);
+            if (!r.ok) {
+              toast.error(r.error);
+              return;
+            }
+            toast.success("You've taken over this conversation");
+            router.refresh();
+          });
+        }}
+      >
+        Take over
+      </Button>
     </div>
   );
 }

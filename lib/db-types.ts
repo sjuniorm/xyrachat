@@ -107,6 +107,9 @@ export type ConversationRow = {
   last_inbound_at: string | null;
   snooze_until: string | null;
   routed_bot_id: string | null;
+  // Per-conversation bot control (migration 040).
+  bot_only: boolean;
+  bot_id_override: string | null;
   deleted_at: string | null;
   created_at: string;
 };

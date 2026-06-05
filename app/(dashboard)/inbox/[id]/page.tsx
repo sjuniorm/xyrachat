@@ -4,6 +4,7 @@ import { ContactPanel } from "@/components/inbox/contact-panel";
 import {
   getConversationDetail,
   getMessagesForConversation,
+  resolveServingBot,
 } from "@/lib/inbox/server";
 import { adaptConversation } from "@/lib/inbox/adapt";
 import { getOrgMembers } from "@/lib/team/server";
@@ -21,13 +22,32 @@ export default async function InboxConversationPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [detail, messages, members] = await Promise.all([
+  const [detail, messages, members, botsRes] = await Promise.all([
     getConversationDetail(id),
     getMessagesForConversation(id),
     getOrgMembers(),
+    // Active bots for the StatusMenu "Use bot" picker (RLS scopes to the org).
+    supabase
+      .from("bots")
+      .select("id, name")
+      .eq("active", true)
+      .is("deleted_at", null)
+      .order("name", { ascending: true }),
   ]);
   if (!detail) return notFound();
 
+  const bots = (botsRes.data as Array<{ id: string; name: string }> | null) ?? [];
+  // Resolve the serving bot for the bot-only bar: whether a bot replies at all
+  // (a bot can be removed after bot-only was enabled) and whether it auto-reopens
+  // a closed chat (so the "closed" copy is accurate, not misleading).
+  const serving = detail.bot_only
+    ? await resolveServingBot(
+        detail.channel_id,
+        detail.bot_id_override,
+        detail.routed_bot_id,
+        detail.org_id,
+      )
+    : { serves: false, autoReopensClosed: null };
   const conversation = adaptConversation(detail, messages);
 
   return (
@@ -41,6 +61,11 @@ export default async function InboxConversationPage({
           members={members}
           currentUserId={user.id}
           lastInboundAt={detail.last_inbound_at}
+          bots={bots}
+          botOnly={detail.bot_only}
+          botIdOverride={detail.bot_id_override}
+          botServes={serving.serves}
+          botAutoReopensClosed={serving.autoReopensClosed}
         />
       </div>
       <ContactPanel conversation={conversation} />
