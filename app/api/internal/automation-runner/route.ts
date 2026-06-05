@@ -28,6 +28,7 @@ type SchedRow = {
   conversation_id: string | null;
   remaining_actions: Action[];
   trigger_data: Record<string, unknown> | null;
+  resume_on: string;
   attempts: number;
 };
 
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     .order("run_at", { ascending: true })
     .order("id", { ascending: true })
     .select(
-      "id, automation_id, org_id, contact_id, channel_id, conversation_id, remaining_actions, trigger_data, attempts",
+      "id, automation_id, org_id, contact_id, channel_id, conversation_id, remaining_actions, trigger_data, resume_on, attempts",
     )
     .limit(MAX_BATCH);
   if (claimErr) {
@@ -89,6 +90,7 @@ export async function POST(req: NextRequest) {
         conversation_id: row.conversation_id,
         remaining_actions: row.remaining_actions ?? [],
         trigger_data: row.trigger_data,
+        resume_on: row.resume_on,
       });
       const attempts = row.attempts + 1;
       // Status mapping:

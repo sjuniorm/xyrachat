@@ -42,10 +42,12 @@ export type LeafAction =
   | { type: "add_to_sequence"; sequence_id: string }; // placeholder
 
 // A single if/else condition. `tag` checks the contact's tags; `message`
-// checks the triggering message text (merged into triggerData as message_text).
+// checks the triggering/reply message text; `reply` branches on whether a
+// preceding wait_for_reply got a reply or timed out (no value needed).
 export type AutomationCondition =
   | { field: "tag"; op: "has" | "not_has"; value: string }
-  | { field: "message"; op: "contains" | "not_contains"; value: string };
+  | { field: "message"; op: "contains" | "not_contains"; value: string }
+  | { field: "reply"; op: "received" | "timed_out"; value?: string };
 
 // Action variants. Discriminated union — the executor branches on `type`.
 // Top-level actions add `wait` (timed delay) + `condition` (if/else) on top of
@@ -53,6 +55,10 @@ export type AutomationCondition =
 export type Action =
   | LeafAction
   | { type: "wait"; ms: number }
+  // Pause until the contact's next inbound (or timeout_ms elapses → resume
+  // with a "timed out" marker so the flow can take a no-reply path). The reply
+  // text is exposed downstream as {{message_text}} + to message conditions.
+  | { type: "wait_for_reply"; timeout_ms?: number }
   | {
       type: "condition";
       match: "all" | "any";
@@ -66,7 +72,13 @@ export type Action =
 export function evaluateConditions(
   conditions: AutomationCondition[],
   match: "all" | "any",
-  ctx: { tags: string[]; messageText: string },
+  ctx: {
+    tags: string[];
+    messageText: string;
+    // Set after a wait_for_reply: whether a reply arrived vs the wait timed out.
+    repliedByReply?: boolean;
+    replyTimedOut?: boolean;
+  },
 ): boolean {
   if (conditions.length === 0) return true; // no conditions → always "then"
   const tags = ctx.tags.map((t) => t.toLowerCase());
@@ -76,7 +88,11 @@ export function evaluateConditions(
       const has = tags.includes(c.value.trim().toLowerCase());
       return c.op === "has" ? has : !has;
     }
-    const contains = c.value.trim() !== "" && msg.includes(c.value.trim().toLowerCase());
+    if (c.field === "reply") {
+      return c.op === "received" ? !!ctx.repliedByReply : !!ctx.replyTimedOut;
+    }
+    const value = (c.value ?? "").trim();
+    const contains = value !== "" && msg.includes(value.toLowerCase());
     return c.op === "contains" ? contains : !contains;
   });
   return match === "all" ? results.every(Boolean) : results.some(Boolean);

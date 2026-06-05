@@ -225,12 +225,21 @@ function validateAction(action: Action): string | null {
         return "Wait step needs a positive duration.";
       }
       return null;
+    case "wait_for_reply":
+      if (
+        action.timeout_ms !== undefined &&
+        (!Number.isFinite(action.timeout_ms) || action.timeout_ms <= 0)
+      ) {
+        return "Wait-for-reply timeout must be a positive duration.";
+      }
+      return null;
     case "condition": {
       if (!Array.isArray(action.conditions) || action.conditions.length === 0) {
         return "Each If/else step needs at least one condition.";
       }
       for (const c of action.conditions) {
-        if (!c.value?.trim()) {
+        // Reply conditions (received / timed_out) carry no value.
+        if (c.field !== "reply" && !c.value?.trim()) {
           return "Each If/else condition needs a value.";
         }
       }

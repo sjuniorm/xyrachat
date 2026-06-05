@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
-  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch,
+  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,7 @@ const ACTION_OPTIONS: Array<{
   { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
   { type: "condition", label: "If / else", icon: GitBranch, available: true },
   { type: "wait", label: "Wait / delay", icon: Clock, available: true },
+  { type: "wait_for_reply", label: "Wait for reply", icon: Reply, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
 ];
 
@@ -182,6 +183,9 @@ export function AutomationBuilder({
         break;
       case "wait":
         fresh = { type, ms: WAIT_UNIT_MS.hours }; // default: 1 hour
+        break;
+      case "wait_for_reply":
+        fresh = { type, timeout_ms: WAIT_UNIT_MS.days }; // default: 24h timeout
         break;
       case "condition":
         fresh = {
@@ -438,7 +442,11 @@ export function AutomationBuilder({
               index={i}
               action={a}
               members={members}
-              allowMessageCondition={triggerMeta?.needsKeywords ?? false}
+              allowMessageCondition={
+                (triggerMeta?.needsKeywords ?? false) ||
+                actions.some((x) => x.type === "wait_for_reply")
+              }
+              allowReplyCondition={actions.some((x) => x.type === "wait_for_reply")}
               onChange={(next) => {
                 const arr = [...actions];
                 arr[i] = next;
@@ -491,6 +499,7 @@ function ActionRow({
   action,
   members,
   allowMessageCondition,
+  allowReplyCondition,
   onChange,
   onRemove,
   onMoveUp,
@@ -500,6 +509,7 @@ function ActionRow({
   action: Action;
   members: Member[];
   allowMessageCondition: boolean;
+  allowReplyCondition: boolean;
   onChange: (next: Action) => void;
   onRemove: () => void;
   onMoveUp?: () => void;
@@ -546,19 +556,22 @@ function ActionRow({
         </div>
       </div>
 
-      {action.type !== "wait" && action.type !== "condition" && (
-        <LeafFields
-          action={action}
-          members={members}
-          onChange={(next) => onChange(next)}
-        />
-      )}
+      {action.type !== "wait" &&
+        action.type !== "wait_for_reply" &&
+        action.type !== "condition" && (
+          <LeafFields
+            action={action}
+            members={members}
+            onChange={(next) => onChange(next)}
+          />
+        )}
 
       {action.type === "condition" && (
         <ConditionEditor
           action={action}
           members={members}
           allowMessageCondition={allowMessageCondition}
+          allowReplyCondition={allowReplyCondition}
           onChange={onChange}
         />
       )}
@@ -590,6 +603,47 @@ function ActionRow({
             </div>
             <p className="text-[10px] text-white/40">
               Steps after this run later (max 30 days). Processed every minute.
+            </p>
+          </div>
+        );
+      })()}
+
+      {action.type === "wait_for_reply" && (() => {
+        const { value, unit } = msToWait(action.timeout_ms ?? WAIT_UNIT_MS.days);
+        const setTimeout = (v: number, u: WaitUnit) =>
+          onChange({
+            type: "wait_for_reply",
+            timeout_ms: Math.max(1, Math.floor(v || 1)) * WAIT_UNIT_MS[u],
+          });
+        return (
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-white/70">
+              Pause until the customer replies, then continue. Use an{" "}
+              <span className="text-white/90">If / else</span> step next to branch
+              on their answer (<code>message contains …</code> or{" "}
+              <code>{"{{message_text}}"}</code>).
+            </p>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-white/50">Timeout after</span>
+              <Input
+                type="number"
+                min={1}
+                value={value}
+                onChange={(e) => setTimeout(Number(e.target.value), unit)}
+                className="h-8 w-20 text-xs"
+              />
+              <select
+                value={unit}
+                onChange={(e) => setTimeout(value, e.target.value as WaitUnit)}
+                className="h-8 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
+              >
+                <option value="minutes" className="bg-zinc-900">minutes</option>
+                <option value="hours" className="bg-zinc-900">hours</option>
+                <option value="days" className="bg-zinc-900">days</option>
+              </select>
+            </div>
+            <p className="text-[10px] text-white/40">
+              No reply by the timeout → the flow continues on the no-reply path.
             </p>
           </div>
         );
@@ -777,11 +831,13 @@ function ConditionEditor({
   action,
   members,
   allowMessageCondition,
+  allowReplyCondition,
   onChange,
 }: {
   action: Extract<Action, { type: "condition" }>;
   members: Member[];
   allowMessageCondition: boolean;
+  allowReplyCondition: boolean;
   onChange: (next: Action) => void;
 }) {
   return (
@@ -804,6 +860,7 @@ function ConditionEditor({
           key={ci}
           condition={c}
           allowMessageCondition={allowMessageCondition}
+          allowReplyCondition={allowReplyCondition}
           onChange={(nc) => {
             const arr = [...action.conditions];
             arr[ci] = nc;
@@ -846,11 +903,13 @@ function ConditionEditor({
 function ConditionRow({
   condition,
   allowMessageCondition,
+  allowReplyCondition,
   onChange,
   onRemove,
 }: {
   condition: AutomationCondition;
   allowMessageCondition: boolean;
+  allowReplyCondition: boolean;
   onChange: (next: AutomationCondition) => void;
   onRemove: () => void;
 }) {
@@ -861,14 +920,21 @@ function ConditionRow({
           { v: "has", label: "has tag" },
           { v: "not_has", label: "doesn't have tag" },
         ] as const)
-      : ([
-          { v: "contains", label: "message contains" },
-          { v: "not_contains", label: "message doesn't contain" },
-        ] as const);
-  // Only offer the Message field on triggers that carry message text (keyword
-  // triggers); otherwise it would silently always take one branch. Keep it
-  // selectable if an existing condition already uses it.
+      : condition.field === "reply"
+        ? ([
+            { v: "received", label: "customer replied" },
+            { v: "timed_out", label: "no reply (timed out)" },
+          ] as const)
+        : ([
+            { v: "contains", label: "message contains" },
+            { v: "not_contains", label: "message doesn't contain" },
+          ] as const);
+  // Only offer Message on triggers that carry text (or a wait_for_reply flow);
+  // only offer Reply when a wait_for_reply precedes it. Keep an existing
+  // selection visible either way.
   const showMessage = allowMessageCondition || condition.field === "message";
+  const showReply = allowReplyCondition || condition.field === "reply";
+  const showValue = condition.field !== "reply"; // reply ops carry no value
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <select
@@ -878,8 +944,10 @@ function ConditionRow({
           // Reset op to the first valid one for the new field.
           onChange(
             field === "tag"
-              ? { field: "tag", op: "has", value: condition.value }
-              : { field: "message", op: "contains", value: condition.value },
+              ? { field: "tag", op: "has", value: condition.value ?? "" }
+              : field === "reply"
+                ? { field: "reply", op: "received" }
+                : { field: "message", op: "contains", value: condition.value ?? "" },
           );
         }}
         className="h-7 rounded-md border border-white/10 bg-white/5 px-1.5 text-[11px] text-white"
@@ -887,6 +955,9 @@ function ConditionRow({
         <option value="tag" className="bg-zinc-900">Tag</option>
         {showMessage && (
           <option value="message" className="bg-zinc-900">Message</option>
+        )}
+        {showReply && (
+          <option value="reply" className="bg-zinc-900">Reply</option>
         )}
       </select>
       <select
@@ -902,12 +973,14 @@ function ConditionRow({
           </option>
         ))}
       </select>
-      <Input
-        value={condition.value}
-        onChange={(e) => onChange({ ...condition, value: e.target.value })}
-        placeholder={condition.field === "tag" ? "vip" : "price"}
-        className="h-7 flex-1 text-[11px]"
-      />
+      {showValue && (
+        <Input
+          value={condition.value ?? ""}
+          onChange={(e) => onChange({ ...condition, value: e.target.value })}
+          placeholder={condition.field === "tag" ? "vip" : "price"}
+          className="h-7 flex-1 text-[11px]"
+        />
+      )}
       <button
         type="button"
         onClick={onRemove}

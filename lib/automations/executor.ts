@@ -55,6 +55,11 @@ type ActionCtx = {
 // chains, so a chatty contact re-firing a keyword automation with a wait can't
 // accumulate unbounded delayed sends.
 const MAX_INFLIGHT_PER_CONTACT = 3;
+// Default deadline for a wait_for_reply: if the contact doesn't reply within
+// this window, the timer runner resumes the flow on the no-reply path.
+const DEFAULT_REPLY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+// Retry cap for resumed chains (mirrors the runner's MAX_ATTEMPTS).
+const MAX_RESUME_ATTEMPTS = 5;
 
 function computeStatus(
   steps: ExecResult["steps"],
@@ -155,10 +160,19 @@ async function execLeafAction(
       return { ok: true, conversationId: convId };
     }
     case "webhook": {
+      // Idempotency on resumed/retried chains: skip if this exact step already
+      // fired (tracked in trigger_data, mirroring the send_dm sched_step skip),
+      // and send an Idempotency-Key so the receiver can dedupe too.
+      const fired =
+        (ctx.triggerData?._fired_webhooks as string[] | undefined) ?? [];
+      if (stampKey && fired.includes(stampKey)) {
+        return { ok: true, conversationId };
+      }
       const res = await fetch(action.url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(stampKey ? { "Idempotency-Key": stampKey } : {}),
           ...(action.secret ? { Authorization: `Bearer ${action.secret}` } : {}),
         },
         body: JSON.stringify({
@@ -179,6 +193,15 @@ async function execLeafAction(
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}`, conversationId };
+      }
+      // Record the fire so a retry of this resumed chain doesn't re-POST it.
+      if (stampKey && ctx.scheduledActionId) {
+        const merged = { ...(ctx.triggerData ?? {}), _fired_webhooks: [...fired, stampKey] };
+        ctx.triggerData = merged;
+        await admin
+          .from("automation_scheduled_actions")
+          .update({ trigger_data: merged })
+          .eq("id", ctx.scheduledActionId);
       }
       return { ok: true, conversationId };
     }
@@ -257,6 +280,60 @@ async function runActionList(
         return { steps, firstFailure, conversationId, scheduled: true };
       }
 
+      if (action.type === "wait_for_reply") {
+        // Need a conversation to listen for the reply on.
+        if (!conversationId) {
+          conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+        }
+        if (!conversationId) {
+          steps.push({ type: action.type, ok: false, error: "No conversation to await a reply on" });
+          firstFailure ??= "No conversation";
+          return { steps, firstFailure, conversationId, scheduled: false };
+        }
+        const remaining = actions.slice(i + 1);
+        if (remaining.length === 0) {
+          // Nothing after the wait → pointless; treat as a no-op.
+          steps.push({ type: action.type, ok: true });
+          continue;
+        }
+        const { count: inflight } = await admin
+          .from("automation_scheduled_actions")
+          .select("id", { count: "exact", head: true })
+          .eq("automation_id", automation.id)
+          .eq("contact_id", contact.id)
+          .in("status", ["pending", "processing"]);
+        if ((inflight ?? 0) >= MAX_INFLIGHT_PER_CONTACT) {
+          steps.push({ type: action.type, ok: false, error: "too many in-flight waits for this contact; skipped" });
+          firstFailure ??= "in-flight wait cap reached";
+          return { steps, firstFailure, conversationId, scheduled: false };
+        }
+        // run_at is the TIMEOUT deadline; an inbound resumes it earlier.
+        const timeoutMs =
+          typeof action.timeout_ms === "number" && action.timeout_ms > 0
+            ? Math.min(action.timeout_ms, MAX_WAIT_MS)
+            : DEFAULT_REPLY_TIMEOUT_MS;
+        const runAt = new Date(Date.now() + timeoutMs).toISOString();
+        const { error } = await admin.from("automation_scheduled_actions").insert({
+          automation_id: automation.id,
+          org_id: automation.org_id,
+          contact_id: contact.id,
+          channel_id: channel.id,
+          conversation_id: conversationId,
+          remaining_actions: remaining,
+          trigger_data: ctx.triggerData ?? {},
+          run_at: runAt,
+          status: "pending",
+          resume_on: "reply",
+        });
+        if (error) {
+          steps.push({ type: action.type, ok: false, error: error.message });
+          firstFailure ??= error.message;
+          return { steps, firstFailure, conversationId, scheduled: false };
+        }
+        steps.push({ type: action.type, ok: true });
+        return { steps, firstFailure, conversationId, scheduled: true };
+      }
+
       if (action.type === "condition") {
         // STICKY branch choice: on a resumed/retried row, replay the branch we
         // picked the first time. Otherwise a branch leaf that mutated a tag the
@@ -279,7 +356,14 @@ async function runActionList(
             typeof ctx.triggerData?.message_text === "string"
               ? (ctx.triggerData.message_text as string)
               : "";
-          branchName = evaluateConditions(action.conditions, action.match, { tags, messageText })
+          const repliedByReply = ctx.triggerData?._resumed_by === "reply";
+          const replyTimedOut = ctx.triggerData?._reply_timed_out === true;
+          branchName = evaluateConditions(action.conditions, action.match, {
+            tags,
+            messageText,
+            repliedByReply,
+            replyTimedOut,
+          })
             ? "then"
             : "else";
           // Persist the decision so a retry of this scheduled row can't flip it.
@@ -412,6 +496,7 @@ export async function resumeAutomation(row: {
   conversation_id: string | null;
   remaining_actions: Action[];
   trigger_data: Record<string, unknown> | null;
+  resume_on?: string;
 }): Promise<ExecResult> {
   const admin = createAdminClient();
 
@@ -448,11 +533,33 @@ export async function resumeAutomation(row: {
     return { status: "failed", steps: [], error_message: "Cross-org execution refused" };
   }
 
+  // Effective trigger data. A reply-wait row that the TIMER fired (no inbound
+  // arrived in time) is a TIMEOUT — flag it so the flow can take a no-reply
+  // path. A reply-RESUME (resumeWaitingReplies) already stamped message_text +
+  // _resumed_by='reply' into trigger_data at claim time.
+  let triggerData = row.trigger_data ?? {};
+  if (
+    row.resume_on === "reply" &&
+    (triggerData as Record<string, unknown>)._resumed_by !== "reply"
+  ) {
+    // Clear any stale trigger message_text (e.g. the original keyword) so the
+    // no-reply path isn't tricked into a message-match, mark timed-out, and
+    // record that the timeout took over.
+    triggerData = { ...triggerData, _reply_timed_out: true, _resumed_by: "timeout", message_text: "" };
+    // Durably take the row OFF the reply path so a late inbound can't re-claim
+    // it after a failed timeout-resume returns it to pending. resumeWaitingReplies
+    // filters resume_on='reply'; flipping to 'timer' makes it invisible there.
+    await admin
+      .from("automation_scheduled_actions")
+      .update({ resume_on: "timer", trigger_data: triggerData })
+      .eq("id", row.scheduled_action_id);
+  }
+
   const r = await runActionList(admin, row.remaining_actions ?? [], {
     automation: automation as AutomationRow,
     contact: contact as ExecContact,
     channel: channel as ExecChannel,
-    triggerData: row.trigger_data ?? {},
+    triggerData,
     conversationId: row.conversation_id ?? null,
     scheduledActionId: row.scheduled_action_id,
   });
@@ -478,6 +585,86 @@ export async function resumeAutomation(row: {
   });
 
   return { status, steps: r.steps, error_message: r.firstFailure };
+}
+
+// Resume any automations parked waiting for THIS contact's reply on THIS
+// conversation. Called once per inbound from the webhook handlers. Stamps the
+// reply text into the row (message_text + _resumed_by) at claim time so the
+// resumed flow — and any retry — branches on the reply. Fire-and-forget.
+export async function resumeWaitingReplies(
+  conversationId: string,
+  replyText: string,
+): Promise<void> {
+  if (!conversationId) return;
+  const admin = createAdminClient();
+  const { data: rows } = await admin
+    .from("automation_scheduled_actions")
+    .select(
+      "id, automation_id, org_id, contact_id, channel_id, conversation_id, remaining_actions, trigger_data, resume_on, attempts",
+    )
+    .eq("conversation_id", conversationId)
+    .eq("resume_on", "reply")
+    .eq("status", "pending")
+    // Only rows whose timeout deadline hasn't passed — never reply-claim an
+    // already-elapsed row (the timer owns it on the no-reply path).
+    .gt("run_at", new Date().toISOString())
+    .limit(20);
+
+  for (const row of rows ?? []) {
+    // Atomic claim — stamp the reply in the SAME update so a retry (and the
+    // sticky condition logic) sees it, and only one claimer wins vs the timer.
+    const mergedTd = {
+      ...((row.trigger_data ?? {}) as Record<string, unknown>),
+      message_text: replyText,
+      _resumed_by: "reply",
+    };
+    const { data: claimed } = await admin
+      .from("automation_scheduled_actions")
+      .update({ status: "processing", trigger_data: mergedTd, updated_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue; // the timer (timeout) or another inbound won the claim
+
+    const attempts = row.attempts + 1;
+    try {
+      const result = await resumeAutomation({
+        scheduled_action_id: row.id,
+        automation_id: row.automation_id,
+        org_id: row.org_id,
+        contact_id: row.contact_id,
+        channel_id: row.channel_id,
+        conversation_id: row.conversation_id,
+        remaining_actions: (row.remaining_actions ?? []) as Action[],
+        trigger_data: mergedTd,
+        resume_on: "reply",
+      });
+      // On failure, retry via the timer: back to pending + run_at=now so the
+      // per-minute runner re-runs it soon. _resumed_by='reply' is persisted, so
+      // the retry stays on the reply path (not treated as a timeout).
+      const failed = result.status === "failed";
+      await admin
+        .from("automation_scheduled_actions")
+        .update(
+          failed && attempts < MAX_RESUME_ATTEMPTS
+            ? { status: "pending", run_at: new Date().toISOString(), last_error: result.error_message, attempts, updated_at: new Date().toISOString() }
+            : { status: failed ? "failed" : "done", last_error: result.error_message, attempts, updated_at: new Date().toISOString() },
+        )
+        .eq("id", row.id);
+    } catch (err) {
+      await admin
+        .from("automation_scheduled_actions")
+        .update({
+          status: attempts >= MAX_RESUME_ATTEMPTS ? "failed" : "pending",
+          run_at: new Date().toISOString(),
+          last_error: err instanceof Error ? err.message : "resume error",
+          attempts,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+    }
+  }
 }
 
 // =====================================================================

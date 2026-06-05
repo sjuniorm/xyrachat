@@ -6,6 +6,7 @@ import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { resumeWaitingReplies } from "@/lib/automations/executor";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 
@@ -543,6 +544,12 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
       media_url: extracted.media_url,
       messageId: insertedId,
     },
+  });
+
+  // Resume any automation parked on a wait_for_reply for this conversation
+  // (any inbound counts as the reply, media included).
+  void resumeWaitingReplies(conversationId, extracted.content ?? "").catch((err) => {
+    console.error("[ig] resumeWaitingReplies failed", err);
   });
 
   // Automation triggers — fire-and-forget after bot gate so a slow

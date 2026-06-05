@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { resumeWaitingReplies } from "@/lib/automations/executor";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sanitizeEmailHtml } from "@/lib/security/sanitize";
@@ -240,6 +241,11 @@ async function handleInbound(email: ResendInboundEmail) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  // Resume any automation parked on a wait_for_reply for this conversation.
+  void resumeWaitingReplies(conversationId, content ?? "").catch((err) => {
+    console.error("[email] resumeWaitingReplies failed", err);
+  });
 
   // Automation triggers — email_keyword (matches against subject + body)
   // + conversation_opened (one-shot per (automation, contact)).

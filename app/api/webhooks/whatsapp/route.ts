@@ -7,6 +7,7 @@ import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { applyOptOutAction } from "@/lib/contacts/opt-out";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { resumeWaitingReplies } from "@/lib/automations/executor";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 
@@ -491,6 +492,13 @@ async function handleInbound(
         media_url: extracted.media_url,
         messageId: insertedId,
       },
+    });
+
+    // Resume any automation parked on a wait_for_reply for this conversation,
+    // capturing this inbound as the reply. Fire on ANY inbound (incl. media —
+    // a voice note IS a reply; message_text is just empty). Fire-and-forget.
+    void resumeWaitingReplies(conversationId, extracted.content ?? "").catch((err) => {
+      console.error("[wa] resumeWaitingReplies failed", err);
     });
 
     // Automation triggers — wa_keyword + conversation_opened (one-shot
