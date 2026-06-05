@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
-  Camera, AtSign, MessageCircle, Mail, Shuffle,
+  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -56,8 +56,18 @@ const ACTION_OPTIONS: Array<{
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
   { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
+  { type: "wait", label: "Wait / delay", icon: Clock, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
 ];
+
+// Friendly value+unit <-> milliseconds for the wait action editor.
+const WAIT_UNIT_MS = { minutes: 60_000, hours: 3_600_000, days: 86_400_000 } as const;
+type WaitUnit = keyof typeof WAIT_UNIT_MS;
+function msToWait(ms: number): { value: number; unit: WaitUnit } {
+  if (ms > 0 && ms % WAIT_UNIT_MS.days === 0) return { value: ms / WAIT_UNIT_MS.days, unit: "days" };
+  if (ms > 0 && ms % WAIT_UNIT_MS.hours === 0) return { value: ms / WAIT_UNIT_MS.hours, unit: "hours" };
+  return { value: Math.max(1, Math.round((ms || 0) / WAIT_UNIT_MS.minutes)), unit: "minutes" };
+}
 
 export function AutomationBuilder({
   mode,
@@ -140,6 +150,9 @@ export function AutomationBuilder({
         break;
       case "assign_smart":
         fresh = { type, strategy: "round_robin", only_online: true };
+        break;
+      case "wait":
+        fresh = { type, ms: WAIT_UNIT_MS.hours }; // default: 1 hour
         break;
       case "webhook":
         fresh = { type, url: "" };
@@ -571,6 +584,38 @@ function ActionRow({
           </label>
         </div>
       )}
+
+      {action.type === "wait" && (() => {
+        const { value, unit } = msToWait(action.ms);
+        const setWait = (v: number, u: WaitUnit) =>
+          onChange({ type: "wait", ms: Math.max(1, Math.floor(v || 1)) * WAIT_UNIT_MS[u] });
+        return (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min={1}
+                value={value}
+                onChange={(e) => setWait(Number(e.target.value), unit)}
+                className="h-8 w-24 text-xs"
+              />
+              <select
+                value={unit}
+                onChange={(e) => setWait(value, e.target.value as WaitUnit)}
+                className="h-8 rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
+              >
+                <option value="minutes" className="bg-zinc-900">minutes</option>
+                <option value="hours" className="bg-zinc-900">hours</option>
+                <option value="days" className="bg-zinc-900">days</option>
+              </select>
+              <span className="text-[11px] text-white/50">before the next step</span>
+            </div>
+            <p className="text-[10px] text-white/40">
+              Steps after this run later (max 30 days). Processed every minute.
+            </p>
+          </div>
+        );
+      })()}
 
       {action.type === "webhook" && (
         <div className="space-y-1.5">

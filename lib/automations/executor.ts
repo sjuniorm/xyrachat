@@ -11,61 +11,81 @@ export type ExecResult = {
 };
 
 const META_GRAPH_VERSION = "v22.0";
+// Wait actions are clamped so a typo can't schedule something absurdly far out.
+const MAX_WAIT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// Run an automation against a contact + optional conversation context.
-//
-// Conversation is optional because some triggers (new follower, comment)
-// might fire before a conversation row exists. The executor lazily
-// creates one when a send_dm step needs to land an outbound message in
-// the inbox.
-export async function executeAutomation(input: {
+type ExecContact = {
+  id: string;
+  org_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  instagram_id: string | null;
+  telegram_id: string | null;
+};
+type ExecChannel = {
+  id: string;
+  type: string;
+  org_id: string;
+  phone_number_id?: string | null;
+  page_id?: string | null;
+  ig_business_account_id?: string | null;
+  access_token_vault_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+type ActionCtx = {
   automation: AutomationRow;
-  contact: {
-    id: string;
-    org_id: string;
-    name: string | null;
-    phone: string | null;
-    email: string | null;
-    instagram_id: string | null;
-    telegram_id: string | null;
-  };
-  channel: {
-    id: string;
-    type: string;
-    org_id: string;
-    phone_number_id?: string | null;
-    page_id?: string | null;
-    ig_business_account_id?: string | null;
-    access_token_vault_id?: string | null;
-    metadata?: Record<string, unknown> | null;
-  };
-  conversationId?: string | null;
+  contact: ExecContact;
+  channel: ExecChannel;
   triggerData?: Record<string, unknown>;
-}): Promise<ExecResult> {
-  const admin = createAdminClient();
-  const { automation, contact, channel } = input;
+  conversationId: string | null;
+  // Set only when RESUMING a scheduled (post-wait) row. Used to make sends
+  // idempotent across reclaim/retry: each send is stamped sched_step =
+  // `${scheduledActionId}:${stepIndex}` and skipped if one already exists.
+  scheduledActionId?: string;
+};
 
-  // Tenant isolation: refuse cross-org execution outright.
-  if (automation.org_id !== contact.org_id || automation.org_id !== channel.org_id) {
-    return {
-      status: "failed",
-      steps: [],
-      error_message: "Cross-org execution refused",
-    };
-  }
+// Per-contact-per-automation cap on outstanding (pending/processing) scheduled
+// chains, so a chatty contact re-firing a keyword automation with a wait can't
+// accumulate unbounded delayed sends.
+const MAX_INFLIGHT_PER_CONTACT = 3;
 
+function computeStatus(
+  steps: ExecResult["steps"],
+  firstFailure: string | null,
+): ExecResult["status"] {
+  if (!firstFailure) return "success";
+  // All steps failed → failed; otherwise a partial success (log shows detail).
+  return steps.every((s) => !s.ok) ? "failed" : "success";
+}
+
+// Runs a list of actions in order against a contact/channel context. On a
+// `wait` action it persists the REMAINING actions to
+// automation_scheduled_actions (with run_at) and STOPS — the per-minute runner
+// resumes them later (which may itself hit the next wait). Returns where it
+// stopped so the caller can log + count.
+async function runActionList(
+  admin: ReturnType<typeof createAdminClient>,
+  actions: Action[],
+  ctx: ActionCtx,
+): Promise<{
+  steps: ExecResult["steps"];
+  firstFailure: string | null;
+  conversationId: string | null;
+  scheduled: boolean;
+}> {
+  const { automation, contact, channel } = ctx;
   const steps: ExecResult["steps"] = [];
-  let conversationId = input.conversationId ?? null;
+  let conversationId = ctx.conversationId;
   let firstFailure: string | null = null;
 
-  for (const action of automation.actions ?? []) {
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i];
     try {
       switch (action.type) {
         case "send_dm": {
           // Lazily create / find a conversation so the bot DM appears in
-          // the inbox like any agent message would. WhatsApp triggers
-          // generally already have a conversation_id from the webhook
-          // caller; IG triggers (comment / follow) may not.
+          // the inbox like any agent message would.
           if (!conversationId) {
             conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
           }
@@ -74,12 +94,29 @@ export async function executeAutomation(input: {
             firstFailure ??= "No conversation";
             break;
           }
-          const rendered = renderTemplate(action.text, contact, input.triggerData as Record<string, string | null | undefined>);
+          // Idempotency for resumed/retried rows: skip if this exact step
+          // already produced an outbound (a prior attempt or a reclaim re-run).
+          const stamp = ctx.scheduledActionId ? `${ctx.scheduledActionId}:${i}` : null;
+          if (stamp) {
+            const { data: already } = await admin
+              .from("messages")
+              .select("id")
+              .eq("conversation_id", conversationId)
+              .eq("metadata->>sched_step", stamp)
+              .limit(1)
+              .maybeSingle();
+            if (already) {
+              steps.push({ type: action.type, ok: true });
+              break;
+            }
+          }
+          const rendered = renderTemplate(action.text, contact, ctx.triggerData as Record<string, string | null | undefined>);
           const send = await sendChannelMessage({
             channel,
             recipient: pickRecipient(channel.type, contact),
             content: rendered,
             conversationId,
+            extraMetadata: stamp ? { sched_step: stamp } : undefined,
           });
           if (!send.ok) {
             steps.push({ type: action.type, ok: false, error: send.error ?? "send failed" });
@@ -96,8 +133,6 @@ export async function executeAutomation(input: {
             firstFailure ??= "Empty tag";
             break;
           }
-          // Append-only if not already present. Postgres array_append
-          // would duplicate; we read + dedupe + write.
           const { data: row } = await admin
             .from("contacts")
             .select("tags")
@@ -154,8 +189,6 @@ export async function executeAutomation(input: {
             .from("conversations")
             .update({ assigned_to: picked })
             .eq("id", conversationId);
-          // Persist round-robin cursor on the automation row so the
-          // next fire picks the agent AFTER this one.
           if (action.strategy === "round_robin") {
             await admin
               .from("automations")
@@ -166,8 +199,6 @@ export async function executeAutomation(input: {
           break;
         }
         case "webhook": {
-          // POST a JSON payload to the configured URL. Optional bearer
-          // token via `secret` (caller-supplied, stored on the row).
           const res = await fetch(action.url, {
             method: "POST",
             headers: {
@@ -185,20 +216,13 @@ export async function executeAutomation(input: {
                 instagram_id: contact.instagram_id,
                 telegram_id: contact.telegram_id,
               },
-              trigger: {
-                type: automation.trigger_type,
-                data: input.triggerData ?? {},
-              },
+              trigger: { type: automation.trigger_type, data: ctx.triggerData ?? {} },
               fired_at: new Date().toISOString(),
             }),
           });
           if (!res.ok) {
             const text = await res.text().catch(() => "");
-            steps.push({
-              type: action.type,
-              ok: false,
-              error: `HTTP ${res.status}: ${text.slice(0, 200)}`,
-            });
+            steps.push({ type: action.type, ok: false, error: `HTTP ${res.status}: ${text.slice(0, 200)}` });
             firstFailure ??= `Webhook ${res.status}`;
           } else {
             steps.push({ type: action.type, ok: true });
@@ -206,17 +230,54 @@ export async function executeAutomation(input: {
           break;
         }
         case "add_to_sequence":
-          // Placeholder — sequence runner doesn't exist yet. Mark
-          // skipped so the analytics row reflects it accurately.
           steps.push({ type: action.type, ok: false, error: "sequences not built yet" });
           break;
-        case "wait":
-          // Deferred. We'd need a delayed_actions table + a runner
-          // (pg_cron or Vercel cron). For now we log-and-skip so the
-          // user can author flows with wait nodes even though they
-          // process immediately.
-          steps.push({ type: action.type, ok: false, error: "wait deferred — fires immediately" });
-          break;
+        case "wait": {
+          const ms = typeof action.ms === "number" && action.ms > 0 ? action.ms : 0;
+          const remaining = actions.slice(i + 1);
+          // A zero/negative wait, or a wait with nothing after it, is a no-op —
+          // keep running (don't schedule an empty resume).
+          if (ms <= 0 || remaining.length === 0) {
+            steps.push({ type: action.type, ok: true });
+            break;
+          }
+          // Cap outstanding chains per (automation, contact) so a re-firing
+          // keyword automation can't accumulate unbounded delayed sends.
+          const { count: inflight } = await admin
+            .from("automation_scheduled_actions")
+            .select("id", { count: "exact", head: true })
+            .eq("automation_id", automation.id)
+            .eq("contact_id", contact.id)
+            .in("status", ["pending", "processing"]);
+          if ((inflight ?? 0) >= MAX_INFLIGHT_PER_CONTACT) {
+            steps.push({ type: action.type, ok: false, error: "too many in-flight waits for this contact; skipped" });
+            firstFailure ??= "in-flight wait cap reached";
+            // Stop — do NOT fire the tail inline (that would defeat the delay).
+            return { steps, firstFailure, conversationId, scheduled: false };
+          }
+          const runAt = new Date(Date.now() + Math.min(ms, MAX_WAIT_MS)).toISOString();
+          const { error } = await admin.from("automation_scheduled_actions").insert({
+            automation_id: automation.id,
+            org_id: automation.org_id,
+            contact_id: contact.id,
+            channel_id: channel.id,
+            conversation_id: conversationId,
+            remaining_actions: remaining,
+            trigger_data: ctx.triggerData ?? {},
+            run_at: runAt,
+            status: "pending",
+          });
+          if (error) {
+            // Scheduling failed — STOP rather than firing the post-wait tail
+            // immediately (which would silently ignore the delay).
+            steps.push({ type: action.type, ok: false, error: error.message });
+            firstFailure ??= error.message;
+            return { steps, firstFailure, conversationId, scheduled: false };
+          }
+          steps.push({ type: action.type, ok: true });
+          // Stop here; the remaining actions run when the schedule fires.
+          return { steps, firstFailure, conversationId, scheduled: true };
+        }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -225,23 +286,49 @@ export async function executeAutomation(input: {
     }
   }
 
-  const status: ExecResult["status"] = firstFailure
-    ? steps.every((s) => !s.ok)
-      ? "failed"
-      : "success" // partial success — log the steps array for the detail page
-    : "success";
+  return { steps, firstFailure, conversationId, scheduled: false };
+}
 
-  // Maintain run + outcome counters on the automation row + write the
-  // detailed log row. We use the admin client so RLS doesn't fight us
-  // — RLS gates SELECT for org members; writes are server-only.
+// Run an automation against a contact + optional conversation context.
+//
+// Conversation is optional because some triggers (new follower, comment)
+// might fire before a conversation row exists. The executor lazily
+// creates one when a send_dm step needs to land an outbound message in
+// the inbox.
+export async function executeAutomation(input: {
+  automation: AutomationRow;
+  contact: ExecContact;
+  channel: ExecChannel;
+  conversationId?: string | null;
+  triggerData?: Record<string, unknown>;
+}): Promise<ExecResult> {
+  const admin = createAdminClient();
+  const { automation, contact, channel } = input;
+
+  // Tenant isolation: refuse cross-org execution outright.
+  if (automation.org_id !== contact.org_id || automation.org_id !== channel.org_id) {
+    return { status: "failed", steps: [], error_message: "Cross-org execution refused" };
+  }
+
+  const r = await runActionList(admin, automation.actions ?? [], {
+    automation,
+    contact,
+    channel,
+    triggerData: input.triggerData,
+    conversationId: input.conversationId ?? null,
+  });
+  const status = computeStatus(r.steps, r.firstFailure);
+
+  // Log + counters for the INITIAL fire (run_count = number of triggers; a
+  // later resume doesn't bump it).
   await admin.from("automation_logs").insert({
     automation_id: automation.id,
     contact_id: contact.id,
-    conversation_id: conversationId,
+    conversation_id: r.conversationId,
     trigger_data: input.triggerData ?? {},
-    steps,
+    steps: r.steps,
     status,
-    error_message: firstFailure,
+    error_message: r.firstFailure,
   });
   await admin
     .from("automations")
@@ -253,7 +340,88 @@ export async function executeAutomation(input: {
     })
     .eq("id", automation.id);
 
-  return { status, steps, error_message: firstFailure };
+  return { status, steps: r.steps, error_message: r.firstFailure };
+}
+
+// Resume a scheduled (post-wait) action list. Called by the per-minute runner
+// at /api/internal/automation-runner. Re-fetches everything fresh (so a paused
+// flow respects edits + a deleted/deactivated automation) and re-runs the
+// remaining actions — which may schedule the NEXT wait.
+export async function resumeAutomation(row: {
+  scheduled_action_id: string;
+  automation_id: string;
+  org_id: string;
+  contact_id: string;
+  channel_id: string;
+  conversation_id: string | null;
+  remaining_actions: Action[];
+  trigger_data: Record<string, unknown> | null;
+}): Promise<ExecResult> {
+  const admin = createAdminClient();
+
+  const { data: automation } = await admin
+    .from("automations")
+    .select("*")
+    .eq("id", row.automation_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!automation || !automation.active) {
+    return { status: "skipped", steps: [], error_message: "automation inactive or deleted" };
+  }
+  const [{ data: contact }, { data: channel }] = await Promise.all([
+    admin
+      .from("contacts")
+      .select("id, org_id, name, phone, email, instagram_id, telegram_id")
+      .eq("id", row.contact_id)
+      .maybeSingle(),
+    admin
+      .from("channels")
+      .select("id, type, org_id, phone_number_id, page_id, ig_business_account_id, access_token_vault_id, metadata")
+      .eq("id", row.channel_id)
+      .maybeSingle(),
+  ]);
+  if (!contact || !channel) {
+    return { status: "failed", steps: [], error_message: "contact or channel missing" };
+  }
+  // Tenant isolation: every party must share the scheduled row's org.
+  if (
+    automation.org_id !== row.org_id ||
+    contact.org_id !== row.org_id ||
+    channel.org_id !== row.org_id
+  ) {
+    return { status: "failed", steps: [], error_message: "Cross-org execution refused" };
+  }
+
+  const r = await runActionList(admin, row.remaining_actions ?? [], {
+    automation: automation as AutomationRow,
+    contact: contact as ExecContact,
+    channel: channel as ExecChannel,
+    triggerData: row.trigger_data ?? {},
+    conversationId: row.conversation_id ?? null,
+    scheduledActionId: row.scheduled_action_id,
+  });
+  const status = computeStatus(r.steps, r.firstFailure);
+
+  // Continuation log row (so the detail page shows the resumed steps). We do
+  // NOT bump run_count (same trigger), but DO record a failure so the
+  // success/failure ratio still reflects resume failures.
+  await admin.from("automation_logs").insert({
+    automation_id: automation.id,
+    contact_id: contact.id,
+    conversation_id: r.conversationId,
+    trigger_data: row.trigger_data ?? {},
+    steps: r.steps,
+    status,
+    error_message: r.firstFailure,
+  });
+  if (status === "failed") {
+    await admin
+      .from("automations")
+      .update({ failure_count: (automation.failure_count ?? 0) + 1 })
+      .eq("id", automation.id);
+  }
+
+  return { status, steps: r.steps, error_message: r.firstFailure };
 }
 
 // =====================================================================
@@ -274,8 +442,10 @@ async function sendChannelMessage(input: {
   recipient: string;
   content: string;
   conversationId: string;
+  extraMetadata?: Record<string, unknown>;
 }): Promise<{ ok: boolean; error?: string }> {
   const { channel, recipient, content, conversationId } = input;
+  const msgMetadata = { automation: true, ...(input.extraMetadata ?? {}) };
   if (!recipient) return { ok: false, error: "Contact has no handle for this channel" };
   if (!channel.access_token_vault_id) return { ok: false, error: "Channel token missing" };
   const token = await vaultReadSecret(channel.access_token_vault_id);
@@ -317,7 +487,7 @@ async function sendChannelMessage(input: {
       sender_type: "bot",
       status: "sent",
       wa_message_id: json?.messages?.[0]?.id ?? null,
-      metadata: { automation: true },
+      metadata: msgMetadata,
     });
     await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
     return { ok: true };
@@ -358,7 +528,7 @@ async function sendChannelMessage(input: {
       sender_type: "bot",
       status: "sent",
       ig_message_id: json?.message_id ?? null,
-      metadata: { automation: true },
+      metadata: msgMetadata,
     });
     await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
     return { ok: true };
@@ -387,7 +557,7 @@ async function sendChannelMessage(input: {
       sender_type: "bot",
       status: "sent",
       telegram_message_id: tgKey,
-      metadata: { automation: true },
+      metadata: msgMetadata,
     });
     await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
     return { ok: true };
