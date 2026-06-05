@@ -53,12 +53,14 @@ const KIND_ICON: Record<string, typeof Zap> = {
 };
 
 function FlowNodeCard({ data }: NodeProps) {
-  const d = data as FlowNodeData;
+  const d = data as FlowNodeData & { selected?: boolean };
   const tone = TONE[d.tone] ?? TONE.neutral;
   const Icon = KIND_ICON[d.kind] ?? tone.icon;
   return (
     <div
-      className={`w-[200px] rounded-xl bg-card/90 px-3 py-2.5 text-left shadow-lg ring-1 ${tone.ring}`}
+      className={`w-[200px] rounded-xl bg-card/90 px-3 py-2.5 text-left shadow-lg ${
+        d.selected ? "ring-2 ring-[color:var(--xyra-glow)]" : `ring-1 ${tone.ring}`
+      }`}
     >
       <Handle type="target" position={Position.Top} className="!bg-white/30" />
       <div className="flex items-center gap-2">
@@ -79,17 +81,34 @@ function FlowNodeCard({ data }: NodeProps) {
 
 const nodeTypes = { flowNode: FlowNodeCard };
 
+// Maps a flow node id back to its top-level action index (branch-leaf nodes
+// resolve to their parent condition). Returns null for the trigger.
+function actionIndexOf(id: string): number | null {
+  const m = id.match(/^a(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
 export function FlowCanvas({
   triggerLabel,
   actions,
+  onSelect,
+  selectedActionIndex,
+  className,
 }: {
   triggerLabel: string;
   actions: Action[];
+  // When provided, nodes become clickable to select the corresponding step.
+  onSelect?: (actionIndex: number | null) => void;
+  selectedActionIndex?: number | null;
+  className?: string;
 }) {
   const { nodes, edges } = useMemo(() => {
     const f = buildFlow(triggerLabel, actions);
     return {
-      nodes: f.nodes as unknown as Node[],
+      nodes: f.nodes.map((n) => ({
+        ...n,
+        data: { ...n.data, selected: actionIndexOf(n.id) === selectedActionIndex },
+      })) as unknown as Node[],
       edges: f.edges.map((e) => ({
         ...e,
         animated: true,
@@ -98,10 +117,15 @@ export function FlowCanvas({
         labelBgStyle: { fill: "rgba(20,10,30,0.9)" },
       })) as unknown as Edge[],
     };
-  }, [triggerLabel, actions]);
+  }, [triggerLabel, actions, selectedActionIndex]);
 
   return (
-    <div className="h-[460px] w-full overflow-hidden rounded-lg border border-white/10 bg-[color:var(--xyra-bg)]">
+    <div
+      className={
+        className ??
+        "h-[460px] w-full overflow-hidden rounded-lg border border-white/10 bg-[color:var(--xyra-bg)]"
+      }
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -110,7 +134,8 @@ export function FlowCanvas({
         fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={false}
         nodesConnectable={false}
-        elementsSelectable={false}
+        elementsSelectable={!!onSelect}
+        onNodeClick={onSelect ? (_, node) => onSelect(actionIndexOf(node.id)) : undefined}
         proOptions={{ hideAttribution: false }}
         minZoom={0.2}
       >

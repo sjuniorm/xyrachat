@@ -26,6 +26,7 @@ import {
   type TriggerConfig,
   type TriggerType,
 } from "@/lib/automations/types";
+import { FlowCanvas } from "@/components/automations/flow-canvas";
 
 type Channel = { id: string; name: string; type: string };
 type Member = { id: string; name: string };
@@ -150,6 +151,10 @@ export function AutomationBuilder({
       { type: "send_dm", text: "Hi {{first_name}}, thanks for reaching out!" },
     ],
   );
+  // Builder view: the linear list, or the visual flow canvas (click a node to
+  // edit that step). Both edit the same `actions` state + Save path.
+  const [view, setView] = useState<"linear" | "flow">("linear");
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   const triggerConfig: TriggerConfig = useMemo(() => {
     const cfg: TriggerConfig = {};
@@ -165,6 +170,56 @@ export function AutomationBuilder({
     }
     return cfg;
   }, [triggerMeta, keywordsInput, matchMode, triggerType, postId]);
+
+  const flowTriggerLabel = useMemo(() => {
+    const kw = triggerConfig.keywords ?? [];
+    const base = triggerType.replace(/_/g, " ");
+    return kw.length ? `${base}: ${kw.join(", ")}` : base;
+  }, [triggerConfig, triggerType]);
+
+  const allowMessageCondition =
+    (triggerMeta?.needsKeywords ?? false) ||
+    actions.some((x) => x.type === "wait_for_reply");
+  const allowReplyCondition = actions.some((x) => x.type === "wait_for_reply");
+
+  // One ActionRow, reused by the linear list AND the flow view's edit panel.
+  const renderActionRow = (a: Action, i: number) => (
+    <ActionRow
+      key={i}
+      index={i}
+      action={a}
+      members={members}
+      allowMessageCondition={allowMessageCondition}
+      allowReplyCondition={allowReplyCondition}
+      onChange={(next) => {
+        const arr = [...actions];
+        arr[i] = next;
+        setActions(arr);
+      }}
+      onRemove={() => {
+        setActions((cur) => cur.filter((_, j) => j !== i));
+        setSelectedIdx(null);
+      }}
+      onMoveUp={
+        i > 0
+          ? () => {
+              const arr = [...actions];
+              [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+              setActions(arr);
+            }
+          : undefined
+      }
+      onMoveDown={
+        i < actions.length - 1
+          ? () => {
+              const arr = [...actions];
+              [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+              setActions(arr);
+            }
+          : undefined
+      }
+    />
+  );
 
   function addAction(type: Action["type"]) {
     let fresh: Action;
@@ -411,8 +466,24 @@ export function AutomationBuilder({
 
       {/* Actions */}
       <Card className="border-white/10 bg-card/60">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Actions</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base">Actions</CardTitle>
+            <div className="flex rounded-md border border-white/10 bg-white/5 p-0.5 text-[11px]">
+              {(["linear", "flow"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`rounded px-2 py-0.5 ${
+                    view === v ? "bg-white/15 text-white" : "text-white/55 hover:text-white"
+                  }`}
+                >
+                  {v === "linear" ? "List" : "Flow"}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {ACTION_OPTIONS.filter((o) => o.available).map((o) => {
               const Icon = o.icon;
@@ -422,7 +493,10 @@ export function AutomationBuilder({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => addAction(o.type)}
+                  onClick={() => {
+                    setSelectedIdx(actions.length); // select the newly-added step
+                    addAction(o.type);
+                  }}
                   className="h-7 gap-1.5 border-white/10 bg-white/5 px-2 text-[11px] hover:bg-white/10"
                 >
                   <Icon className="size-3" />
@@ -436,47 +510,30 @@ export function AutomationBuilder({
           {actions.length === 0 && (
             <p className="text-xs text-white/50">No actions yet. Add one above.</p>
           )}
-          {actions.map((a, i) => (
-            <ActionRow
-              key={i}
-              index={i}
-              action={a}
-              members={members}
-              allowMessageCondition={
-                (triggerMeta?.needsKeywords ?? false) ||
-                actions.some((x) => x.type === "wait_for_reply")
-              }
-              allowReplyCondition={actions.some((x) => x.type === "wait_for_reply")}
-              onChange={(next) => {
-                const arr = [...actions];
-                arr[i] = next;
-                setActions(arr);
-              }}
-              onRemove={() => setActions((cur) => cur.filter((_, j) => j !== i))}
-              onMoveUp={
-                i > 0
-                  ? () => {
-                      const arr = [...actions];
-                      const t = arr[i - 1];
-                      arr[i - 1] = arr[i];
-                      arr[i] = t;
-                      setActions(arr);
-                    }
-                  : undefined
-              }
-              onMoveDown={
-                i < actions.length - 1
-                  ? () => {
-                      const arr = [...actions];
-                      const t = arr[i + 1];
-                      arr[i + 1] = arr[i];
-                      arr[i] = t;
-                      setActions(arr);
-                    }
-                  : undefined
-              }
-            />
-          ))}
+          {view === "linear" ? (
+            actions.map((a, i) => renderActionRow(a, i))
+          ) : (
+            <div className="space-y-3">
+              <FlowCanvas
+                triggerLabel={flowTriggerLabel}
+                actions={actions}
+                onSelect={setSelectedIdx}
+                selectedActionIndex={selectedIdx}
+              />
+              {selectedIdx != null && actions[selectedIdx] ? (
+                <div>
+                  <p className="mb-1.5 text-[11px] text-white/50">
+                    Editing step {selectedIdx + 1}
+                  </p>
+                  {renderActionRow(actions[selectedIdx], selectedIdx)}
+                </div>
+              ) : (
+                <p className="text-xs text-white/50">
+                  Click a step in the flow to edit it, or add one above.
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
