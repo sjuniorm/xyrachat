@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import type { Action, AutomationRow, TriggerType } from "@/lib/automations/types";
 import { AutomationBuilder } from "../automation-builder";
+import { FlowCanvas } from "@/components/automations/flow-canvas";
 import { ActiveSwitch } from "./active-switch";
 import { DeleteButton } from "./delete-button";
 import { TriggerLabel } from "../trigger-label";
@@ -100,6 +101,27 @@ export default async function AutomationDetailPage({
           <StatTile icon={CheckCircle2} label="Successes" value={automation.success_count} tone="ok" />
           <StatTile icon={XCircle} label="Failures" value={automation.failure_count} tone={automation.failure_count > 0 ? "warn" : "neutral"} />
         </div>
+
+        {/* Flow visualization */}
+        <Card className="mb-8 border-white/10 bg-card/60">
+          <CardHeader>
+            <CardTitle className="text-base">Flow</CardTitle>
+            <CardDescription>
+              Visual map of this automation — triggers, branches and waits.
+              Drag-and-drop editing is coming; edit the steps below for now.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FlowCanvas
+              triggerLabel={(() => {
+                const kw = (automation.trigger_config?.keywords ?? []) as string[];
+                const base = automation.trigger_type.replace(/_/g, " ");
+                return kw.length ? `${base}: ${kw.join(", ")}` : base;
+              })()}
+              actions={(automation.actions ?? []) as Action[]}
+            />
+          </CardContent>
+        </Card>
 
         {/* Recent runs */}
         <Card className="mb-8 border-white/10 bg-card/60">
