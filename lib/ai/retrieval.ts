@@ -18,6 +18,9 @@ export async function retrieveContext(
   botId: string,
   limit = 5,
 ): Promise<RetrievalResult> {
+  // OpenAI rejects an empty embedding input with a 400 — bail cleanly so an
+  // image-only / empty-text turn doesn't throw.
+  if (!query.trim()) return { chunks: [], maxSimilarity: 0, embeddingTokens: 0 };
   const openai = getOpenAI();
   const embed = await openai.embeddings.create({
     model: MODELS.embedding,

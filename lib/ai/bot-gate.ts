@@ -325,7 +325,22 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     }
     queryText = transcript.text;
   }
-  if (!queryText) {
+
+  // ---- GATE 6b: inbound image → vision -----------------------------------
+  // When the inbound is an image, fetch + prepare it so the bot can "see" it.
+  // queryText is the caption (may be empty for an image-only message).
+  let inboundImage: { base64: string; mime: string } | null = null;
+  if (input.newMessage.media_type === "image" && input.newMessage.media_url) {
+    const { prepareInboundImage } = await import("@/lib/ai/vision");
+    inboundImage = await prepareInboundImage({
+      channelType: input.channel.type,
+      channelId: input.channel.id,
+      mediaRef: input.newMessage.media_url,
+      admin,
+    });
+  }
+
+  if (!queryText && !inboundImage) {
     return { skipped: true, reason: "no_text_to_respond_to" };
   }
 
@@ -426,6 +441,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
         tools.length > 0
           ? (name, toolInput) => executeTool(name, toolInput, toolCtx)
           : undefined,
+      image: inboundImage ?? undefined,
     });
   } catch (err) {
     console.error("[bot-gate] generateBotResponse threw", err);

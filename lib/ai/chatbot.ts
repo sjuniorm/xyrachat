@@ -75,16 +75,23 @@ export async function generateBotResponse(params: {
   // in test mode so tools don't mutate live data.
   tools?: ToolSpec[];
   executeTool?: (name: string, input: unknown) => Promise<ToolResult>;
+  // When set, the inbound carried an image — passed to Claude as a vision
+  // content block so the bot can answer about it. `newMessage` is the caption
+  // (may be empty for an image-only message).
+  image?: { base64: string; mime: string };
 }): Promise<BotResult> {
-  const { bot, orgName, recentMessages, newMessage, tools, executeTool } = params;
+  const { bot, orgName, recentMessages, newMessage, tools, executeTool, image } = params;
   const toolsEnabled = Array.isArray(tools) && tools.length > 0;
   const handoffToolEnabled =
     toolsEnabled && tools!.some((t) => t.name === "request_human_handoff");
   const searchToolEnabled =
     toolsEnabled && tools!.some((t) => t.name === "search_knowledge");
 
-  // 1. Retrieve relevant knowledge.
-  const retrieval = await retrieveContext(newMessage, bot.id, 5);
+  // 1. Retrieve relevant knowledge. Skip when there's no query text (e.g. an
+  //    image-only inbound) — embedding an empty string 400s the OpenAI API.
+  const retrieval = newMessage.trim()
+    ? await retrieveContext(newMessage, bot.id, 5)
+    : { chunks: [], maxSimilarity: 0, embeddingTokens: 0 };
 
   // 2. Knowledge-gap handoff. If the bot HAS knowledge but none of it
   //    looks relevant to the question, escalate instead of risking a
@@ -136,15 +143,29 @@ export async function generateBotResponse(params: {
     }))
     .filter((m) => m.content.length > 0);
 
-  // The new message is appended last. If it's already the final inbound turn,
-  // the caller can omit it — but defensively we still add when missing.
-  const lastInHistory = messages[messages.length - 1];
-  if (
-    !lastInHistory ||
-    lastInHistory.role !== "user" ||
-    lastInHistory.content !== newMessage
-  ) {
-    messages.push({ role: "user", content: newMessage });
+  // The new message is appended last. With an image, always push a content-
+  // block turn (text + vision block). Without, the string turn, deduped if the
+  // caller already included it as the final inbound.
+  if (image) {
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: newMessage || "Please look at the attached image and respond." },
+        {
+          type: "image",
+          source: { type: "base64", media_type: image.mime, data: image.base64 },
+        },
+      ] as Anthropic.ContentBlockParam[],
+    });
+  } else {
+    const lastInHistory = messages[messages.length - 1];
+    if (
+      !lastInHistory ||
+      lastInHistory.role !== "user" ||
+      lastInHistory.content !== newMessage
+    ) {
+      messages.push({ role: "user", content: newMessage });
+    }
   }
 
   const anthropic = getAnthropic();
