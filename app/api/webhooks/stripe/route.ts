@@ -5,6 +5,7 @@ import { provisionBundle, clearAllBundleEntitlements } from "@/lib/billing/provi
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { submitDisputeEvidence } from "@/lib/billing/dispute-evidence";
+import { sendTrialEndingEmail } from "@/lib/email/send";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,7 @@ export const runtime = "nodejs";
 //   checkout.session.completed         — first-time subscribe
 //   customer.subscription.updated      — plan change / cancel-at-period-end
 //   customer.subscription.deleted      — final cancel
+//   customer.subscription.trial_will_end — reminder email (Stripe-managed trials)
 //   invoice.paid                       — renewal → reset monthly tokens
 //   invoice.payment_failed             — flag past_due
 //
@@ -74,6 +76,9 @@ export async function POST(req: NextRequest) {
         break;
       case "customer.subscription.deleted":
         await onSubscriptionDeleted(event.data.object as Stripe.Subscription);
+        break;
+      case "customer.subscription.trial_will_end":
+        await onTrialWillEnd(event.data.object as Stripe.Subscription);
         break;
       case "invoice.paid":
         await onInvoicePaid(event.data.object as Stripe.Invoice);
@@ -237,6 +242,34 @@ async function onSubscriptionDeleted(subscription: Stripe.Subscription) {
   // Wipe bundle entitlements. Per-org overrides survive — they'll be
   // valid until their own expires_at (if set).
   await clearAllBundleEntitlements(orgId);
+}
+
+// Stripe fires this ~3 days before a Stripe-MANAGED trial converts. App-managed
+// trials (the norm here) are handled by the trial-reminders cron instead — they
+// have no Stripe subscription, so this never double-fires for them. Future-proof
+// for if we move trials onto Stripe trial_period_days. Fail-soft email.
+async function onTrialWillEnd(subscription: Stripe.Subscription) {
+  const orgId = subscription.metadata?.org_id as string | undefined;
+  if (!orgId) return;
+  const trialEndMs = subscription.trial_end ? subscription.trial_end * 1000 : null;
+  const daysLeft = trialEndMs
+    ? Math.max(1, Math.ceil((trialEndMs - Date.now()) / 86_400_000))
+    : 3;
+  const admin = createAdminClient();
+  const [{ data: org }, { data: owner }] = await Promise.all([
+    admin.from("organizations").select("name").eq("id", orgId).maybeSingle(),
+    admin
+      .from("profiles")
+      .select("email")
+      .eq("org_id", orgId)
+      .eq("role", "owner")
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (owner?.email) {
+    await sendTrialEndingEmail(owner.email, org?.name ?? "your workspace", daysLeft);
+  }
 }
 
 async function onInvoicePaid(invoice: Stripe.Invoice) {

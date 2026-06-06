@@ -170,6 +170,14 @@ export function UpgradePanel({
           })}
         </div>
 
+        {/* Billing disclosure — shown before the agent is sent to Stripe Checkout
+            (which itself confirms the exact amount + date before card entry). */}
+        <p className="text-[11px] text-white/45">
+          You&apos;ll be charged the {interval === "yearly" ? "annual" : "monthly"} price
+          shown above immediately, then renewed each {interval === "yearly" ? "year" : "month"}.
+          Taxes shown at checkout. Cancel anytime — no lock-in.
+        </p>
+
         {/* Promo code redemption — owners only */}
         {isOwner && <RedeemRow busy={busy} startTransition={startTransition} />}
 
