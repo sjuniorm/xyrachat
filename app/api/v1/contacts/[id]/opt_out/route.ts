@@ -33,22 +33,25 @@ export const POST = apiHandler({
       return notFound("Contact not found.");
     }
     if (!existing.opted_out) {
-      await admin
-        .from("contacts")
-        .update({
-          opted_out: true,
-          opted_out_at: new Date().toISOString(),
-          opt_out_reason: body.reason ?? "api",
-        })
-        .eq("id", params.id);
-      await admin.from("opt_out_log").insert({
-        org_id: ctx.orgId,
-        contact_id: params.id,
-        channel_type: null,
-        action: "opt_out",
-        keyword: null,
-        message_content: body.reason ?? "Opted out via API",
-      });
+      // Independent writes to two tables — run in parallel.
+      await Promise.all([
+        admin
+          .from("contacts")
+          .update({
+            opted_out: true,
+            opted_out_at: new Date().toISOString(),
+            opt_out_reason: body.reason ?? "api",
+          })
+          .eq("id", params.id),
+        admin.from("opt_out_log").insert({
+          org_id: ctx.orgId,
+          contact_id: params.id,
+          channel_type: null,
+          action: "opt_out",
+          keyword: null,
+          message_content: body.reason ?? "Opted out via API",
+        }),
+      ]);
     }
     const { data: row } = await admin
       .from("contacts")

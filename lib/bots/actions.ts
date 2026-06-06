@@ -485,19 +485,15 @@ export async function testBot(
   if ("error" in auth) return { ok: false, error: auth.error };
 
   const admin = createAdminClient();
-  const { data: bot } = await admin
-    .from("bots")
-    .select("*")
-    .eq("id", botId)
-    .maybeSingle();
+  // Bot is keyed by botId, org by the already-trusted auth.orgId — independent,
+  // so fetch both in parallel (this is an interactive, latency-visible action).
+  const [{ data: bot }, { data: org }] = await Promise.all([
+    admin.from("bots").select("*").eq("id", botId).maybeSingle(),
+    admin.from("organizations").select("name").eq("id", auth.orgId).maybeSingle(),
+  ]);
   if (!bot || bot.org_id !== auth.orgId) {
     return { ok: false, error: "Bot not in your org." };
   }
-  const { data: org } = await admin
-    .from("organizations")
-    .select("name")
-    .eq("id", auth.orgId)
-    .maybeSingle();
 
   const { generateBotResponse } = await import("@/lib/ai/chatbot");
   const { selectEnabledTools } = await import("@/lib/ai/tools");

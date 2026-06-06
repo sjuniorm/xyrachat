@@ -69,11 +69,21 @@ export async function getConversationsForCurrentOrg(): Promise<
   // Latest message preview per conversation — fetched in one query, then
   // deduped client-side. Replace with a SQL view if this gets slow at scale.
   const ids = rows.map((c) => c.id);
-  const { data: previewMsgs } = await supabase
-    .from("messages")
-    .select("conversation_id, content, created_at, direction")
-    .in("conversation_id", ids)
-    .order("created_at", { ascending: false });
+  // Latest-message preview + per-agent read state: two independent SELECTs over
+  // the same ids. Run in parallel — this fetcher is on the inbox-load hot path.
+  const [{ data: previewMsgs }, { data: reads }] = await Promise.all([
+    supabase
+      .from("messages")
+      .select("conversation_id, content, created_at, direction")
+      .in("conversation_id", ids)
+      .order("created_at", { ascending: false }),
+    // Per-agent read state (RLS returns only the caller's rows). A conversation
+    // is unread when its latest inbound is newer than when this agent last read it.
+    supabase
+      .from("conversation_reads")
+      .select("conversation_id, last_read_at")
+      .in("conversation_id", ids),
+  ]);
 
   const previews: Record<string, string> = {};
   for (const m of (previewMsgs as Array<{
@@ -85,13 +95,6 @@ export async function getConversationsForCurrentOrg(): Promise<
     }
   }
 
-  // Per-agent read state (RLS returns only the caller's rows). A conversation
-  // is unread when its latest inbound is newer than when this agent last read
-  // it (or they never read it).
-  const { data: reads } = await supabase
-    .from("conversation_reads")
-    .select("conversation_id, last_read_at")
-    .in("conversation_id", ids);
   const readAt: Record<string, string> = {};
   for (const r of (reads as Array<{
     conversation_id: string;

@@ -50,13 +50,14 @@ export default async function BillingPage() {
   const orgId = profile.org_id;
   const isOwner = profile.role === "owner";
 
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("plan, status, monthly_ai_tokens_limit, tokens_used_this_month, billing_cycle_start, current_period_end, cancel_at_period_end, trial_ends_at")
-    .eq("org_id", orgId)
-    .maybeSingle();
-
-  const [provisioned, entMap, usage] = await Promise.all([
+  // The subscription row only needs orgId (resolved above) — fold it into the
+  // existing parallel batch instead of an extra sequential round-trip.
+  const [{ data: sub }, provisioned, entMap, usage] = await Promise.all([
+    supabase
+      .from("subscriptions")
+      .select("plan, status, monthly_ai_tokens_limit, tokens_used_this_month, billing_cycle_start, current_period_end, cancel_at_period_end, trial_ends_at")
+      .eq("org_id", orgId)
+      .maybeSingle(),
     isProvisioned(orgId),
     getAllEntitlements(orgId),
     usageCounts(orgId),

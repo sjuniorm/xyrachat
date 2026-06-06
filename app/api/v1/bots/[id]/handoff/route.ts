@@ -41,13 +41,16 @@ export const POST = apiHandler({
     if (!bot || bot.org_id !== ctx.orgId) return notFound("Bot not found.");
     if (!conv || conv.org_id !== ctx.orgId) return notFound("Conversation not found.");
 
-    await admin.from("conversations").update({ status: "open" }).eq("id", body.conversation_id);
-    await admin.from("bot_outcomes").insert({
-      bot_id: bot.id,
-      conversation_id: body.conversation_id,
-      type: "handoff",
-      payload: { reason: body.reason ?? "api_requested", source: "api" },
-    });
+    // Two independent writes to different tables — run in parallel.
+    await Promise.all([
+      admin.from("conversations").update({ status: "open" }).eq("id", body.conversation_id),
+      admin.from("bot_outcomes").insert({
+        bot_id: bot.id,
+        conversation_id: body.conversation_id,
+        type: "handoff",
+        payload: { reason: body.reason ?? "api_requested", source: "api" },
+      }),
+    ]);
     void emit({
       type: "bot.handoff",
       orgId: ctx.orgId,
