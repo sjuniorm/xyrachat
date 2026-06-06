@@ -42,6 +42,7 @@ export function TeamChatClient() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -75,13 +76,14 @@ export function TeamChatClient() {
       for (const m of (mem as Sender[] | null) ?? []) map[m.id] = m;
       setMembers(map);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("team_messages")
         .select(SELECT)
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
         .limit(200);
       if (!active) return;
+      setLoadError(Boolean(error));
       setMessages((data as TeamMessage[] | null) ?? []);
       setLoading(false);
       scrollToBottom();
@@ -137,6 +139,10 @@ export function TeamChatClient() {
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-4">
         {loading ? (
           <p className="py-10 text-center text-sm text-white/40">Loading…</p>
+        ) : loadError ? (
+          <p className="py-10 text-center text-sm text-rose-300">
+            Couldn&apos;t load team chat. Refresh to try again.
+          </p>
         ) : messages.length === 0 ? (
           <p className="py-10 text-center text-sm text-white/40">
             No messages yet. Say hi to your team 👋

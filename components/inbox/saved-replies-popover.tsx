@@ -27,6 +27,7 @@ export function SavedRepliesPopover({
   const [open, setOpen] = useState(false);
   const [replies, setReplies] = useState<Reply[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -34,11 +35,13 @@ export function SavedRepliesPopover({
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from("saved_replies")
       .select("id, title, body")
       .is("deleted_at", null)
       .order("title");
+    if (error) setLoadError(true);
     setReplies((data as Reply[] | null) ?? []);
     setLoading(false);
   }, [supabase]);
@@ -102,6 +105,14 @@ export function SavedRepliesPopover({
         <div className="max-h-64 overflow-y-auto">
           {loading ? (
             <p className="px-2 py-4 text-center text-xs text-white/40">Loading…</p>
+          ) : loadError ? (
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="w-full px-2 py-4 text-center text-xs text-rose-300 hover:underline"
+            >
+              Couldn&apos;t load saved replies — tap to retry.
+            </button>
           ) : replies.length === 0 ? (
             <p className="px-2 py-4 text-center text-xs text-white/40">
               No saved replies yet.

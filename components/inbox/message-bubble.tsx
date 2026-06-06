@@ -213,12 +213,7 @@ export function MessageBubble({
                 {message.attachments?.map((att, i) => (
                   <div key={i} className="mb-1.5">
                     {att.type === "image" ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={att.url}
-                        alt={att.name}
-                        className="max-h-64 rounded-lg"
-                      />
+                      <BubbleImage src={att.url} alt={att.name} />
                     ) : att.type === "video" ? (
                       <video
                         src={att.url}
@@ -387,5 +382,29 @@ export function MessageBubble({
         )}
       </div>
     </div>
+  );
+}
+
+// Inbox image attachment with a graceful fallback — a public chat-media object
+// can 404 (deleted/expired), and provider CDN URLs can rot, so a broken <img>
+// is replaced with a small "image unavailable" chip instead of a torn icon.
+function BubbleImage({ src, alt }: { src: string; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs text-white/50">
+        <ImageIcon className="size-3.5" />
+        Image unavailable
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={alt}
+      className="max-h-64 rounded-lg"
+      onError={() => setBroken(true)}
+    />
   );
 }
