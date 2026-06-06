@@ -62,6 +62,10 @@ export function Composer({
   const [previousDraft, setPreviousDraft] = useState<string | null>(null);
   const [otherLangValue, setOtherLangValue] = useState("");
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  // Single-flight guard for media uploads — bulletproof against a rapid
+  // re-trigger before the `pending` state re-renders the disabled button.
+  const uploadingRef = useRef(false);
   const router = useRouter();
 
   // Auto-grow textarea up to 120px.
@@ -254,6 +258,77 @@ export function Composer({
     });
   }
 
+  // Attach + send a file. WhatsApp only for now (Meta media upload); other
+  // providers' media outbound is separate work. The composer's current text
+  // rides along as the caption.
+  function onAttachClick() {
+    // Internal notes are org-only — they must NEVER reach the customer. The
+    // media path sends to the customer over WhatsApp, so block it (and the
+    // typed note that would ride along as a caption) while the toggle is on.
+    if (internal) {
+      toast.message("Turn off “Internal note” to send a file to the customer.");
+      return;
+    }
+    if (conversation.channel !== "whatsapp") {
+      toast.message("File sending is on WhatsApp for now — more channels soon.");
+      return;
+    }
+    fileRef.current?.click();
+  }
+
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (uploadingRef.current) {
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 16 * 1024 * 1024) {
+      toast.error("File too large (max 16 MB).");
+      e.target.value = "";
+      return;
+    }
+    uploadingRef.current = true;
+    setPending(true);
+    try {
+      const fd = new FormData();
+      fd.set("conversationId", conversation.id);
+      fd.set("file", file);
+      if (text.trim()) fd.set("caption", text.trim());
+      const res = await fetch("/api/channels/whatsapp/send-media", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        toast.error(
+          (data && typeof data === "object" && "error" in data && typeof data.error === "string"
+            ? data.error
+            : null) ?? `Upload failed (HTTP ${res.status})`,
+        );
+        return;
+      }
+      setText("");
+      onClearQuote();
+      // The file WAS sent to the customer. If we couldn't store it locally
+      // (stored:false), tell the agent so they refresh instead of resending
+      // (which would double-send the media).
+      if (data && typeof data === "object" && "stored" in data && data.stored === false) {
+        toast.message(
+          "Sent to the customer, but it didn't load here — refresh before resending.",
+          { duration: 8000 },
+        );
+      }
+      router.refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Network error");
+    } finally {
+      uploadingRef.current = false;
+      setPending(false);
+      e.target.value = "";
+    }
+  }
+
   async function suggestReply() {
     if (pending || !hasBotAssigned) return;
     const prev = text;
@@ -437,13 +512,22 @@ export function Composer({
             <span className="hidden sm:inline">Suggest</span>
           </Button>
 
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,video/mp4,audio/mpeg,audio/ogg,application/pdf"
+            className="hidden"
+            onChange={onFileSelected}
+          />
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-8 text-white/60 hover:text-white"
-            onClick={() => toast.message("Attachments coming soon")}
+            onClick={onAttachClick}
+            disabled={pending || internal}
             aria-label="Attach file"
+            title={internal ? "Turn off Internal note to send a file" : "Attach file"}
           >
             <Paperclip className="size-4" />
           </Button>

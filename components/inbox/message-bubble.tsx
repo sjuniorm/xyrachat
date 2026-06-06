@@ -264,6 +264,19 @@ export function MessageBubble({
                           </a>
                         )}
                       </div>
+                    ) : att.url ? (
+                      <a
+                        href={att.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs hover:bg-black/30"
+                      >
+                        <Paperclip className="size-3.5" />
+                        <span className="truncate underline-offset-2 hover:underline">
+                          {att.name}
+                        </span>
+                        {att.size && <span className="text-white/50">{att.size}</span>}
+                      </a>
                     ) : (
                       <div className="flex items-center gap-2 rounded-lg bg-black/20 px-2 py-1.5 text-xs">
                         <Paperclip className="size-3.5" />

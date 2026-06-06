@@ -117,6 +117,9 @@ export type ConversationRow = {
 export type MessageMetadata = {
   ai_assisted?: { action: string; model: string; language?: string };
   transcription?: { text: string; model: string };
+  // Original filename of an outbound media attachment (the media_url path is a
+  // UUID), so the inbox can show a human name for documents.
+  media_filename?: string;
   translation_cache?: Record<string, string>;
   wa_template?: { name: string; language: string };
   // Inbound context echoes from Meta — kept for debugging if we ever miss

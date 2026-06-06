@@ -43,7 +43,12 @@ export function adaptMessage(row: MessageRow): UiMessage {
         {
           type: attachmentTypeFromMediaType(row.media_type),
           url: row.media_url,
-          name: row.media_url.split("/").pop() ?? "attachment",
+          // Prefer the stored original filename (outbound media) over the
+          // UUID/last-segment of the URL.
+          name:
+            row.metadata?.media_filename ??
+            row.media_url.split("/").pop() ??
+            "attachment",
         },
       ]
     : undefined;
