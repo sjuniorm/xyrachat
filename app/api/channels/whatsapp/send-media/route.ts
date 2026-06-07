@@ -119,8 +119,9 @@ export async function POST(req: Request) {
   if (upErr) {
     return NextResponse.json({ error: `Storage upload failed: ${upErr.message}` }, { status: 502 });
   }
-  const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(path);
-  const mediaUrl = pub.publicUrl;
+  // The bucket is PRIVATE (migration 045) — store an authenticated proxy path,
+  // not a public URL. /api/media/<bucket>/<path> verifies org ownership + streams.
+  const mediaUrl = `/api/media/${BUCKET}/${path}`;
 
   // 6. Upload the same bytes to Meta /media to get a media id to send with.
   const metaForm = new FormData();

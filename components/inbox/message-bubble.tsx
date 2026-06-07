@@ -385,9 +385,9 @@ export function MessageBubble({
   );
 }
 
-// Inbox image attachment with a graceful fallback — a public chat-media object
-// can 404 (deleted/expired), and provider CDN URLs can rot, so a broken <img>
-// is replaced with a small "image unavailable" chip instead of a torn icon.
+// Inbox image attachment with a graceful fallback — the /api/media proxy can
+// 404 (deleted object / lost access) and provider CDN URLs can rot, so a broken
+// <img> is replaced with a small "image unavailable" chip instead of a torn icon.
 function BubbleImage({ src, alt }: { src: string; alt: string }) {
   const [broken, setBroken] = useState(false);
   if (broken) {

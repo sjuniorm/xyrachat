@@ -39,6 +39,9 @@ function isPublicPath(pathname: string) {
   // getRouteUser() yields no user).
   if (pathname.startsWith("/api/channels/")) return true;
   if (pathname.startsWith("/api/ai/")) return true;
+  // Private media proxy — self-auths via getRouteUser (cookie OR mobile JWT)
+  // and checks org ownership of the conversation before streaming the object.
+  if (pathname.startsWith("/api/media/")) return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/favicon")) return true;
   return false;

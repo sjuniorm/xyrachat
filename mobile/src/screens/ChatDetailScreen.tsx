@@ -26,6 +26,7 @@ import { useAuth } from "../auth/AuthContext";
 import { MessageBubble } from "../components/MessageBubble";
 import { TemplatePicker } from "../components/TemplatePicker";
 import { contactDisplayName, channelLabel } from "../lib/format";
+import { mediaImageSource } from "../lib/media";
 import type { ConversationWithRelations } from "../types";
 
 type Props = NativeStackScreenProps<InboxStackParamList, "ChatDetail">;
@@ -441,7 +442,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
         <Pressable style={styles.modal} onPress={() => setPreviewUri(null)}>
           {previewUri ? (
             <Image
-              source={{ uri: previewUri }}
+              source={mediaImageSource(previewUri, session?.access_token)}
               style={styles.fullImage}
               contentFit="contain"
             />

@@ -4,6 +4,8 @@ import { Image } from "expo-image";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors } from "../theme";
 import { clockTime } from "../lib/format";
+import { mediaImageSource } from "../lib/media";
+import { useAuth } from "../auth/AuthContext";
 import type { Message } from "../types";
 
 function isImage(m: Message): boolean {
@@ -28,6 +30,7 @@ export function MessageBubble({
   message: Message;
   onImagePress?: (uri: string) => void;
 }) {
+  const { session } = useAuth();
   const outbound = message.direction === "outbound";
   const isBot = message.sender_type === "bot";
   const note = message.is_internal_note;
@@ -60,7 +63,7 @@ export function MessageBubble({
         {isImage(message) ? (
           <Pressable onPress={() => onImagePress?.(message.media_url!)}>
             <Image
-              source={{ uri: message.media_url! }}
+              source={mediaImageSource(message.media_url!, session?.access_token)}
               style={styles.image}
               contentFit="cover"
               transition={150}
