@@ -20,6 +20,8 @@ function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   // Public health probe (Uptime Robot) — no auth, does its own DB check.
   if (pathname === "/api/health") return true;
+  // Browsers POST CSP violation reports here with no session — must be public.
+  if (pathname === "/api/security/csp-report") return true;
   // Webhooks have no session cookie — they verify themselves via HMAC.
   if (pathname.startsWith("/api/webhooks/")) return true;
   // GDPR + auth-gated APIs do their own auth checks inside the handler.
