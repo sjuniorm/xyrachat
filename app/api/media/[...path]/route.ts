@@ -14,6 +14,25 @@ export const runtime = "nodejs";
 // SELECT on the conversation — a row comes back only if it's the caller's org.
 
 const ALLOWED_BUCKETS = new Set(["chat-media"]);
+// Force the served Content-Type from the file extension via a strict allowlist —
+// NEVER trust the stored type, and NEVER serve a script-capable type (svg/html/
+// xml) inline on our own origin. Anything not in here is force-downloaded as a
+// generic blob so it can't execute even if it somehow got into the bucket.
+const SAFE_INLINE_TYPES: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  mp4: "video/mp4",
+  "3gp": "video/3gpp",
+  mp3: "audio/mpeg",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  pdf: "application/pdf",
+};
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The filename is always a randomUUID() + a short extension. Validating it
 // strictly (and requiring EXACTLY one filename segment) is what binds the
@@ -62,13 +81,30 @@ export async function GET(
   }
 
   const buf = await blob.arrayBuffer();
-  return new Response(buf, {
-    headers: {
-      "Content-Type": blob.type || "application/octet-stream",
-      // Private + short cache: re-validates auth reasonably often without
-      // re-fetching the bytes on every render.
-      "Cache-Control": "private, max-age=3600",
-      "Content-Length": String(buf.byteLength),
-    },
-  });
+  const ext = filename.split(".").pop()!.toLowerCase();
+  const safeType = SAFE_INLINE_TYPES[ext];
+
+  const headers: Record<string, string> = {
+    // Private + short cache: re-checks auth reasonably often without re-fetching
+    // the bytes on every render.
+    "Cache-Control": "private, max-age=3600",
+    "Content-Length": String(buf.byteLength),
+    // Defense in depth against same-origin XSS if a script-capable object ever
+    // lands in the bucket: never sniff, never allow scripts, keep it same-origin.
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy":
+      "default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+    "Cross-Origin-Resource-Policy": "same-origin",
+  };
+  if (safeType) {
+    headers["Content-Type"] = safeType;
+    headers["Content-Disposition"] = `inline; filename="${filename}"`;
+  } else {
+    // Unknown/unsafe extension → force a download as an opaque blob; never render
+    // it inline on our origin.
+    headers["Content-Type"] = "application/octet-stream";
+    headers["Content-Disposition"] = `attachment; filename="${filename}"`;
+  }
+
+  return new Response(buf, { headers });
 }
