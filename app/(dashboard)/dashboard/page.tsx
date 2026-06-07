@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { getOrgMetrics, type DailyPoint } from "@/lib/metrics/server";
+import { GetStartedWidget } from "@/components/app/get-started-widget";
 
 const CHANNEL_LABELS: Record<string, string> = {
   whatsapp: "WhatsApp",
@@ -41,6 +42,14 @@ export default async function DashboardPage() {
   const m = await getOrgMetrics();
   const wow = pctChange(m.conversations.new7d, m.conversations.prev7d);
 
+  const getStartedSteps = [
+    { key: "account", label: "Create your account", href: "/settings", done: true },
+    { key: "channel", label: "Connect a channel (WhatsApp or Instagram)", href: "/settings/channels", done: m.channels.total > 0 },
+    { key: "team", label: "Invite a team member", href: "/settings/team", done: m.team.members > 1 },
+    { key: "bot", label: "Create your AI bot", href: "/bots/new", done: m.bots.total > 0 },
+    { key: "message", label: "Send your first message", href: "/inbox", done: m.messages.outbound7d > 0 },
+  ];
+
   return (
     <div className="flex-1 overflow-y-auto px-8 py-10">
       <header className="mb-8">
@@ -53,6 +62,8 @@ export default async function DashboardPage() {
             : "Here's how your workspace is doing."}
         </p>
       </header>
+
+      <GetStartedWidget steps={getStartedSteps} />
 
       {m.channels.total === 0 && (
         <Card className="mb-8 border-[color:var(--xyra-purple)]/30 bg-[color:var(--xyra-purple)]/10">
