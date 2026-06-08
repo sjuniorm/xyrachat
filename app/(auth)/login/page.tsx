@@ -45,8 +45,15 @@ export default function LoginPage() {
           null,
       });
     }
-    const next = params.get("next");
-    router.push(next && next.startsWith("/") ? next : "/dashboard");
+    // Only follow a SAME-ORIGIN relative path. A bare startsWith("/") check
+    // lets "//evil.com" and "/\evil.com" through (protocol-relative → the
+    // router hard-navigates cross-origin → open-redirect phishing).
+    const raw = params.get("next");
+    const next =
+      raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/\\")
+        ? raw
+        : "/dashboard";
+    router.push(next);
     router.refresh();
   }
 

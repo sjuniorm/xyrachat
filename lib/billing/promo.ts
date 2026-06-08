@@ -217,7 +217,9 @@ export async function redeemPromo(
     !promo.applicable_plans.includes(sub.plan)
   ) {
     await releaseClaim();
-    return { ok: false, error: "This code doesn't apply to your plan." };
+    // Generic message (matches the other failure modes) so probing can't
+    // distinguish a real code on the wrong plan from an invalid one.
+    return { ok: false, error: "Code is invalid or expired." };
   }
 
   // ---- Trial codes: no Stripe, just extend the trial ----

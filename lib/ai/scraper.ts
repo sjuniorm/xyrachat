@@ -1,5 +1,6 @@
 import "server-only";
 import * as cheerio from "cheerio";
+import { assertSafeOutboundUrl } from "@/lib/api/ssrf";
 
 // Fetch a URL and return its body as clean text suitable for embedding.
 // Drops nav/footer/script/style noise. Keeps headings + paragraph text
@@ -12,27 +13,38 @@ export async function scrapeUrl(url: string): Promise<{
   text: string;
   description: string | null;
 }> {
-  const u = new URL(url); // throws on invalid input
-  if (u.protocol !== "https:" && u.protocol !== "http:") {
-    throw new Error("Only http(s) URLs are supported");
-  }
+  // SSRF guard: validate the URL (http(s), no credentials, NOT a private /
+  // loopback / link-local / cloud-metadata target) BEFORE fetching — and
+  // re-validate every redirect hop, since "follow" would otherwise let a
+  // public URL 30x-redirect to an internal one.
+  let current = await assertSafeOutboundUrl(url);
+  const u = current;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   let html: string;
   try {
-    const res = await fetch(u.toString(), {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: {
-        "User-Agent":
-          "XyraChat/1.0 (+https://xyrachat.com; knowledge ingestion bot)",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
-    if (!res.ok) {
-      throw new Error(`Fetch failed: HTTP ${res.status}`);
+    let res: Response | undefined;
+    let hops = 0;
+    for (;;) {
+      res = await fetch(current.toString(), {
+        signal: controller.signal,
+        redirect: "manual",
+        headers: {
+          "User-Agent":
+            "XyraChat/1.0 (+https://xyrachat.com; knowledge ingestion bot)",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+      const loc =
+        res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+      if (!loc) break;
+      if (++hops > 4) throw new Error("Too many redirects");
+      current = await assertSafeOutboundUrl(new URL(loc, current).toString());
+    }
+    if (!res || !res.ok) {
+      throw new Error(`Fetch failed: HTTP ${res?.status ?? "no response"}`);
     }
     const reader = await res.text();
     html = reader.slice(0, 1_000_000); // 1MB cap
