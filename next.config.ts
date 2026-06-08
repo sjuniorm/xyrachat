@@ -9,13 +9,13 @@ import { withSentryConfig } from "@sentry/nextjs";
 const CSP_REPORT_ONLY = [
   "default-src 'self'",
   // Next.js + React inject inline scripts; Stripe.js + PostHog load externally.
-  "script-src 'self' 'unsafe-inline' https://js.stripe.com https://*.posthog.com https://cdn.jsdelivr.net https://unpkg.com",
+  "script-src 'self' 'unsafe-inline' https://js.stripe.com https://*.posthog.com https://cdn.jsdelivr.net https://unpkg.com https://canny.io",
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  // Supabase REST + realtime (wss), Stripe API, PostHog (EU), Sentry ingest.
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.posthog.com https://api.stripe.com https://*.ingest.sentry.io https://*.sentry.io",
-  "frame-src https://js.stripe.com",
+  // Supabase REST + realtime (wss), Stripe API, PostHog (EU), Sentry ingest, Canny.
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.posthog.com https://api.stripe.com https://*.ingest.sentry.io https://*.sentry.io https://canny.io",
+  "frame-src https://js.stripe.com https://canny.io",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
