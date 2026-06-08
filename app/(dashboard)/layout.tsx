@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SidebarContent } from "@/components/app/sidebar-content";
 import { MobileHeader } from "@/components/app/mobile-header";
 import { BillingBanner } from "@/components/app/billing-banner";
+import { HelpWidget } from "@/components/app/help-widget";
 
 export default async function DashboardLayout({
   children,
@@ -47,6 +48,7 @@ export default async function DashboardLayout({
         <BillingBanner orgId={profile.org_id} />
         <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>
+      <HelpWidget />
     </div>
   );
 }
