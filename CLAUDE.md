@@ -1694,3 +1694,42 @@ Also queued:
 - **Next 16 deprecation warning**: `middleware.ts` still works in Next 16 but the framework now calls the concept "proxy". When upgrading away from this warning, rename `middleware.ts` → `proxy.ts` and update the import in `lib/supabase/middleware.ts` accordingly. No behavioural change.
 - **Toast component**: shadcn replaced `toast` with `sonner` in late 2025. Spec listed `toast`; we installed `sonner` and the root layout renders `<Toaster theme="dark" richColors />`. Use `import { toast } from "sonner"` everywhere.
 - **PostHog client/server split**: Initial unified `lib/analytics.ts` broke the Turbopack client build because `posthog-node` pulls `node:fs`. Split: browser code in [lib/analytics.ts](lib/analytics.ts), server code in [lib/analytics-server.ts](lib/analytics-server.ts) (with `import "server-only"`). Never import `analytics-server` from a `"use client"` file.
+
+## Security Audit Log
+
+**Week 16 app-side shipped (2026-06-08):** security headers + CSP report-only +
+`/api/security/csp-report` (756609e); Get Started onboarding widget (af99e53);
+owner-gated `/api/launch-check` + in-app help widget + `/api/support/chat`
+dogfooding our own bot (9a72aae); Canny `/roadmap` + SSO (786b8a2); §15 probe
+suite `tests/security/probe.ts` (6a5e46d). Marketing site is a SEPARATE repo
+(xyra-chat-website) — not built here.
+
+**§15 FINAL security audit — IN PROGRESS (2026-06-08).** 20-agent adversarial
+code audit across 8 attack classes (IDOR, mass-assignment, XSS/injection, SSRF,
+auth/rate-limit, billing, AI-cost, secrets). No IDOR / mass-assignment / secret
+leak found (RLS + column grants + server-only hold). 10 findings confirmed.
+
+FIXED immediately (commit 23fff09):
+- CRITICAL — bot URL scraper (`lib/ai/scraper.ts`) had NO SSRF guard + followed
+  redirects → readable SSRF to internal/metadata. Now `assertSafeOutboundUrl` +
+  per-hop redirect re-validation.
+- HIGH — `lib/api/ssrf.ts` IPv6 checks were dead code (hostname keeps brackets) →
+  `[::1]`/`[::ffff:169.254.169.254]` bypassed the webhook guard. Rewrote with
+  bracket-strip + `net.isIP` + IPv6/ULA/link-local/IPv4-mapped. Vector-tested.
+- MEDIUM — open redirect on `/login` (`next=//evil.com`). Same-origin paths only.
+- LOW — promo-redeem plan-mismatch error leaked code validity → generic message.
+
+QUEUED for 2026-06-09 (launch-protection, not actively-exploitable):
+- HIGH — enforce per-key rate limits in `lib/api/handler.ts` (currently a stub header).
+- HIGH — per-contact/conversation AI flood guard in `runBotGate` + `maybeAutoTranslate`
+  (inbound webhooks can drain a victim org's AI budget + platform cost).
+- HIGH — auto-provision the Trial bundle at org creation (every new org currently
+  has zero entitlement rows → fail-open = unlimited everything except the 50k AI cap).
+- LOW — make `promo_codes.redemption_count` increment idempotent on webhook re-delivery.
+- MEDIUM — auth (login/signup/forgot) rate-limiting is a Supabase-dashboard +
+  CAPTCHA operator task (no server route of ours to throttle).
+- LOW — CSP is report-only by design; flip to enforced once the report endpoint
+  shows 0 violations on real traffic.
+
+NOT yet run: the live §15 probe (needs the staging URL + two seeded test orgs).
+**Not cleared for public launch until the queued HIGHs + Meta verification are done.**
