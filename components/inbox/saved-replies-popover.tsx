@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { StickyNote, Plus, Trash2, Loader2 } from "lucide-react";
+import { StickyNote, Plus, Trash2, Pencil, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { createSavedReply, deleteSavedReply } from "@/lib/saved-replies/actions";
+import {
+  createSavedReply,
+  updateSavedReply,
+  deleteSavedReply,
+} from "@/lib/saved-replies/actions";
 
 type Reply = { id: string; title: string; body: string };
 
@@ -29,9 +33,24 @@ export function SavedRepliesPopover({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [pending, startTransition] = useTransition();
+
+  const resetForm = () => {
+    setCreating(false);
+    setEditingId(null);
+    setTitle("");
+    setBody("");
+  };
+
+  const startEdit = (r: Reply) => {
+    setEditingId(r.id);
+    setTitle(r.title);
+    setBody(r.body);
+    setCreating(true);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,20 +69,19 @@ export function SavedRepliesPopover({
     if (open) void load();
   }, [open, load]);
 
-  const onCreate = () => {
+  const onSave = () => {
     if (!title.trim() || !body.trim()) return;
     const fd = new FormData();
     fd.set("title", title);
     fd.set("body", body);
+    if (editingId) fd.set("id", editingId);
     startTransition(async () => {
-      const r = await createSavedReply(fd);
+      const r = editingId ? await updateSavedReply(fd) : await createSavedReply(fd);
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      setTitle("");
-      setBody("");
-      setCreating(false);
+      resetForm();
       await load();
     });
   };
@@ -134,15 +152,24 @@ export function SavedRepliesPopover({
                   <p className="truncate text-sm font-medium">{r.title}</p>
                   <p className="truncate text-xs text-white/50">{r.body}</p>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(r.id)}
-                  disabled={pending}
-                  className="opacity-0 transition group-hover:opacity-100"
-                  aria-label="Delete saved reply"
-                >
-                  <Trash2 className="size-3.5 text-white/40 hover:text-red-400" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                  <button
+                    type="button"
+                    onClick={() => startEdit(r)}
+                    disabled={pending}
+                    aria-label="Edit saved reply"
+                  >
+                    <Pencil className="size-3.5 text-white/40 hover:text-white" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(r.id)}
+                    disabled={pending}
+                    aria-label="Delete saved reply"
+                  >
+                    <Trash2 className="size-3.5 text-white/40 hover:text-red-400" />
+                  </button>
+                </div>
               </div>
             ))
           )}
@@ -150,6 +177,9 @@ export function SavedRepliesPopover({
         <div className="mt-1 border-t border-white/10 pt-2">
           {creating ? (
             <div className="flex flex-col gap-2 p-1">
+              <p className="px-0.5 text-xs font-medium text-white/60">
+                {editingId ? "Edit saved reply" : "New saved reply"}
+              </p>
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -166,7 +196,7 @@ export function SavedRepliesPopover({
                 <Button
                   type="button"
                   size="sm"
-                  onClick={onCreate}
+                  onClick={onSave}
                   disabled={pending || !title.trim() || !body.trim()}
                   className="xyra-gradient flex-1 border-0 text-white"
                 >
@@ -176,11 +206,7 @@ export function SavedRepliesPopover({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => {
-                    setCreating(false);
-                    setTitle("");
-                    setBody("");
-                  }}
+                  onClick={resetForm}
                 >
                   Cancel
                 </Button>
