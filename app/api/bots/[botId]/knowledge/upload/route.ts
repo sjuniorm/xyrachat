@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { chunkText, embedChunks } from "@/lib/ai/embeddings";
 import { assertCanAddKnowledgeSource } from "@/lib/billing/gates";
+import { checkAiQuota } from "@/lib/billing/usage";
 import {
   extractDocumentText,
   isAcceptedDocument,
@@ -73,6 +74,16 @@ export async function POST(
     return NextResponse.json(
       { error: "Unsupported type. Upload a PDF, DOCX, TXT, or MD file." },
       { status: 415 },
+    );
+  }
+
+  // Pre-flight quota BEFORE the (potentially expensive) parse, so an exhausted
+  // org can't burn CPU/memory decompressing a doc it can't afford to embed.
+  const quota = await checkAiQuota(orgId);
+  if (!quota.ok) {
+    return NextResponse.json(
+      { error: "Monthly AI limit reached. Upgrade to add more knowledge." },
+      { status: 402 },
     );
   }
 

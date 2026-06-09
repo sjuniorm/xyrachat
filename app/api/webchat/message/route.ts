@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
@@ -48,6 +48,18 @@ export async function POST(req: Request) {
 
   // Anti-abuse: a public endpoint that creates contacts/messages. Throttle per
   // (channel, visitor) and per channel. Fails open until Upstash is set.
+  // Per-IP cap FIRST: visitorId is client-controlled, so a hostile actor can
+  // rotate it to dodge the per-visitor bucket and spawn unlimited
+  // contacts/conversations. The IP bucket bounds new-contact creation per
+  // source regardless of visitorId rotation. (Fails open until Upstash — set it
+  // before exposing webchat publicly.)
+  const perIp = await rateLimit("webchat:msg:ip", clientIp(req), { limit: 40, windowSec: 60 });
+  if (!perIp.ok) {
+    return NextResponse.json(
+      { error: "Slow down" },
+      { status: 429, headers: { ...WEBCHAT_CORS, "Retry-After": String(perIp.retryAfter) } },
+    );
+  }
   const perVisitor = await rateLimit("webchat:msg", `${k}:${visitorId}`, { limit: 20, windowSec: 60 });
   if (!perVisitor.ok) {
     return NextResponse.json(

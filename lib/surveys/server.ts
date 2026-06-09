@@ -16,7 +16,7 @@ export async function maybeSendSurvey(conversationId: string): Promise<void> {
     const admin = createAdminClient();
     const { data: conv } = await admin
       .from("conversations")
-      .select("id, org_id, channel_id, contact_id")
+      .select("id, org_id, channel_id, contact_id, last_inbound_at")
       .eq("id", conversationId)
       .maybeSingle();
     if (!conv?.org_id || !conv.channel_id || !conv.contact_id) return;
@@ -29,15 +29,19 @@ export async function maybeSendSurvey(conversationId: string): Promise<void> {
     const kind = org?.survey_kind as "off" | "csat" | "nps" | undefined;
     if (!kind || kind === "off") return;
 
-    // Skip if a survey is already pending (not yet rated) for this conversation.
-    const { data: pending } = await admin
+    // Skip if a survey already went out for this conversation in the last 30
+    // days — pending OR already rated. Without the rated case, closing a
+    // conversation again after the customer rated would spam a fresh survey.
+    const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const { data: recent } = await admin
       .from("conversation_ratings")
       .select("id")
       .eq("conversation_id", conversationId)
-      .is("rated_at", null)
       .is("deleted_at", null)
+      .gte("created_at", cutoff)
+      .limit(1)
       .maybeSingle();
-    if (pending) return;
+    if (recent) return;
 
     const { data: channel } = await admin
       .from("channels")
@@ -45,6 +49,14 @@ export async function maybeSendSurvey(conversationId: string): Promise<void> {
       .eq("id", conv.channel_id)
       .maybeSingle();
     if (!channel) return;
+
+    // WhatsApp only allows free-form sends within 24h of the last inbound.
+    // Outside it, a survey send would fail at Meta (and re-queue on each close),
+    // so skip rather than fail-loop. (Template-based surveys are a follow-up.)
+    if (channel.type === "whatsapp") {
+      const lastIn = conv.last_inbound_at ? new Date(conv.last_inbound_at).getTime() : 0;
+      if (!lastIn || Date.now() - lastIn > 24 * 60 * 60 * 1000) return;
+    }
 
     const token = randomBytes(16).toString("hex");
     const { error: insErr } = await admin.from("conversation_ratings").insert({

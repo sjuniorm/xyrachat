@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notFound, invalidRequest } from "@/lib/api/errors";
 import { shapeConversation } from "@/lib/api/shapes";
 import { emit } from "@/lib/api/emit";
+import { maybeSendSurvey } from "@/lib/surveys/server";
 
 export const runtime = "nodejs";
 
@@ -76,6 +77,8 @@ export const PATCH = apiHandler({
     // Emit semantic events based on what changed.
     if (body.status === "closed" && existing.status !== "closed") {
       void emit({ type: "conversation.closed", orgId: ctx.orgId, data: shapeConversation(data) });
+      // Fire CSAT/NPS on API-driven close too (no-op unless the org enabled it).
+      void maybeSendSurvey(params.id);
     }
     if ("assigned_to" in body && body.assigned_to !== existing.assigned_to) {
       void emit({

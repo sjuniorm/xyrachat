@@ -11,7 +11,7 @@ function csvCell(v: unknown): string {
   const s = v == null ? "" : String(v);
   // Quote if needed; double internal quotes. Strip leading =,+,-,@ to defang
   // CSV-injection formulas in spreadsheet apps.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 

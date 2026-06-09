@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,15 @@ const TOKEN_RE = /^[a-f0-9]{32}$/;
 // Public: a customer submits their rating from /rate/<token>. The token is the
 // bearer — no session. Records once (idempotent: only updates an un-rated row).
 export async function POST(req: Request) {
+  // Unauthenticated public endpoint — throttle per IP. (Fails open until Upstash.)
+  const rl = await rateLimit("rating:submit", clientIp(req), { limit: 30, windowSec: 60 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   let body: { token?: string; score?: number; comment?: string };
   try {
     body = await req.json();

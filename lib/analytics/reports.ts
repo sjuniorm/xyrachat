@@ -68,8 +68,9 @@ export async function getOrgAnalytics(
   const outcomeBase = (type: string) =>
     admin
       .from("bot_outcomes")
-      .select("id, bots!inner(org_id)", { count: "exact", head: true })
+      .select("id, bots!inner(org_id, deleted_at)", { count: "exact", head: true })
       .eq("bots.org_id", orgId)
+      .is("bots.deleted_at", null)
       .eq("type", type)
       .gte("created_at", fromIso)
       .lte("created_at", toIso);

@@ -60,6 +60,12 @@ export async function GET(req: Request) {
     .select("id, content, created_at")
     .eq("conversation_id", conv.id)
     .eq("direction", "outbound")
+    // CRITICAL: never return internal staff notes to the visitor. Notes are
+    // stored as outbound rows with is_internal_note=true on the SAME
+    // conversation; without this filter they'd be delivered to the public
+    // widget. Restrict to agent/bot sends too (defensive).
+    .eq("is_internal_note", false)
+    .in("sender_type", ["agent", "bot"])
     .is("deleted_at", null)
     .order("created_at", { ascending: true })
     .limit(50);

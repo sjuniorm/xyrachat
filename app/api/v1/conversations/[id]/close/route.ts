@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notFound } from "@/lib/api/errors";
 import { shapeConversation } from "@/lib/api/shapes";
 import { emit } from "@/lib/api/emit";
+import { maybeSendSurvey } from "@/lib/surveys/server";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,8 @@ export const POST = apiHandler({
       .single();
     if (existing.status !== "closed" && data) {
       void emit({ type: "conversation.closed", orgId: ctx.orgId, data: shapeConversation(data) });
+      // Fire CSAT/NPS on API-driven close too (no-op unless the org enabled it).
+      void maybeSendSurvey(params.id);
     }
     return data ? shapeConversation(data) : { id: params.id, status: "closed" };
   },

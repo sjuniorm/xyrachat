@@ -226,6 +226,20 @@ async function execLeafAction(
         message?: string;
       }>;
 
+      // Idempotency: if this exact step already enrolled the contact (a resumed
+      // or retried run replays the same stampKey), don't enroll again.
+      if (stampKey) {
+        const { data: alreadyEnrolled } = await admin
+          .from("automation_scheduled_actions")
+          .select("id")
+          .eq("automation_id", automation.id)
+          .eq("contact_id", contact.id)
+          .eq("trigger_data->>_enroll_stamp", stampKey)
+          .limit(1)
+          .maybeSingle();
+        if (alreadyEnrolled) return { ok: true, conversationId };
+      }
+
       // Cap concurrent drips per (automation, contact) — same guard as waits, so
       // a re-firing trigger can't pile up unbounded enrollments.
       const { count: inflight } = await admin
@@ -259,7 +273,10 @@ async function execLeafAction(
         channel_id: channel.id,
         conversation_id: conversationId,
         remaining_actions: chain,
-        trigger_data: ctx.triggerData ?? {},
+        trigger_data: {
+          ...(ctx.triggerData ?? {}),
+          ...(stampKey ? { _enroll_stamp: stampKey } : {}),
+        },
         run_at: new Date().toISOString(),
         status: "pending",
       });
