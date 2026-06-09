@@ -156,8 +156,11 @@ async function fetchProfile(
   try {
     const token = await vaultReadSecret(channel.access_token_vault_id);
     if (!token) return { name: null, avatar_url: null };
-    const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${psid}?fields=name,profile_pic&access_token=${encodeURIComponent(token)}`;
-    const res = await fetch(url);
+    // Token goes in the Authorization header, NOT the URL query string — a
+    // token in the URL leaks into proxy/access logs. Matches the send route +
+    // connect page in this channel.
+    const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${psid}?fields=name,profile_pic`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return { name: null, avatar_url: null };
     const j = (await res.json()) as { name?: string; profile_pic?: string };
     return { name: j.name ?? null, avatar_url: j.profile_pic ?? null };
