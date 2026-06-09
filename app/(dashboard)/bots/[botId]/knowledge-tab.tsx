@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Globe, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,35 @@ export function KnowledgeTab({
   const [textContent, setTextContent] = useState("");
   // URL-source state
   const [urlValue, setUrlValue] = useState("");
+  // File-upload state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function onUpload(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch(`/api/bots/${botId}/knowledge/upload`, {
+        method: "POST",
+        body: fd,
+      });
+      const json = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+      if (!res.ok || !json?.ok) {
+        toast.error(json?.error ?? "Upload failed.");
+        return;
+      }
+      toast.success("Document indexed.");
+      router.refresh();
+    } catch {
+      toast.error("Network error during upload.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   // Auto-refresh while any source is still embedding, so the status badge
   // settles to done/failed without the agent clicking "Refresh". Polls the
@@ -121,14 +150,25 @@ export function KnowledgeTab({
           <Globe className="mr-1.5 size-4" />
           Add URL
         </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void onUpload(f);
+          }}
+        />
         <Button
           variant="outline"
-          disabled
-          className="border-white/10 opacity-50"
-          title="File upload coming soon — paste text or use a URL for now"
+          disabled={uploading || pending}
+          className="border-white/10"
+          onClick={() => fileInputRef.current?.click()}
+          title="Upload a PDF, DOCX, TXT, or MD file (max 4 MB)"
         >
           <Upload className="mr-1.5 size-4" />
-          Upload file (soon)
+          {uploading ? "Uploading…" : "Upload file"}
         </Button>
         <Button
           variant="ghost"
