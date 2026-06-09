@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.12",
+    date: "2026-06-09",
+    title: "Customer satisfaction surveys",
+    tag: "feature",
+    highlights: [
+      "Automatically ask customers to rate their experience (CSAT or NPS) when a conversation closes — works on every channel.",
+      "One-tap rating link; results roll up to a CSAT average and NPS score in Settings → Inbox.",
+    ],
+  },
+  {
     version: "1.11",
     date: "2026-06-09",
     title: "Agent productivity boosts",
