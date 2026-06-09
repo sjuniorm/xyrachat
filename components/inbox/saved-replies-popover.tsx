@@ -16,16 +16,27 @@ import {
   createSavedReply,
   updateSavedReply,
   deleteSavedReply,
+  recordSavedReplyUse,
 } from "@/lib/saved-replies/actions";
 
-type Reply = { id: string; title: string; body: string };
+type Reply = { id: string; title: string; body: string; category: string | null; usage_count: number };
+
+// Replace {{key}} tokens with the conversation's variables; leave unknown
+// tokens untouched so a typo doesn't blank out text.
+function renderVars(body: string, vars: Record<string, string>): string {
+  return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (m, key) =>
+    Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : m,
+  );
+}
 
 export function SavedRepliesPopover({
   onInsert,
   disabled,
+  variables = {},
 }: {
   onInsert: (body: string) => void;
   disabled?: boolean;
+  variables?: Record<string, string>;
 }) {
   const [supabase] = useState(() => createClient());
   const [open, setOpen] = useState(false);
@@ -36,6 +47,7 @@ export function SavedRepliesPopover({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [category, setCategory] = useState("");
   const [pending, startTransition] = useTransition();
 
   const resetForm = () => {
@@ -43,12 +55,14 @@ export function SavedRepliesPopover({
     setEditingId(null);
     setTitle("");
     setBody("");
+    setCategory("");
   };
 
   const startEdit = (r: Reply) => {
     setEditingId(r.id);
     setTitle(r.title);
     setBody(r.body);
+    setCategory(r.category ?? "");
     setCreating(true);
   };
 
@@ -57,8 +71,9 @@ export function SavedRepliesPopover({
     setLoadError(false);
     const { data, error } = await supabase
       .from("saved_replies")
-      .select("id, title, body")
+      .select("id, title, body, category, usage_count")
       .is("deleted_at", null)
+      .order("category", { nullsFirst: false })
       .order("title");
     if (error) setLoadError(true);
     setReplies((data as Reply[] | null) ?? []);
@@ -74,6 +89,7 @@ export function SavedRepliesPopover({
     const fd = new FormData();
     fd.set("title", title);
     fd.set("body", body);
+    fd.set("category", category);
     if (editingId) fd.set("id", editingId);
     startTransition(async () => {
       const r = editingId ? await updateSavedReply(fd) : await createSavedReply(fd);
@@ -145,11 +161,19 @@ export function SavedRepliesPopover({
                   type="button"
                   className="min-w-0 flex-1 text-left"
                   onClick={() => {
-                    onInsert(r.body);
+                    onInsert(renderVars(r.body, variables));
+                    void recordSavedReplyUse(r.id);
                     setOpen(false);
                   }}
                 >
-                  <p className="truncate text-sm font-medium">{r.title}</p>
+                  <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                    {r.title}
+                    {r.category && (
+                      <span className="shrink-0 rounded bg-white/10 px-1 py-px text-[9px] uppercase tracking-wide text-white/50">
+                        {r.category}
+                      </span>
+                    )}
+                  </p>
                   <p className="truncate text-xs text-white/50">{r.body}</p>
                 </button>
                 <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
@@ -186,12 +210,21 @@ export function SavedRepliesPopover({
                 placeholder="Title (e.g. Opening hours)"
                 maxLength={80}
               />
+              <Input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="Category (optional, e.g. Billing)"
+                maxLength={40}
+              />
               <Textarea
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
-                placeholder="Message…"
+                placeholder="Message… use {{contact_name}} or {{first_name}}"
                 rows={3}
               />
+              <p className="px-0.5 text-[10px] text-white/40">
+                Variables: {"{{contact_name}}"}, {"{{first_name}}"} — filled in when inserted.
+              </p>
               <div className="flex gap-2">
                 <Button
                   type="button"

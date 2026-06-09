@@ -538,7 +538,14 @@ export function Composer({
 
           <EmojiPicker onSelect={insertEmoji} disabled={pending} />
 
-          <SavedRepliesPopover onInsert={insertSavedReply} disabled={pending} />
+          <SavedRepliesPopover
+            onInsert={insertSavedReply}
+            disabled={pending}
+            variables={{
+              contact_name: conversation.contact?.name ?? "",
+              first_name: (conversation.contact?.name ?? "").trim().split(/\s+/)[0] ?? "",
+            }}
+          />
 
           <div className="ml-auto flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-white/70">

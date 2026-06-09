@@ -29,15 +29,25 @@ export async function createSavedReply(formData: FormData): Promise<ActionResult
   const ctx = await caller();
   if (!ctx) return { ok: false, error: "Not signed in." };
 
+  const category = String(formData.get("category") ?? "").trim().slice(0, 40) || null;
   const { error } = await ctx.supabase.from("saved_replies").insert({
     org_id: ctx.orgId,
     title,
     body,
+    category,
     created_by: ctx.userId,
   });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/inbox");
   return { ok: true };
+}
+
+// Atomic usage bump (org-scoped RPC). Fire-and-forget from the composer.
+export async function recordSavedReplyUse(id: string): Promise<void> {
+  if (!id) return;
+  const ctx = await caller();
+  if (!ctx) return;
+  await ctx.supabase.rpc("increment_saved_reply_use", { p_id: id });
 }
 
 export async function updateSavedReply(formData: FormData): Promise<ActionResult> {
@@ -51,10 +61,11 @@ export async function updateSavedReply(formData: FormData): Promise<ActionResult
   const ctx = await caller();
   if (!ctx) return { ok: false, error: "Not signed in." };
 
+  const category = String(formData.get("category") ?? "").trim().slice(0, 40) || null;
   // RLS scopes the row to the caller's org; only update non-deleted rows.
   const { error } = await ctx.supabase
     .from("saved_replies")
-    .update({ title, body })
+    .update({ title, body, category })
     .eq("id", id)
     .is("deleted_at", null);
   if (error) return { ok: false, error: error.message };
