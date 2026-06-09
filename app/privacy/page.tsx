@@ -35,8 +35,9 @@ export default function PrivacyPage() {
       </p>
 
       <p>
-        Xyra Chat (the &quot;Service&quot;), operated by Mll Studio (&quot;we&quot;,
-        &quot;us&quot;), is a multi-channel customer-messaging platform. This policy
+        Xyra Chat (the &quot;Service&quot;), operated by Mll Nexus Group SL
+        (trading as Mll Studio) (&quot;we&quot;, &quot;us&quot;), is a
+        multi-channel customer-messaging platform. This policy
         explains what personal data we process, why, and the rights you have. It is
         written to align with the EU General Data Protection Regulation (GDPR) and
         the UK GDPR.
@@ -143,7 +144,8 @@ export default function PrivacyPage() {
       <h2>11. Contact</h2>
       <p>
         Privacy questions: <a href="mailto:privacy@xyrachat.com">privacy@xyrachat.com</a>.
-        Operator: Mll Studio, [legal entity name + registered address]. EU
+        Operator: Mll Nexus Group SL (trading as Mll Studio),
+        [registered address — to be completed]. EU
         representative / DPO (if applicable): [to be completed].
       </p>
 

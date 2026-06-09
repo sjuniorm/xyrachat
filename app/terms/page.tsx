@@ -24,7 +24,7 @@ export default function TermsPage() {
 
       <p>
         These Terms govern your use of Xyra Chat (the &quot;Service&quot;), operated
-        by Mll Studio (&quot;we&quot;, &quot;us&quot;). By creating an account or
+        by Mll Nexus Group SL (trading as Mll Studio) (&quot;we&quot;, &quot;us&quot;). By creating an account or
         using the Service you agree to these Terms and to our{" "}
         <Link href="/privacy">Privacy Policy</Link>.
       </p>
@@ -111,7 +111,7 @@ export default function TermsPage() {
       <h2>11. Contact</h2>
       <p>
         <a href="mailto:legal@xyrachat.com">legal@xyrachat.com</a> · Operator: Mll
-        Studio, [legal entity name + registered address].
+        Nexus Group SL (trading as Mll Studio), [registered address — to be completed].
       </p>
 
       <p className="text-sm text-white/50">
