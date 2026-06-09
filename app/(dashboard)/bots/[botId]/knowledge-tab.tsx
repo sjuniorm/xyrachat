@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Globe, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,20 @@ export function KnowledgeTab({
   const [textContent, setTextContent] = useState("");
   // URL-source state
   const [urlValue, setUrlValue] = useState("");
+
+  // Auto-refresh while any source is still embedding, so the status badge
+  // settles to done/failed without the agent clicking "Refresh". Polls the
+  // server component (router.refresh re-fetches `sources`) every 2.5s and
+  // stops as soon as nothing is processing. bot_sources isn't in the realtime
+  // publication, so a short poll-while-processing is the lightest path.
+  const processing = sources.some(
+    (s) => s.embedding_status === "pending" || s.embedding_status === "running",
+  );
+  useEffect(() => {
+    if (!processing) return;
+    const t = setInterval(() => router.refresh(), 2500);
+    return () => clearInterval(t);
+  }, [processing, router]);
 
   function onAddText() {
     if (!textTitle.trim()) return toast.error("Title required.");
@@ -122,8 +136,8 @@ export function KnowledgeTab({
           onClick={() => router.refresh()}
           className="ml-auto h-8 text-white/60 hover:text-white"
         >
-          <RefreshCw className="mr-1.5 size-3.5" />
-          Refresh status
+          <RefreshCw className={`mr-1.5 size-3.5 ${processing ? "animate-spin" : ""}`} />
+          {processing ? "Updating…" : "Refresh status"}
         </Button>
       </div>
 

@@ -318,6 +318,29 @@ async function onInvoicePaymentFailed(invoice: Stripe.Invoice) {
     .from("subscriptions")
     .update({ status: "past_due" })
     .eq("org_id", orgId);
+
+  // Notify the workspace owner so they can fix the card before retention kicks
+  // in. Fail-soft + gated on the Resend domain being configured (skips cleanly
+  // until then) — a missed email must never break the webhook / leave the
+  // status un-updated.
+  try {
+    const [{ data: org }, { data: owner }] = await Promise.all([
+      admin.from("organizations").select("name").eq("id", orgId).maybeSingle(),
+      admin
+        .from("profiles")
+        .select("email")
+        .eq("org_id", orgId)
+        .eq("role", "owner")
+        .is("deleted_at", null)
+        .maybeSingle(),
+    ]);
+    if (owner?.email) {
+      const { sendPaymentFailedEmail } = await import("@/lib/email/send");
+      await sendPaymentFailedEmail(owner.email, org?.name ?? "your workspace");
+    }
+  } catch (err) {
+    console.error("[stripe webhook] payment-failed email send failed (continuing)", err);
+  }
 }
 
 // Stripe moved the subscription→current_period_end onto each item in
