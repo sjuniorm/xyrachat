@@ -673,7 +673,7 @@ function isWithinHours(
 // as an agent's send: same retry policy, same token unwrap, same message
 // row format.
 // =====================================================================
-async function sendOutbound(
+export async function sendOutbound(
   channelType: string,
   args: {
     conversationId: string;

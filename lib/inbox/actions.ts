@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveServingBot } from "@/lib/inbox/server";
 import { buildConversationSummary } from "@/lib/ai/summarize";
+import { maybeSendSurvey } from "@/lib/surveys/server";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 import type { ConversationStatus } from "@/lib/db-types";
 
@@ -208,6 +209,9 @@ export async function setConversationStatus(
     .eq("id", conversationId);
   if (error) return { ok: false, error: error.message };
 
+  // On close, fire a CSAT/NPS survey if the org enabled it (no-op otherwise).
+  if (status === "closed") void maybeSendSurvey(conversationId);
+
   revalidatePath("/inbox");
   revalidatePath(`/inbox/${conversationId}`);
   return { ok: true };
@@ -296,6 +300,11 @@ export async function setConversationsStatusBulk(
     .in("id", ids)
     .eq("org_id", auth.orgId);
   if (error) return { ok: false, error: error.message };
+
+  // Survey each newly-closed conversation (no-op unless the org enabled it).
+  if (status === "closed") {
+    for (const id of ids) void maybeSendSurvey(id);
+  }
 
   revalidatePath("/inbox");
   return { ok: true };

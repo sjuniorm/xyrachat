@@ -28,6 +28,10 @@ function isPublicPath(pathname: string) {
   // visitor token inside the handler. The embed script + visitors have no
   // session cookie.
   if (pathname.startsWith("/api/webchat/")) return true;
+  // Public CSAT/NPS rating page + submit — gated by an unguessable token, no
+  // session (the customer clicking the link isn't a Xyra user).
+  if (pathname.startsWith("/rate/")) return true;
+  if (pathname === "/api/rating") return true;
   // GDPR + auth-gated APIs do their own auth checks inside the handler.
   if (pathname.startsWith("/api/gdpr")) return true;
   // Bearer/secret-authed API families — they authenticate INSIDE the

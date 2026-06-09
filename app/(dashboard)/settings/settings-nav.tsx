@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { href: "/settings/channels", label: "Channels" },
   { href: "/settings/team", label: "Team" },
+  { href: "/settings/inbox", label: "Inbox" },
   { href: "/settings/api", label: "API & Webhooks" },
   { href: "/settings/billing", label: "Plan & Usage" },
 ] as const;
