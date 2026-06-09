@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.8",
+    date: "2026-06-09",
+    title: "Knowledge uploads & inbox polish",
+    tag: "improvement",
+    highlights: [
+      "Train a bot by uploading a PDF, Word doc, or text file — we extract and index it automatically.",
+      "Images and files customers send on WhatsApp and Telegram now render right in the inbox.",
+      "Conversation list shows real unread counts, and saved replies are now editable.",
+    ],
+  },
+  {
     version: "1.7",
     date: "2026-06-09",
     title: "Facebook Messenger joins the inbox",
