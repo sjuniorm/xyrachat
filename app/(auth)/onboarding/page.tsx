@@ -54,6 +54,36 @@ async function createOrgAction(formData: FormData) {
   if (rpcErr) return { error: rpcErr.message };
   if (!orgId) return { error: "Could not create org." };
 
+  // Provision the Trial bundle so plan gates enforce from day one. Without this
+  // a new org has ZERO entitlement rows → the fail-open backstop treats it as
+  // unlimited-everything. Also stamp the trial window on the subscription (the
+  // migration-017 trigger created a free row) so the trial-end reminder + the
+  // billing UI work. Fail-soft: a provisioning hiccup must not block signup.
+  try {
+    const { provisionBundle } = await import("@/lib/billing/provision");
+    const { BUNDLES } = await import("@/lib/billing/bundles");
+    const trialEnds = new Date(
+      Date.now() + BUNDLES.trial.trialDays * 86_400_000,
+    ).toISOString();
+    await provisionBundle({
+      orgId: orgId as string,
+      bundleId: "trial",
+      stripeSubscriptionId: null,
+      expiresAt: trialEnds,
+    });
+    await admin
+      .from("subscriptions")
+      .update({
+        plan: "trial",
+        status: "trialing",
+        trial_ends_at: trialEnds,
+        trial_source: "signup",
+      })
+      .eq("org_id", orgId as string);
+  } catch (err) {
+    console.error("[onboarding] trial provisioning failed (continuing)", err);
+  }
+
   await trackServer("org_created", user.id, { org_id: orgId as string });
 
   // Branded welcome email — fail-soft, never blocks onboarding. Delivery is

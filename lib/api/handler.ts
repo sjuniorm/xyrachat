@@ -1,7 +1,14 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireApiKey, logApiRequest, type ApiKeyContext } from "./auth";
+import { rateLimited } from "./errors";
+import { rateLimit } from "@/lib/rate-limit";
 import type { Scope } from "./scopes";
+
+// Per-key sliding-window limits (separate read/write buckets so a write flood
+// can't starve reads). Fails OPEN until Upstash is configured.
+const READ_LIMIT = 600; // GET/HEAD per minute per key
+const WRITE_LIMIT = 120; // mutating methods per minute per key
 
 // Wrap a route handler so every request gets:
 //  - bearer-token auth + scope check
@@ -45,6 +52,32 @@ export function apiHandler(opts: {
       return auth.response;
     }
 
+    // Enforce per-key rate limit (was a stub header before).
+    const isWrite = !["GET", "HEAD"].includes(req.method.toUpperCase());
+    const limit = isWrite ? WRITE_LIMIT : READ_LIMIT;
+    const rl = await rateLimit(isWrite ? "api:write" : "api:read", auth.ctx.apiKeyId, {
+      limit,
+      windowSec: 60,
+    });
+    if (!rl.ok) {
+      const limited = rateLimited(rl.retryAfter);
+      limited.headers.set("X-RateLimit-Limit", String(limit));
+      limited.headers.set("X-RateLimit-Remaining", "0");
+      limited.headers.set("X-RateLimit-Reset", String(Math.floor(Date.now() / 1000) + rl.retryAfter));
+      void logApiRequest({
+        apiKeyId: auth.ctx.apiKeyId,
+        orgId: auth.ctx.orgId,
+        method: req.method,
+        path: new URL(req.url).pathname,
+        status: 429,
+        durationMs: Date.now() - start,
+        ip: req.headers.get("x-forwarded-for"),
+        userAgent: req.headers.get("user-agent"),
+        idempotencyKey: req.headers.get("idempotency-key"),
+      });
+      return limited;
+    }
+
     let res: NextResponse;
     try {
       const out = await opts.handler(req, auth.ctx, resolvedParams);
@@ -58,11 +91,11 @@ export function apiHandler(opts: {
       );
     }
 
-    // Stub rate-limit headers — real per-key sliding-window lands when
-    // Upstash is configured. Headers are still useful for client SDKs to
-    // start parsing now so the API surface stays stable later.
-    res.headers.set("X-RateLimit-Limit", "600");
-    res.headers.set("X-RateLimit-Remaining", "600");
+    // Rate-limit headers. Limit + Reset are exact; Remaining is approximate
+    // (the shared limiter abstracts the count) — enforcement happens in the
+    // 429 path above, these are informational for client SDKs.
+    res.headers.set("X-RateLimit-Limit", String(limit));
+    res.headers.set("X-RateLimit-Remaining", String(limit));
     res.headers.set(
       "X-RateLimit-Reset",
       String(Math.floor(Date.now() / 1000) + 60),

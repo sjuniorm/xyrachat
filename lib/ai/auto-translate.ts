@@ -96,6 +96,11 @@ export async function maybeAutoTranslate(args: {
     return;
   }
 
+  // Flood guard (per-contact, shared with the bot-reply path) — placed here so
+  // it only counts an ACTUAL translation, not a same-language / cache-hit no-op.
+  const { aiInboundAllowed } = await import("@/lib/ai/flood-guard");
+  if (!(await aiInboundAllowed(args.orgId, args.contactId))) return;
+
   // Translate via Haiku (cheap + fast).
   try {
     const anthropic = getAnthropic();

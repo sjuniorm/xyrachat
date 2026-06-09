@@ -337,6 +337,21 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     }
   }
 
+  // ---- GATE 5b: per-contact/conversation flood guard ------------
+  // Bound runaway AI spend from a hostile inbound flood BEFORE any spend
+  // (voice transcription / vision / generation), keyed per contact + conversation.
+  {
+    const { aiInboundAllowed } = await import("@/lib/ai/flood-guard");
+    if (
+      !(await aiInboundAllowed(input.channel.org_id, input.contactId, input.conversationId))
+    ) {
+      await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
+        reason: "ai_flood_guard",
+      });
+      return { skipped: true, reason: "ai_flood_guard" };
+    }
+  }
+
   // ---- GATE 6: voice transcription --------------------------------
   // If the inbound is audio with no text, transcribe via Whisper before the
   // bot sees it, and write the transcript back to the message row in-place so

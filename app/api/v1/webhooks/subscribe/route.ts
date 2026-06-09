@@ -4,7 +4,8 @@ import { requireApiKey, logApiRequest } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertSafeOutboundUrl } from "@/lib/api/ssrf";
 import { EVENT_TYPES, type EventType } from "@/lib/api/events";
-import { invalidRequest } from "@/lib/api/errors";
+import { invalidRequest, rateLimited } from "@/lib/api/errors";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,15 @@ export async function POST(req: NextRequest) {
   const start = Date.now();
   const auth = await requireApiKey(req, "webhooks:write");
   if (!auth.ok) return auth.response;
+
+  // This route registers outbound endpoints + is an SSRF-validation surface —
+  // throttle per key (this route doesn't go through apiHandler). Fails open
+  // until Upstash is set.
+  const rl = await rateLimit("api:webhooks:subscribe", auth.ctx.apiKeyId, {
+    limit: 30,
+    windowSec: 60,
+  });
+  if (!rl.ok) return rateLimited(rl.retryAfter);
 
   let body: {
     url?: string;

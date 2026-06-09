@@ -192,9 +192,17 @@ async function recordCheckoutPromo(orgId: string, session: Stripe.Checkout.Sessi
       },
       { onConflict: "promo_code_id,org_id" },
     );
+    // Derive the count from the (idempotent) redemptions table rather than
+    // blindly incrementing — a re-delivered checkout.session.completed upserts
+    // the same redemption row, so the count stays accurate instead of drifting
+    // up + prematurely exhausting the code's max_redemptions cap.
+    const { count } = await admin
+      .from("promo_redemptions")
+      .select("id", { count: "exact", head: true })
+      .eq("promo_code_id", promo.id);
     await admin
       .from("promo_codes")
-      .update({ redemption_count: (promo.redemption_count ?? 0) + 1 })
+      .update({ redemption_count: count ?? (promo.redemption_count ?? 0) })
       .eq("id", promo.id);
   } catch (err) {
     console.warn("[stripe webhook] recordCheckoutPromo failed", err);
