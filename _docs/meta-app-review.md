@@ -14,11 +14,11 @@
 
 These were caught during review and block a clean submission:
 
-1. **Legal-entity name mismatch in /privacy + /terms.** They currently say "Mll Studio"; Business
-   Verification will be filed as **Mll Nexus Group SL**. The privacy policy must match the verified
-   entity exactly. Also fill any remaining `[jurisdiction]` / `[venue]` / `[registered address]`
-   bracket placeholders. (A policy that contradicts the verified entity, or contains placeholders,
-   is a hard rejection.)
+1. ✅ **DONE (2026-06-09).** /privacy + /terms now name **Mll Nexus Group SL (trading as Mll Studio)**
+   with the registered address (Calle Poetas Españoles 1, Local 1, 38678 Armeñime, Santa Cruz de
+   Tenerife, Spain), governing law = Spain, and no remaining bracket placeholders. This must match the
+   Business Verification filing exactly (same legal name + address). *Counsel review still advisable
+   (consumer venue, DPO) but not a Meta blocker.*
 2. **Instagram `comments` webhook field is NOT auto-subscribed.** `subscribeIgWebhooks()` requests
    only `messages,messaging_postbacks,message_reactions,messaging_referral`. To demo
    `instagram_business_manage_comments`, the operator must enable the `comments` field in
