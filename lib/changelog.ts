@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.9",
+    date: "2026-06-09",
+    title: "Drip sequences",
+    tag: "feature",
+    highlights: [
+      "Build reusable drip sequences — a series of follow-up messages sent over minutes, hours, or days.",
+      "Enroll a contact into a sequence from any automation with the new Add to sequence step.",
+      "Manage sequences from Automations → Sequences; pause or edit them anytime.",
+    ],
+  },
+  {
     version: "1.8",
     date: "2026-06-09",
     title: "Knowledge uploads & inbox polish",
