@@ -46,7 +46,7 @@ export async function dispatchTrigger(input: {
 
   const { data: contact } = await admin
     .from("contacts")
-    .select("id, org_id, name, phone, email, instagram_id, telegram_id")
+    .select("id, org_id, name, phone, email, instagram_id, telegram_id, messenger_id")
     .eq("id", input.contactId)
     .maybeSingle();
   if (!contact) return;

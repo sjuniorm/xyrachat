@@ -21,6 +21,8 @@ export function ChannelsFlash({
       toast.success("Telegram bot connected.");
     } else if (connected === "email") {
       toast.success("Email channel ready.");
+    } else if (connected === "messenger") {
+      toast.success("Facebook Messenger connected.");
     } else if (error) {
       toast.error(error);
     }

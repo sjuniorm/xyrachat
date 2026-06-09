@@ -56,6 +56,7 @@ export type ContactRow = {
   email: string | null;
   instagram_id: string | null;
   telegram_id: string | null;
+  messenger_id: string | null;
   avatar_url: string | null;
   tags: string[];
   notes: string | null;
@@ -160,6 +161,7 @@ export type MessageRow = {
   ig_message_id: string | null;
   telegram_message_id: string | null;
   email_message_id: string | null;
+  messenger_message_id: string | null;
   is_internal_note: boolean;
   metadata: MessageMetadata;
   deleted_at: string | null;

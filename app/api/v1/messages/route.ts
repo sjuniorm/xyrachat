@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle(),
     admin
       .from("contacts")
-      .select("id, phone, instagram_id, telegram_id, opted_out")
+      .select("id, phone, instagram_id, telegram_id, messenger_id, opted_out")
       .eq("id", conv.contact_id)
       .maybeSingle(),
   ]);
@@ -154,6 +154,8 @@ export async function POST(req: NextRequest) {
     insertCols.ig_message_id = result.providerMessageId;
   } else if (channel.type === "telegram" && result.providerMessageId) {
     insertCols.telegram_message_id = result.providerMessageId;
+  } else if (channel.type === "facebook" && result.providerMessageId) {
+    insertCols.messenger_message_id = result.providerMessageId;
   }
   const { data: stored } = await admin
     .from("messages")
@@ -211,6 +213,7 @@ async function sendViaProvider(input: {
     phone: string | null;
     instagram_id: string | null;
     telegram_id: string | null;
+    messenger_id: string | null;
   };
   token: string;
   type: "text" | "template" | "image";
@@ -318,6 +321,34 @@ async function sendViaProvider(input: {
     }
     const tgKey = json.result ? `${json.result.chat.id}:${json.result.message_id}` : null;
     return { ok: true, providerMessageId: tgKey };
+  }
+
+  if (channel.type === "facebook") {
+    if (!contact.messenger_id) {
+      return { ok: false, code: "contact_missing_handle", error: "Contact has no messenger_id." };
+    }
+    if (!channel.page_id) {
+      return { ok: false, code: "channel_misconfigured", error: "Channel missing page_id." };
+    }
+    const res = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: { id: contact.messenger_id },
+          messaging_type: "RESPONSE",
+          message: { text: content?.trim() ?? "" },
+        }),
+      },
+    );
+    const json = (await res.json().catch(() => null)) as
+      | { message_id?: string; error?: { message: string } }
+      | null;
+    if (!res.ok || json?.error) {
+      return { ok: false, code: "provider_error", error: json?.error?.message ?? `Messenger HTTP ${res.status}` };
+    }
+    return { ok: true, providerMessageId: json?.message_id ?? null };
   }
 
   return { ok: false, code: "unsupported_channel", error: `Send not implemented for ${channel.type} via REST API.` };

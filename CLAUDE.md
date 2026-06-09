@@ -1646,6 +1646,76 @@ cache). Operator: add Upstash keys to enforce rate limits; create a Sentry
 project for the DSN. See project_pre_launch_checklist memory; Meta App Review
 is the longest-pole external dependency — start early.
 
+## Week 16 — Facebook Messenger channel (DONE 2026-06-09)
+
+Fifth channel, built before launch so the Meta App Review submission can
+demo `pages_messaging` against a live feature. Messenger rides the Messenger
+Platform (same shape as Instagram DMs): a Facebook **Page** receives DMs via
+webhook (object `"page"`, `entry[].messaging[]`); we send via
+`POST /{page_id}/messages` with the Page access token. **Channel type is
+`'facebook'`** (already allowed by the `channels.type` CHECK from migration
+003; the UI — channel-icon, conversation-list filter, billing gates — already
+supported it). Reuses `channels.page_id` + `access_token_vault_id`.
+
+**Migration** — [`046_messenger_channel.sql`](supabase/migrations/046_messenger_channel.sql)
+- `contacts.messenger_id` (PSID) + partial index `idx_contacts_org_messenger`.
+- `messages.messenger_message_id` (Messenger mid) + partial unique index
+  `idx_messages_fb_unique` for inbound idempotency.
+- `insert_inbound_messenger_message(...)` SECURITY DEFINER fn mirroring
+  `insert_inbound_ig_message` (migration 014): ON CONFLICT (messenger_message_id)
+  DO NOTHING; REVOKE from anon/authenticated/PUBLIC, GRANT to service_role.
+- No new table → no extra GRANTs needed (columns inherit existing table grants).
+
+**Webhook** — [`app/api/webhooks/messenger/route.ts`](app/api/webhooks/messenger/route.ts)
+- GET handshake against `MESSENGER_WEBHOOK_VERIFY_TOKEN`.
+- POST verifies `X-Hub-Signature-256` HMAC against **`META_APP_SECRET`**
+  (Messenger is a product on the ORIGINAL Facebook app, same as WhatsApp —
+  NOT a Messenger-specific secret). `timingSafeEqual`, length-guarded.
+- Skips `is_echo`. `findChannelByPageId(entry.id, type='facebook')`. PSID →
+  find-or-create contact (fetches name/profile_pic via Graph). Idempotent
+  insert via the RPC, then `last_message_at`/`last_inbound_at` bump,
+  `maybeAutoTranslate`, `emit('message.received')`, `notifyNewInbound`,
+  `runBotGate`, `resumeWaitingReplies`. `handleStatus` for delivery/read
+  (forward-only). Reactions/comments skipped for MVP.
+
+**Send** — [`app/api/channels/messenger/send/route.ts`](app/api/channels/messenger/send/route.ts)
+- `getRouteUser` (cookie OR mobile JWT), per-user rate limit, RLS-scoped
+  conversation load, channel/contact via admin, token from Vault, POST
+  `graph.facebook.com/{page_id}/messages` with `recipient.id =
+  contact.messenger_id`, `messaging_type:"RESPONSE"`. Stores outbound row
+  with `messenger_message_id`.
+
+**Wired everywhere a channel must be:**
+- Bot replies: `sendMessenger` added to [bot-gate](lib/ai/bot-gate.ts)
+  `sendOutbound`; `ProviderChannel` gains `"facebook"`.
+- Composer ([composer.tsx](components/inbox/composer.tsx)) routes `facebook`
+  → `/api/channels/messenger/send`.
+- Automations: [executor](lib/automations/executor.ts) `send_dm` + `pickRecipient`
+  handle `facebook` (recipient = `messenger_id`); contact selects in executor
+  + [triggers](lib/automations/triggers.ts) + the v1 run route now fetch
+  `messenger_id`.
+- Public API: [`POST /api/v1/messages`](app/api/v1/messages/route.ts) sends on
+  `facebook` channels (text).
+- Connect UI: [`/settings/channels/messenger/new`](app/(dashboard)/settings/channels/messenger/new/)
+  — Page ID + Page token; the action auto-subscribes the Page to the app
+  webhook (`POST /{page_id}/subscribed_apps`, fields
+  `messages,messaging_postbacks,message_deliveries,message_reads`), which both
+  validates the token and wires delivery. Token → Vault. Added to the
+  add-channel dropdown + the `?connected=messenger` flash toast.
+
+**Env** (new) — `MESSENGER_WEBHOOK_VERIFY_TOKEN` (GET handshake; keep distinct
+from the WA + IG verify tokens). HMAC reuses `META_APP_SECRET`.
+
+**⚠️ Operator: apply migration 046** in Supabase before connecting a Messenger
+channel. Meta setup: original FB app → add **Messenger** product → Webhooks →
+Messenger → Callback `https://<app>/api/webhooks/messenger` + the verify token →
+subscribe; generate a Page token in Messenger → Settings → Access Tokens. App
+Review needs `pages_messaging` (in the launch runbook).
+
+**Deferred (MVP):** Messenger-specific automation triggers (only the
+channel-agnostic `conversation_opened`/`webhook` triggers apply today — no
+`fb_keyword`); inbound reactions/postback payloads; media outbound (text only).
+
 ## Roadmap snapshot (after Week 15 — Week 16)
 
 Week 16: **Meta Business verification + launch prep**.
@@ -1657,8 +1727,9 @@ Also queued:
 - Saved replies CRUD
 - Chooser UI when an OAuth-connected Facebook account has multiple
   IG-linked Pages (currently we auto-pick the first).
-- Messenger channel (bundles into the same Meta App Review submission as
-  Instagram).
+- Messenger one-click OAuth connect (manual Page-token entry ships now;
+  Continue-with-Facebook page-picker is a polish follow-up — bundles into the
+  same Meta App Review submission as Instagram).
 - **WhatsApp Embedded Signup** — explicitly deferred from Week 9's scope.
   Manual entry still works fine for adding new WA channels; ESU is a
   client-onboarding polish item once the marketing site is live.

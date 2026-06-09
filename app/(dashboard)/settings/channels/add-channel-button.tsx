@@ -5,6 +5,7 @@ import {
   Plus,
   Camera,
   MessageCircle,
+  MessagesSquare,
   Send,
   Mail,
   ChevronDown,
@@ -56,6 +57,14 @@ export function AddChannelButton({ size = "md" }: { size?: "md" | "lg" }) {
               <Send className="size-3 text-white" />
             </span>
             Telegram bot
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/channels/messenger/new" className="cursor-pointer">
+            <span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-[#1877F2]">
+              <MessagesSquare className="size-3 text-white" />
+            </span>
+            Facebook Messenger
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

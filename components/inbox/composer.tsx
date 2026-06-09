@@ -148,7 +148,9 @@ export function Composer({
               ? "/api/channels/telegram/send"
               : conversation.channel === "email"
                 ? "/api/channels/email/send"
-                : null;
+                : conversation.channel === "facebook"
+                  ? "/api/channels/messenger/send"
+                  : null;
       if (!endpoint) {
         toast.error(
           `Sending on ${conversation.channel} isn't wired up yet.`,

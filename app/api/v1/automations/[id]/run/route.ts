@@ -31,7 +31,7 @@ export const POST = apiHandler({
       admin.from("automations").select("*").eq("id", params.id).is("deleted_at", null).maybeSingle(),
       admin
         .from("contacts")
-        .select("id, org_id, name, phone, email, instagram_id, telegram_id")
+        .select("id, org_id, name, phone, email, instagram_id, telegram_id, messenger_id")
         .eq("id", body.contact_id)
         .is("deleted_at", null)
         .maybeSingle(),

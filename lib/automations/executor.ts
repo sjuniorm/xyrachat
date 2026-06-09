@@ -28,6 +28,7 @@ type ExecContact = {
   email: string | null;
   instagram_id: string | null;
   telegram_id: string | null;
+  messenger_id: string | null;
 };
 type ExecChannel = {
   id: string;
@@ -512,7 +513,7 @@ export async function resumeAutomation(row: {
   const [{ data: contact }, { data: channel }] = await Promise.all([
     admin
       .from("contacts")
-      .select("id, org_id, name, phone, email, instagram_id, telegram_id")
+      .select("id, org_id, name, phone, email, instagram_id, telegram_id, messenger_id")
       .eq("id", row.contact_id)
       .maybeSingle(),
     admin
@@ -806,12 +807,55 @@ async function sendChannelMessage(input: {
     return { ok: true };
   }
 
+  if (channel.type === "facebook") {
+    // recipient is the contact's messenger_id (PSID); send via the Page.
+    if (!channel.page_id) return { ok: false, error: "Channel missing page_id" };
+    const res = await fetch(
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          recipient: { id: recipient },
+          messaging_type: "RESPONSE",
+          message: { text: trimmed },
+        }),
+      },
+    );
+    const json = (await res.json().catch(() => null)) as {
+      message_id?: string;
+      error?: { message: string };
+    } | null;
+    if (!res.ok || json?.error) {
+      return { ok: false, error: json?.error?.message ?? `Messenger API HTTP ${res.status}` };
+    }
+    await admin.from("messages").insert({
+      conversation_id: conversationId,
+      direction: "outbound",
+      content: trimmed,
+      sender_type: "bot",
+      status: "sent",
+      messenger_message_id: json?.message_id ?? null,
+      metadata: msgMetadata,
+    });
+    await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+    return { ok: true };
+  }
+
   return { ok: false, error: `Send not implemented for ${channel.type}` };
 }
 
 function pickRecipient(
   channelType: string,
-  contact: { phone: string | null; instagram_id: string | null; telegram_id: string | null },
+  contact: {
+    phone: string | null;
+    instagram_id: string | null;
+    telegram_id: string | null;
+    messenger_id: string | null;
+  },
 ): string {
   switch (channelType) {
     case "whatsapp":
@@ -820,6 +864,8 @@ function pickRecipient(
       return contact.instagram_id ?? "";
     case "telegram":
       return contact.telegram_id ?? "";
+    case "facebook":
+      return contact.messenger_id ?? "";
     default:
       return "";
   }

@@ -13,7 +13,7 @@ import { transcribeInboundAudio } from "@/lib/ai/transcription";
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
 // know the channel type (WA 24h window, send endpoint).
-export type ProviderChannel = "whatsapp" | "instagram" | "telegram";
+export type ProviderChannel = "whatsapp" | "instagram" | "telegram" | "facebook";
 
 export type BotGateInput = {
   channel: {
@@ -698,6 +698,8 @@ async function sendOutbound(
     await sendWhatsApp(admin, args);
   } else if (channelType === "instagram") {
     await sendInstagram(admin, args);
+  } else if (channelType === "facebook") {
+    await sendMessenger(admin, args);
   }
 }
 
@@ -874,6 +876,62 @@ async function sendInstagram(
     sender_type: "bot",
     status: "sent",
     ig_message_id: json?.message_id ?? null,
+    metadata: args.botMetadata,
+  });
+  await admin
+    .from("conversations")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", args.conversationId);
+}
+
+async function sendMessenger(
+  admin: ReturnType<typeof createAdminClient>,
+  args: {
+    conversationId: string;
+    content: string;
+    botMetadata: Record<string, unknown>;
+    channelId: string;
+    contactId: string;
+  },
+): Promise<void> {
+  const [{ data: channel }, { data: contact }] = await Promise.all([
+    admin
+      .from("channels")
+      .select("page_id, access_token_vault_id")
+      .eq("id", args.channelId)
+      .maybeSingle(),
+    admin
+      .from("contacts")
+      .select("messenger_id")
+      .eq("id", args.contactId)
+      .maybeSingle(),
+  ]);
+  if (!channel?.page_id || !channel.access_token_vault_id || !contact?.messenger_id) return;
+  const token = await vaultReadSecret(channel.access_token_vault_id).catch(() => null);
+  if (!token) return;
+  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      recipient: { id: contact.messenger_id },
+      messaging_type: "RESPONSE",
+      message: { text: args.content },
+    }),
+  });
+  const json = (await res.json().catch(() => null)) as
+    | { message_id?: string }
+    | null;
+  await admin.from("messages").insert({
+    conversation_id: args.conversationId,
+    direction: "outbound",
+    content: args.content,
+    sender_type: "bot",
+    status: "sent",
+    messenger_message_id: json?.message_id ?? null,
     metadata: args.botMetadata,
   });
   await admin
