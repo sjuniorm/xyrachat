@@ -24,6 +24,10 @@ function isPublicPath(pathname: string) {
   if (pathname === "/api/security/csp-report") return true;
   // Webhooks have no session cookie — they verify themselves via HMAC.
   if (pathname.startsWith("/api/webhooks/")) return true;
+  // Webchat widget: public (any origin), gated by the channel public key +
+  // visitor token inside the handler. The embed script + visitors have no
+  // session cookie.
+  if (pathname.startsWith("/api/webchat/")) return true;
   // GDPR + auth-gated APIs do their own auth checks inside the handler.
   if (pathname.startsWith("/api/gdpr")) return true;
   // Bearer/secret-authed API families — they authenticate INSIDE the

@@ -26,15 +26,18 @@ export type GateResult = { ok: true } | { ok: false; error: string };
 // (channels:whatsapp etc). Counts non-deleted channels in the org.
 export async function assertCanAddChannel(
   orgId: string,
-  channelType: "whatsapp" | "instagram" | "telegram" | "email" | "facebook",
+  channelType: "whatsapp" | "instagram" | "telegram" | "email" | "facebook" | "webchat",
 ): Promise<GateResult> {
-  // Per-type availability flag. facebook reuses the instagram flag for
-  // now (same Meta app surface); revisit when Messenger ships.
-  const typeKey: FeatureKey =
-    channelType === "facebook"
-      ? "channels:instagram"
-      : (`channels:${channelType}` as FeatureKey);
-  if (!(await hasFeature(orgId, typeKey))) {
+  // Per-type availability flag. facebook reuses the instagram flag (same Meta
+  // app surface). webchat is a free first-party channel — always available, only
+  // bounded by the overall channel count limit below.
+  const typeKey: FeatureKey | null =
+    channelType === "webchat"
+      ? null
+      : channelType === "facebook"
+        ? "channels:instagram"
+        : (`channels:${channelType}` as FeatureKey);
+  if (typeKey && !(await hasFeature(orgId, typeKey))) {
     return {
       ok: false,
       error: `Your plan doesn't include ${channelType} channels. Upgrade to connect one.`,

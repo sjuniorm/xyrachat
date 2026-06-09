@@ -1,4 +1,4 @@
-import { Mail, MessageCircle, Send, Camera, MessagesSquare } from "lucide-react";
+import { Mail, MessageCircle, Send, Camera, MessagesSquare, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Channel } from "@/lib/mock-data";
 
@@ -34,6 +34,12 @@ const CHANNEL_META: Record<
     Icon: MessagesSquare,
     label: "Messenger",
     bg: "bg-[#1877F2]",
+    text: "text-white",
+  },
+  webchat: {
+    Icon: Globe,
+    label: "Web chat",
+    bg: "bg-[linear-gradient(135deg,#9333EA_0%,#EC4899_100%)]",
     text: "text-white",
   },
 };

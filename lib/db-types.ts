@@ -6,7 +6,8 @@ export type ChannelType =
   | "instagram"
   | "telegram"
   | "email"
-  | "facebook";
+  | "facebook"
+  | "webchat";
 
 export type ConversationStatus = "open" | "closed" | "snoozed" | "bot";
 export type MessageDirection = "inbound" | "outbound";
@@ -25,6 +26,13 @@ export type ChannelMetadata = {
   bot_first_name?: string;
   // Email
   from_name?: string;
+  // Webchat widget appearance
+  webchat?: {
+    color?: string;
+    greeting?: string;
+    title?: string;
+    launcher_text?: string;
+  };
   // Set when the channel was connected via OAuth rather than manual entry.
   oauth?: { connected_at: string; user_id: string };
 };
@@ -40,6 +48,7 @@ export type ChannelRow = {
   ig_business_account_id: string | null;
   bot_username: string | null;
   inbox_email: string | null;
+  webchat_public_key: string | null;
   access_token_vault_id: string | null;
   webhook_secret: string | null;
   active: boolean;
@@ -57,6 +66,7 @@ export type ContactRow = {
   instagram_id: string | null;
   telegram_id: string | null;
   messenger_id: string | null;
+  webchat_id: string | null;
   avatar_url: string | null;
   tags: string[];
   notes: string | null;

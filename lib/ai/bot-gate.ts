@@ -13,7 +13,7 @@ import { transcribeInboundAudio } from "@/lib/ai/transcription";
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
 // know the channel type (WA 24h window, send endpoint).
-export type ProviderChannel = "whatsapp" | "instagram" | "telegram" | "facebook";
+export type ProviderChannel = "whatsapp" | "instagram" | "telegram" | "facebook" | "webchat";
 
 export type BotGateInput = {
   channel: {
@@ -700,7 +700,35 @@ async function sendOutbound(
     await sendInstagram(admin, args);
   } else if (channelType === "facebook") {
     await sendMessenger(admin, args);
+  } else if (channelType === "webchat") {
+    await sendWebchat(admin, args);
   }
+}
+
+// Webchat has no provider — the bot reply is just an outbound row the visitor's
+// widget polls for.
+async function sendWebchat(
+  admin: ReturnType<typeof createAdminClient>,
+  args: {
+    conversationId: string;
+    content: string;
+    botMetadata: Record<string, unknown>;
+    channelId: string;
+    contactId: string;
+  },
+): Promise<void> {
+  await admin.from("messages").insert({
+    conversation_id: args.conversationId,
+    direction: "outbound",
+    content: args.content,
+    sender_type: "bot",
+    status: "sent",
+    metadata: args.botMetadata,
+  });
+  await admin
+    .from("conversations")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", args.conversationId);
 }
 
 import { vaultReadSecret } from "@/lib/supabase/vault";

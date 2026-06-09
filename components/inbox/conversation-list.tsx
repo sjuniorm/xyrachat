@@ -51,6 +51,7 @@ const ALL_CHANNELS: Channel[] = [
   "telegram",
   "email",
   "facebook",
+  "webchat",
 ];
 
 export function ConversationList({

@@ -150,7 +150,9 @@ export function Composer({
                 ? "/api/channels/email/send"
                 : conversation.channel === "facebook"
                   ? "/api/channels/messenger/send"
-                  : null;
+                  : conversation.channel === "webchat"
+                    ? "/api/channels/webchat/send"
+                    : null;
       if (!endpoint) {
         toast.error(
           `Sending on ${conversation.channel} isn't wired up yet.`,

@@ -6,7 +6,8 @@ export type Channel =
   | "instagram"
   | "telegram"
   | "email"
-  | "facebook";
+  | "facebook"
+  | "webchat";
 
 export type ConversationStatus = "open" | "closed" | "snoozed" | "bot";
 export type MessageDirection = "inbound" | "outbound";

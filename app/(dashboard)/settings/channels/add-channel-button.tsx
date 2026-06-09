@@ -8,6 +8,7 @@ import {
   MessagesSquare,
   Send,
   Mail,
+  Globe,
   ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,14 @@ export function AddChannelButton({ size = "md" }: { size?: "md" | "lg" }) {
               <MessagesSquare className="size-3 text-white" />
             </span>
             Facebook Messenger
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/settings/channels/webchat/new" className="cursor-pointer">
+            <span className="mr-2 inline-flex size-5 items-center justify-center rounded-full bg-[linear-gradient(135deg,#9333EA_0%,#EC4899_100%)]">
+              <Globe className="size-3 text-white" />
+            </span>
+            Website chat widget
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
