@@ -1817,3 +1817,23 @@ REMAINING (not blocking; operator / product / post-deploy):
 **All §15 CODE findings are fixed. Not cleared for public launch until: live probe
 green · Upstash set (activates the rate limits/flood guard) · Meta verification ·
 migrations 043–045 applied. Full sprint in _docs/launch-runbook.md.**
+
+**Post-feature-sprint audit (2026-06-09, commit ae4e469).** 21-agent adversarial
+review of the new surfaces shipped this sprint (webchat, public rating, operator
+console, CSAT, Messenger, AI file-upload, migrations 046–051, analytics/media).
+11 confirmed / 2 refuted; 10 fixed:
+- **HIGH** webchat poll leaked agent **internal notes** to the public visitor
+  (notes are outbound rows on the same conversation) → poll now filters
+  `is_internal_note=false` + `sender_type in (agent,bot)`.
+- **HIGH** knowledge-upload **zip-bomb DoS** (4 MB compressed cap, unbounded
+  extracted text) → cap extracted text 1 MB + PDF ≤1000 pages + pre-flight quota.
+- **MED** webchat per-IP rate limit (rotating client `visitorId` bypassed the
+  per-visitor bucket + spawned unlimited contacts); CSAT 30-day re-send
+  cool-down; `add_to_sequence` `_enroll_stamp` idempotency.
+- **LOW** `/api/rating` per-IP limit; survey skips WA outside 24h window; v1
+  close+PATCH fire the survey; CSV defang covers TAB/CR; analytics excludes
+  soft-deleted bots.
+- Residual (noted, not fixed): non-atomic in-flight-cap TOCTOU on
+  wait/wait_for_reply/add_to_sequence (LOW; pre-existing; retry-dup now covered
+  by the enroll stamp). **Reminder: webchat's public abuse defense relies on
+  Upstash being set** (rate limits fail open until then).
