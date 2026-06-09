@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.7",
+    date: "2026-06-09",
+    title: "Facebook Messenger joins the inbox",
+    tag: "feature",
+    highlights: [
+      "Connect a Facebook Page and handle Messenger DMs right alongside WhatsApp, Instagram, Telegram, and Email.",
+      "Your bots, automations, and AI Assist all work on Messenger out of the box — no extra setup.",
+      "Assign, snooze, auto-translate, and reply to Messenger chats just like any other channel.",
+    ],
+  },
+  {
     version: "1.6",
     date: "2026-06-05",
     title: "Smarter bots & finer control",
