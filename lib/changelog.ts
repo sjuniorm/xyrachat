@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.11",
+    date: "2026-06-09",
+    title: "Agent productivity boosts",
+    tag: "feature",
+    highlights: [
+      "One-tap AI summary of any conversation, with suggested tags you can apply in a click.",
+      "Saved replies now support {{contact_name}} variables, categories, and usage tracking.",
+    ],
+  },
+  {
     version: "1.10",
     date: "2026-06-09",
     title: "Website chat widget",
