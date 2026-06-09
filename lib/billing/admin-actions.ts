@@ -86,6 +86,37 @@ export async function provisionOrgBundle(
   return { ok: true, data: { provisioned: res.provisioned } };
 }
 
+// Extend an org's trial by N days (operator gift). Powers "extend trial" +
+// "give a free month" (30 days). Uses the atomic extend_trial RPC (GREATEST —
+// never shortens) and flips status to trialing so gates treat it as a trial.
+export async function extendOrgTrial(
+  targetOrgId: string,
+  days: number,
+): Promise<ActionResult> {
+  const op = await requireOperator();
+  if (!op.ok) return { ok: false, error: op.error };
+  if (!Number.isInteger(days) || days <= 0 || days > 365) {
+    return { ok: false, error: "Days must be 1–365." };
+  }
+  const admin = createAdminClient();
+  const { data: org } = await admin
+    .from("organizations")
+    .select("id")
+    .eq("id", targetOrgId)
+    .maybeSingle();
+  if (!org) return { ok: false, error: "Target org not found." };
+
+  const { error } = await admin.rpc("extend_trial", {
+    p_org_id: targetOrgId,
+    p_days: days,
+    p_source: "operator_gift",
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/settings/admin/clients/${targetOrgId}`);
+  return { ok: true };
+}
+
 // Provision EVERY org that currently has no entitlement rows. The
 // one-click launch backfill. Defaults un-provisioned orgs to Trial so
 // nobody is silently upgraded; the operator can bump individuals after.
