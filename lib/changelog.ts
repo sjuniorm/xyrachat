@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.13",
+    date: "2026-06-09",
+    title: "Analytics dashboard",
+    tag: "feature",
+    highlights: [
+      "New Analytics page: conversation volume, messages, bot replies/handoffs, leads, and CSAT/NPS over 7/30/90 days.",
+      "See volume broken down by channel, and export your conversations to CSV.",
+    ],
+  },
+  {
     version: "1.12",
     date: "2026-06-09",
     title: "Customer satisfaction surveys",

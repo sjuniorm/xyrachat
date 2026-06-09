@@ -17,6 +17,7 @@ import {
   Rocket,
   Lightbulb,
   ShieldCheck,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ const ITEMS: NavItem[] = [
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/broadcasts", label: "Broadcasts", icon: Megaphone },
   { href: "/automations", label: "Automations", icon: Sparkles },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/team-chat", label: "Team chat", icon: MessagesSquare },
   { href: "/changelog", label: "What's new", icon: Rocket },
