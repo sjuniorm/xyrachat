@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { updateContact } from "@/lib/contacts/actions";
+import { generateConversationSummary } from "@/lib/inbox/actions";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,8 @@ import {
   PanelRight,
   Phone,
   Plus,
+  Sparkles,
+  Loader2,
   X,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -52,6 +55,26 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
   const [newTag, setNewTag] = useState("");
   const [, startSave] = useTransition();
   const contactId = conversation.contact.id;
+
+  // AI summary (on-demand)
+  const [summary, setSummary] = useState<string | null>(null);
+  const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
+  const [summarizing, setSummarizing] = useState(false);
+
+  async function onSummarize() {
+    setSummarizing(true);
+    try {
+      const r = await generateConversationSummary(conversation.id);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      setSummary(r.summary);
+      setSuggestedTags(r.tags.filter((t) => !tags.includes(t)));
+    } finally {
+      setSummarizing(false);
+    }
+  }
 
   function persist(patch: { name?: string; notes?: string; tags?: string[] }) {
     startSave(async () => {
@@ -239,6 +262,53 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
               placeholder="Internal notes about this contact (only your team sees these)"
               className="min-h-20 resize-none border-white/10 bg-white/5 text-sm text-white/90 placeholder:text-white/40"
             />
+          </div>
+        </Section>
+
+        <Section title="AI summary">
+          <div className="space-y-2 px-3 pb-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onSummarize}
+              disabled={summarizing}
+              className="w-full border-white/10 text-white/80"
+            >
+              {summarizing ? (
+                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1.5 size-3.5 text-[color:var(--xyra-glow)]" />
+              )}
+              {summary ? "Re-summarize" : "Summarize conversation"}
+            </Button>
+            {summary && (
+              <p className="rounded-md border border-white/10 bg-white/5 p-2.5 text-xs leading-relaxed text-white/80">
+                {summary}
+              </p>
+            )}
+            {suggestedTags.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] uppercase tracking-wide text-white/40">
+                  Suggested tags — tap to add
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestedTags.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        addTag(t);
+                        setSuggestedTags((prev) => prev.filter((x) => x !== t));
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full border border-[color:var(--xyra-purple)]/30 bg-[color:var(--xyra-purple)]/10 px-2 py-0.5 text-[11px] text-[color:var(--xyra-glow)] hover:bg-[color:var(--xyra-purple)]/20"
+                    >
+                      <Plus className="size-3" /> {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Section>
 

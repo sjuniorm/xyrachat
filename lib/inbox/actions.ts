@@ -4,9 +4,14 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveServingBot } from "@/lib/inbox/server";
+import { buildConversationSummary } from "@/lib/ai/summarize";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 import type { ConversationStatus } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
+type SummaryResult =
+  | { ok: true; summary: string; tags: string[] }
+  | { ok: false; error: string };
 
 async function requireUserOrg(): Promise<
   { ok: true; orgId: string; userId: string } | { ok: false; error: string }
@@ -36,6 +41,60 @@ async function authorizeConversation(
     .eq("id", conversationId)
     .maybeSingle();
   return data?.org_id === orgId;
+}
+
+// AI summary + suggested tags for a conversation (on-demand). Stores the result
+// on conversations.metadata so it persists + can be re-shown without re-spending.
+export async function generateConversationSummary(
+  conversationId: string,
+): Promise<SummaryResult> {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth;
+  if (!(await authorizeConversation(conversationId, auth.orgId))) {
+    return { ok: false, error: "Conversation not found." };
+  }
+
+  const quota = await checkAiQuota(auth.orgId);
+  if (!quota.ok) return { ok: false, error: "Monthly AI limit reached. Upgrade to keep using AI." };
+
+  const admin = createAdminClient();
+  const { data: messages } = await admin
+    .from("messages")
+    .select("direction, content, sender_type")
+    .eq("conversation_id", conversationId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (!messages || messages.length === 0) {
+    return { ok: false, error: "Nothing to summarize yet." };
+  }
+
+  let result;
+  try {
+    result = await buildConversationSummary(messages);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Summary failed." };
+  }
+  if (!result) return { ok: false, error: "AI isn't configured." };
+
+  await consumeAiTokens(auth.orgId, result.inputTokens + result.outputTokens);
+
+  // Merge into existing metadata so we don't clobber other keys.
+  const { data: conv } = await admin
+    .from("conversations")
+    .select("metadata")
+    .eq("id", conversationId)
+    .maybeSingle();
+  const metadata = {
+    ...((conv?.metadata as Record<string, unknown>) ?? {}),
+    summary: result.summary,
+    summary_at: new Date().toISOString(),
+    suggested_tags: result.tags,
+  };
+  await admin.from("conversations").update({ metadata }).eq("id", conversationId);
+
+  revalidatePath(`/inbox/${conversationId}`);
+  return { ok: true, summary: result.summary, tags: result.tags };
 }
 
 /**

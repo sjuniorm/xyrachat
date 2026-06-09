@@ -121,8 +121,16 @@ export type ConversationRow = {
   // Per-conversation bot control (migration 040).
   bot_only: boolean;
   bot_id_override: string | null;
+  // Freeform per-conversation metadata (migration 049): AI summary etc.
+  metadata: ConversationMetadata;
   deleted_at: string | null;
   created_at: string;
+};
+
+export type ConversationMetadata = {
+  summary?: string;
+  summary_at?: string;
+  suggested_tags?: string[];
 };
 
 export type MessageMetadata = {
