@@ -41,7 +41,7 @@ export default async function AutomationDetailPage({
   if (!row) return notFound();
   const automation = row as AutomationRow;
 
-  const [{ data: channels }, { data: members }, { data: logs }] = await Promise.all([
+  const [{ data: channels }, { data: members }, { data: logs }, { data: sequences }] = await Promise.all([
     supabase
       .from("channels")
       .select("id, name, type")
@@ -57,6 +57,12 @@ export default async function AutomationDetailPage({
       .eq("automation_id", id)
       .order("created_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("sequences")
+      .select("id, name")
+      .eq("active", true)
+      .is("deleted_at", null)
+      .order("name"),
   ]);
 
   return (
@@ -181,6 +187,7 @@ export default async function AutomationDetailPage({
             }}
             channels={(channels ?? []).map((c) => ({ id: c.id, name: c.name, type: c.type }))}
             members={(members ?? []).map((m) => ({ id: m.id, name: m.full_name ?? "Agent" }))}
+            sequences={sequences ?? []}
           />
         ) : (
           <p className="text-sm text-white/50">

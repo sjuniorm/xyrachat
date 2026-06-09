@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles, Plus, Power, Activity } from "lucide-react";
+import { Sparkles, Plus, Power, Activity, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -55,16 +55,24 @@ export default async function AutomationsPage() {
               keywords on Instagram; keyword auto-replies on WhatsApp.
             </p>
           </div>
-          <Button
-            asChild
-            disabled={!canCreate || !!blocked}
-            className="xyra-gradient text-white border-0 hover:opacity-90"
-          >
-            <Link href={!canCreate || blocked ? "#" : "/automations/new"}>
-              <Plus className="mr-1.5 size-4" />
-              New automation
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" className="border-white/10">
+              <Link href="/automations/sequences">
+                <Clock className="mr-1.5 size-4" />
+                Sequences
+              </Link>
+            </Button>
+            <Button
+              asChild
+              disabled={!canCreate || !!blocked}
+              className="xyra-gradient text-white border-0 hover:opacity-90"
+            >
+              <Link href={!canCreate || blocked ? "#" : "/automations/new"}>
+                <Plus className="mr-1.5 size-4" />
+                New automation
+              </Link>
+            </Button>
+          </div>
         </header>
 
         {blocked && (

@@ -206,8 +206,66 @@ async function execLeafAction(
       }
       return { ok: true, conversationId };
     }
-    case "add_to_sequence":
-      return { ok: false, error: "sequences not built yet", conversationId };
+    case "add_to_sequence": {
+      // Enroll the contact: load the sequence, expand its steps into a
+      // wait→send_dm chain, and enqueue ONE scheduled-action row. The existing
+      // per-minute automation-runner drips it out (each wait re-schedules the
+      // tail), so sequences ride the same machinery as inline waits.
+      const { data: seq } = await admin
+        .from("sequences")
+        .select("steps, active, org_id")
+        .eq("id", action.sequence_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!seq || seq.org_id !== automation.org_id) {
+        return { ok: false, error: "Sequence not found", conversationId };
+      }
+      if (!seq.active) return { ok: true, conversationId }; // inactive → no-op
+      const steps = (Array.isArray(seq.steps) ? seq.steps : []) as Array<{
+        delay_minutes?: number;
+        message?: string;
+      }>;
+
+      // Cap concurrent drips per (automation, contact) — same guard as waits, so
+      // a re-firing trigger can't pile up unbounded enrollments.
+      const { count: inflight } = await admin
+        .from("automation_scheduled_actions")
+        .select("id", { count: "exact", head: true })
+        .eq("automation_id", automation.id)
+        .eq("contact_id", contact.id)
+        .in("status", ["pending", "processing"]);
+      if ((inflight ?? 0) >= MAX_INFLIGHT_PER_CONTACT) {
+        return {
+          ok: false,
+          error: "too many in-flight sequences for this contact; skipped",
+          conversationId,
+        };
+      }
+
+      const chain: Action[] = [];
+      for (const s of steps) {
+        const mins =
+          typeof s.delay_minutes === "number" && s.delay_minutes > 0 ? s.delay_minutes : 0;
+        if (mins > 0) chain.push({ type: "wait", ms: mins * 60_000 });
+        const text = typeof s.message === "string" ? s.message : "";
+        if (text.trim()) chain.push({ type: "send_dm", text });
+      }
+      if (chain.length === 0) return { ok: true, conversationId }; // empty sequence → no-op
+
+      const { error } = await admin.from("automation_scheduled_actions").insert({
+        automation_id: automation.id,
+        org_id: automation.org_id,
+        contact_id: contact.id,
+        channel_id: channel.id,
+        conversation_id: conversationId,
+        remaining_actions: chain,
+        trigger_data: ctx.triggerData ?? {},
+        run_at: new Date().toISOString(),
+        status: "pending",
+      });
+      if (error) return { ok: false, error: error.message, conversationId };
+      return { ok: true, conversationId };
+    }
     default:
       // Runtime guard: branches are typed LeafAction[], but a hand-crafted API
       // payload could smuggle a wait/condition past TS. Refuse rather than

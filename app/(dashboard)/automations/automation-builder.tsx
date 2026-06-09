@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
-  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply,
+  Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { FlowCanvas } from "@/components/automations/flow-canvas";
 
 type Channel = { id: string; name: string; type: string };
 type Member = { id: string; name: string };
+type Sequence = { id: string; name: string };
 
 const TRIGGER_OPTIONS: Array<{
   value: TriggerType;
@@ -63,6 +64,7 @@ const ACTION_OPTIONS: Array<{
   { type: "wait", label: "Wait / delay", icon: Clock, available: true },
   { type: "wait_for_reply", label: "Wait for reply", icon: Reply, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
+  { type: "add_to_sequence", label: "Add to sequence", icon: ListPlus, available: true },
 ];
 
 // Leaf action types offered inside an if/else branch (no nesting).
@@ -105,6 +107,7 @@ export function AutomationBuilder({
   initial,
   channels,
   members,
+  sequences = [],
 }: {
   mode: "create" | "edit";
   initial?: {
@@ -118,6 +121,7 @@ export function AutomationBuilder({
   };
   channels: Channel[];
   members: Member[];
+  sequences?: Sequence[];
 }) {
   const router = useRouter();
   const [busy, startTransition] = useTransition();
@@ -189,6 +193,7 @@ export function AutomationBuilder({
       index={i}
       action={a}
       members={members}
+      sequences={sequences}
       allowMessageCondition={allowMessageCondition}
       allowReplyCondition={allowReplyCondition}
       onChange={(next) => {
@@ -253,6 +258,9 @@ export function AutomationBuilder({
         break;
       case "webhook":
         fresh = { type, url: "" };
+        break;
+      case "add_to_sequence":
+        fresh = { type, sequence_id: sequences[0]?.id ?? "" };
         break;
       default:
         return;
@@ -555,6 +563,7 @@ function ActionRow({
   index,
   action,
   members,
+  sequences = [],
   allowMessageCondition,
   allowReplyCondition,
   onChange,
@@ -565,6 +574,7 @@ function ActionRow({
   index: number;
   action: Action;
   members: Member[];
+  sequences?: Sequence[];
   allowMessageCondition: boolean;
   allowReplyCondition: boolean;
   onChange: (next: Action) => void;
@@ -619,6 +629,7 @@ function ActionRow({
           <LeafFields
             action={action}
             members={members}
+            sequences={sequences}
             onChange={(next) => onChange(next)}
           />
         )}
@@ -714,10 +725,12 @@ function ActionRow({
 function LeafFields({
   action,
   members,
+  sequences = [],
   onChange,
 }: {
   action: LeafAction;
   members: Member[];
+  sequences?: Sequence[];
   onChange: (next: LeafAction) => void;
 }) {
   return (
@@ -812,6 +825,35 @@ function LeafFields({
             placeholder="Optional bearer secret"
             className="text-xs"
           />
+        </div>
+      )}
+
+      {action.type === "add_to_sequence" && (
+        <div className="space-y-1.5">
+          {sequences.length === 0 ? (
+            <p className="text-[11px] text-amber-200/80">
+              No sequences yet —{" "}
+              <a href="/automations/sequences" className="underline">
+                create one
+              </a>{" "}
+              first, then pick it here.
+            </p>
+          ) : (
+            <select
+              value={action.sequence_id}
+              onChange={(e) => onChange({ ...action, sequence_id: e.target.value })}
+              className="h-8 w-full rounded-md border border-white/10 bg-white/5 px-2 text-xs text-white"
+            >
+              <option value="" className="bg-zinc-900">
+                Select a sequence…
+              </option>
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id} className="bg-zinc-900">
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       )}
     </>

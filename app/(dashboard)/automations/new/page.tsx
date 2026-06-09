@@ -21,7 +21,7 @@ export default async function NewAutomationPage() {
     redirect("/automations");
   }
 
-  const [{ data: channels }, { data: members }] = await Promise.all([
+  const [{ data: channels }, { data: members }, { data: sequences }] = await Promise.all([
     supabase
       .from("channels")
       .select("id, name, type")
@@ -32,6 +32,12 @@ export default async function NewAutomationPage() {
       .select("id, full_name")
       .eq("org_id", profile.org_id)
       .is("deleted_at", null),
+    supabase
+      .from("sequences")
+      .select("id, name")
+      .eq("active", true)
+      .is("deleted_at", null)
+      .order("name"),
   ]);
 
   return (
@@ -57,6 +63,7 @@ export default async function NewAutomationPage() {
             id: m.id,
             name: m.full_name ?? "Agent",
           }))}
+          sequences={sequences ?? []}
         />
       </div>
     </div>

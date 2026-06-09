@@ -39,7 +39,7 @@ export type LeafAction =
       only_online?: boolean;
     }
   | { type: "webhook"; url: string; secret?: string }
-  | { type: "add_to_sequence"; sequence_id: string }; // placeholder
+  | { type: "add_to_sequence"; sequence_id: string }; // enroll into a drip sequence (047)
 
 // A single if/else condition. `tag` checks the contact's tags; `message`
 // checks the triggering/reply message text; `reply` branches on whether a

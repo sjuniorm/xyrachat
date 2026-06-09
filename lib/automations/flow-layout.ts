@@ -46,7 +46,7 @@ function leafSummary(a: LeafAction): FlowNodeData {
     case "webhook":
       return { kind: a.type, tone: "webhook", title: "Webhook", subtitle: clip(a.url || "(no url)") };
     case "add_to_sequence":
-      return { kind: a.type, tone: "neutral", title: "Add to sequence", subtitle: "(soon)" };
+      return { kind: a.type, tone: "neutral", title: "Add to sequence", subtitle: a.sequence_id ? "enroll contact" : "(pick a sequence)" };
   }
 }
 

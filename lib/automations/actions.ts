@@ -219,6 +219,7 @@ function validateAction(action: Action): string | null {
       }
       return null;
     case "add_to_sequence":
+      if (!action.sequence_id?.trim()) return "Pick a sequence for the Add to sequence step.";
       return null;
     case "wait":
       if (!Number.isFinite(action.ms) || action.ms < 0) {
