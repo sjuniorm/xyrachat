@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
 import { runBotGate } from "@/lib/ai/bot-gate";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 import {
@@ -122,6 +123,15 @@ export async function POST(req: Request) {
   } catch {
     // bot failure must not break the visitor's send
   }
+  // Fire conversation_opened automations (once per contact, deduped in the
+  // dispatcher). Keyword triggers are WA/IG only; webchat uses the agnostic one.
+  void dispatchTrigger({
+    channel: { id: channel.id, type: "webchat", org_id: channel.org_id, access_token_vault_id: null },
+    contactId,
+    triggerType: "conversation_opened",
+    conversationId,
+    triggerData: {},
+  });
 
   return NextResponse.json({ ok: true, id: inserted.id }, { headers: WEBCHAT_CORS });
 }

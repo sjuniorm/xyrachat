@@ -903,6 +903,21 @@ async function sendChannelMessage(input: {
     return { ok: true };
   }
 
+  if (channel.type === "webchat") {
+    // No external provider — store the outbound row; the visitor's widget polls
+    // it. recipient is a sentinel (the conversation already targets the visitor).
+    await admin.from("messages").insert({
+      conversation_id: conversationId,
+      direction: "outbound",
+      content: trimmed,
+      sender_type: "bot",
+      status: "sent",
+      metadata: msgMetadata,
+    });
+    await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+    return { ok: true };
+  }
+
   return { ok: false, error: `Send not implemented for ${channel.type}` };
 }
 
@@ -924,6 +939,8 @@ function pickRecipient(
       return contact.telegram_id ?? "";
     case "facebook":
       return contact.messenger_id ?? "";
+    case "webchat":
+      return "webchat"; // sentinel: send target is the conversation, not a handle
     default:
       return "";
   }

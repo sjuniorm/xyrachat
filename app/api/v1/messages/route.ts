@@ -351,5 +351,11 @@ async function sendViaProvider(input: {
     return { ok: true, providerMessageId: json?.message_id ?? null };
   }
 
+  if (channel.type === "webchat") {
+    // No external provider — the stored outbound row (inserted by the caller) is
+    // what the visitor's widget polls. Nothing to send.
+    return { ok: true, providerMessageId: null };
+  }
+
   return { ok: false, code: "unsupported_channel", error: `Send not implemented for ${channel.type} via REST API.` };
 }
