@@ -57,6 +57,12 @@ Claude will prep the per-permission justification text + screencast script.
    catches orgs created before that landed).
 
 ## 4) Post-deploy security finalization
+- 🧑 **Set `XYRA_OPERATOR_ORG_ID`** in Vercel = your (Xyra team's) org UUID
+  (Supabase → organizations table). REQUIRED: the operator consoles
+  (`/settings/admin/{entitlements,promos,disputes,restore,metrics}`) now fail
+  CLOSED in production when this is unset — nobody can reach them. Once set, only
+  owners of that org can. Set it **before** running the entitlements backfill in
+  step 3 (you need console access for that).
 - 🧑 **Upstash**: set `UPSTASH_REDIS_REST_URL/TOKEN` in Vercel. This ACTIVATES
   rate limiting (auth/AI/channels/v1) + the new AI flood guard (both fail-open
   until set).

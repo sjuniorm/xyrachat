@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { provisionBundle } from "./provision";
 import { BUNDLES, type BundleId } from "./bundles";
+import { operatorOrgAllowed } from "@/lib/admin/operator";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -12,10 +13,9 @@ type ActionResult<T = unknown> =
 
 // =====================================================================
 // Operator-only entitlement admin. "Operator" = an owner of the Xyra
-// Chat operating org. Identified by XYRA_OPERATOR_ORG_ID env var; if
-// unset (dev / pre-launch with a single org), ANY owner qualifies so
-// the founder can self-serve. Once there are customer orgs, set the
-// env var to lock this down to the Xyra team's org.
+// Chat operating org (XYRA_OPERATOR_ORG_ID). Fail-CLOSED in production when
+// that var is unset — only local dev allows any owner. See operatorOrgAllowed
+// in lib/admin/operator.ts (single source of truth).
 // =====================================================================
 async function requireOperator(): Promise<
   { ok: true; userId: string; orgId: string } | { ok: false; error: string }
@@ -34,8 +34,8 @@ async function requireOperator(): Promise<
   if (profile.role !== "owner") {
     return { ok: false, error: "Operator access is owner-only." };
   }
-  const operatorOrg = process.env.XYRA_OPERATOR_ORG_ID;
-  if (operatorOrg && profile.org_id !== operatorOrg) {
+  // Fail-closed in production when XYRA_OPERATOR_ORG_ID is unset (shared rule).
+  if (!operatorOrgAllowed(profile.org_id)) {
     return { ok: false, error: "Not the Xyra operator org." };
   }
   return { ok: true, userId: user.id, orgId: profile.org_id };

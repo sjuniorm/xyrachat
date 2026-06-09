@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isOperatorProfile } from "@/lib/admin/operator";
 import { PromosAdmin } from "./promos-admin";
 
 export default async function PromosAdminPage() {
@@ -17,10 +18,7 @@ export default async function PromosAdminPage() {
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
 
-  const operatorOrg = process.env.XYRA_OPERATOR_ORG_ID;
-  const isOperator =
-    profile.role === "owner" && (!operatorOrg || profile.org_id === operatorOrg);
-  if (!isOperator) {
+  if (!isOperatorProfile(profile.role, profile.org_id)) {
     return (
       <div className="flex flex-1 items-center justify-center px-8 text-center">
         <p className="text-sm text-white/60">Operators only.</p>

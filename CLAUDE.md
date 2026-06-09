@@ -1330,9 +1330,12 @@ the first bespoke contract lands.
 - **`/settings/admin/entitlements`** operator console (`lib/billing/admin-actions.ts`):
   `provisionOrgBundle`, `backfillUnprovisionedOrgs` (one-click launch
   backfill → Trial), `grantEntitlement` / `revokeEntitlement` per-org.
-  Operator = owner of `XYRA_OPERATOR_ORG_ID` (any owner when env unset,
-  pre-launch). **This is the backfill tool** — point it at your org +
-  pick a bundle.
+  Operator = owner of `XYRA_OPERATOR_ORG_ID`. **Hardened 2026-06-09:** fails
+  CLOSED in production when the env var is unset (any owner only in local dev) —
+  set `XYRA_OPERATOR_ORG_ID` in Vercel before launch or the consoles are
+  unreachable. Shared gate: `operatorOrgAllowed` / `isOperatorProfile` in
+  [lib/admin/operator.ts](lib/admin/operator.ts). **This is the backfill tool** —
+  point it at your org + pick a bundle.
 - **`lib/billing/plans.ts` DELETED** — single plan model now (entitlements).
 - Verified by a 22-agent adversarial workflow (fail-open contract holds
   end-to-end; entitlement keys in gates match bundle definitions; gates

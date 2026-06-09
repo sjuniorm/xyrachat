@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isOperatorProfile } from "@/lib/admin/operator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 // Operator-only business-metrics dashboard, sourced entirely from our own
@@ -29,10 +30,7 @@ export default async function MetricsAdminPage() {
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
 
-  const operatorOrg = process.env.XYRA_OPERATOR_ORG_ID;
-  const isOperator =
-    profile.role === "owner" && (!operatorOrg || profile.org_id === operatorOrg);
-  if (!isOperator) {
+  if (!isOperatorProfile(profile.role, profile.org_id)) {
     return (
       <div className="flex flex-1 items-center justify-center px-8 text-center">
         <p className="text-sm text-white/60">This page is for Xyra Chat operators only.</p>
