@@ -42,8 +42,8 @@ type RawConversation = ConversationRow & {
 /**
  * Fetches conversations the current user can see (RLS-scoped to their org),
  * with joined contact + channel + assigned agent, plus the latest message
- * preview. Unread count is 0 for now — real per-agent read tracking lands
- * in Week 5.
+ * preview and a real per-agent unread count (number of inbound messages newer
+ * than this agent's last_read_at in conversation_reads).
  */
 export async function getConversationsForCurrentOrg(): Promise<
   ConversationWithRelations[]
@@ -75,6 +75,7 @@ export async function getConversationsForCurrentOrg(): Promise<
     supabase
       .from("messages")
       .select("conversation_id, content, created_at, direction")
+      .is("deleted_at", null)
       .in("conversation_id", ids)
       .order("created_at", { ascending: false }),
     // Per-agent read state (RLS returns only the caller's rows). A conversation
@@ -85,42 +86,46 @@ export async function getConversationsForCurrentOrg(): Promise<
       .in("conversation_id", ids),
   ]);
 
-  const previews: Record<string, string> = {};
-  for (const m of (previewMsgs as Array<{
-    conversation_id: string;
-    content: string | null;
-  }> | null) ?? []) {
-    if (!previews[m.conversation_id]) {
-      previews[m.conversation_id] = m.content ?? "";
-    }
-  }
-
-  const readAt: Record<string, string> = {};
+  // Per-agent last_read_at (RLS returns only the caller's rows).
+  const readAt: Record<string, number> = {};
   for (const r of (reads as Array<{
     conversation_id: string;
     last_read_at: string;
   }> | null) ?? []) {
-    readAt[r.conversation_id] = r.last_read_at;
+    readAt[r.conversation_id] = new Date(r.last_read_at).getTime();
+  }
+
+  // Single pass over the (created_at DESC) message list: first message per
+  // conversation is the preview; every inbound message newer than this agent's
+  // last_read_at is an unread message → real per-agent count.
+  const previews: Record<string, string> = {};
+  const unreadCount: Record<string, number> = {};
+  for (const m of (previewMsgs as Array<{
+    conversation_id: string;
+    content: string | null;
+    created_at: string;
+    direction: string;
+  }> | null) ?? []) {
+    if (!(m.conversation_id in previews)) {
+      previews[m.conversation_id] = m.content ?? "";
+    }
+    if (m.direction === "inbound") {
+      const lastRead = readAt[m.conversation_id];
+      if (lastRead === undefined || new Date(m.created_at).getTime() > lastRead) {
+        unreadCount[m.conversation_id] = (unreadCount[m.conversation_id] ?? 0) + 1;
+      }
+    }
   }
 
   return rows
     .filter((c): c is RawConversation & { contact: ContactRow; channel: NonNullable<RawConversation["channel"]> } =>
       Boolean(c.contact && c.channel),
     )
-    .map((c) => {
-      const lastInbound = c.last_inbound_at;
-      const lastRead = readAt[c.id];
-      const unread = Boolean(
-        lastInbound &&
-          (!lastRead ||
-            new Date(lastInbound).getTime() > new Date(lastRead).getTime()),
-      );
-      return {
-        ...c,
-        last_message_preview: previews[c.id] ?? null,
-        unread_count: unread ? 1 : 0,
-      };
-    });
+    .map((c) => ({
+      ...c,
+      last_message_preview: previews[c.id] ?? null,
+      unread_count: unreadCount[c.id] ?? 0,
+    }));
 }
 
 export async function getConversationDetail(

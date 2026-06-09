@@ -155,7 +155,7 @@ export function ConversationItem({
               )}
               {conversation.unread_count > 0 && (
                 <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[color:var(--xyra-purple)] px-1.5 text-[11px] font-medium text-white">
-                  {conversation.unread_count}
+                  {conversation.unread_count > 99 ? "99+" : conversation.unread_count}
                 </span>
               )}
             </div>
