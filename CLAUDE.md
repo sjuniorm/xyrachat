@@ -1719,17 +1719,27 @@ FIXED immediately (commit 23fff09):
 - MEDIUM — open redirect on `/login` (`next=//evil.com`). Same-origin paths only.
 - LOW — promo-redeem plan-mismatch error leaked code validity → generic message.
 
-QUEUED for 2026-06-09 (launch-protection, not actively-exploitable):
-- HIGH — enforce per-key rate limits in `lib/api/handler.ts` (currently a stub header).
-- HIGH — per-contact/conversation AI flood guard in `runBotGate` + `maybeAutoTranslate`
-  (inbound webhooks can drain a victim org's AI budget + platform cost).
-- HIGH — auto-provision the Trial bundle at org creation (every new org currently
-  has zero entitlement rows → fail-open = unlimited everything except the 50k AI cap).
-- LOW — make `promo_codes.redemption_count` increment idempotent on webhook re-delivery.
-- MEDIUM — auth (login/signup/forgot) rate-limiting is a Supabase-dashboard +
-  CAPTCHA operator task (no server route of ours to throttle).
-- LOW — CSP is report-only by design; flip to enforced once the report endpoint
-  shows 0 violations on real traffic.
+FIXED 2026-06-09 (commit 0259be0, the launch-protection HIGHs — verified by a
+4-agent pass, all hold):
+- HIGH — per-key v1 API rate limits now ENFORCED in `lib/api/handler.ts`
+  (600 read / 120 write per min, separate buckets) + `POST /api/v1/webhooks/subscribe`.
+- HIGH — per-contact/conversation AI flood guard (`lib/ai/flood-guard.ts`) wired
+  into `runBotGate` (before any voice/vision/generation spend) + `maybeAutoTranslate`.
+- HIGH — onboarding auto-provisions the Trial bundle (closes the entitlement
+  fail-open for new orgs; existing orgs via the admin backfill).
+- LOW — `promo_codes.redemption_count` derived from COUNT(redemptions), drift-proof.
 
-NOT yet run: the live §15 probe (needs the staging URL + two seeded test orgs).
-**Not cleared for public launch until the queued HIGHs + Meta verification are done.**
+REMAINING (not blocking; operator / product / post-deploy):
+- MEDIUM — auth (login/signup/forgot) rate-limiting = Supabase-dashboard + CAPTCHA
+  operator task (no server route of ours to throttle).
+- LOW — CSP is report-only by design; flip to enforced once `/api/security/csp-report`
+  shows 0 violations on real traffic.
+- LOW — expired-trial hard-stop (everything blocked post-trial) is a product/paywall
+  decision; promo count has a rare two-org race; a few read-only v1 routes throttle
+  per-org not per-key.
+- NOT yet run: the live §15 probe `tests/security/probe.ts` (needs staging URL +
+  two seeded test orgs) — see _docs/launch-runbook.md §4.
+
+**All §15 CODE findings are fixed. Not cleared for public launch until: live probe
+green · Upstash set (activates the rate limits/flood guard) · Meta verification ·
+migrations 043–045 applied. Full sprint in _docs/launch-runbook.md.**
