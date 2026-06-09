@@ -3,9 +3,10 @@ import { XyraWordmark } from "@/components/brand/xyra-wordmark";
 
 export const metadata = { title: "Terms of Service — Xyra Chat" };
 
-// NOTE: thorough DRAFT. Have it reviewed by counsel and fill the [bracketed]
-// entity / governing-law details before relying on it commercially.
-const UPDATED = "3 June 2026";
+// NOTE: thorough draft with the real entity + governing law filled in. Still
+// have it reviewed by counsel before relying on it commercially — esp. the
+// EU-wide consumer-protection carve-out on venue.
+const UPDATED = "9 June 2026";
 
 export default function TermsPage() {
   return (
@@ -104,14 +105,17 @@ export default function TermsPage() {
       <h2>10. Changes &amp; governing law</h2>
       <p>
         We may update these Terms; material changes will be communicated in-app or by
-        email. These Terms are governed by the laws of [jurisdiction], and disputes are
-        subject to the courts of [venue].
+        email. These Terms are governed by the laws of Spain. The courts of Santa
+        Cruz de Tenerife, Spain shall have jurisdiction over any dispute — without
+        prejudice to any mandatory consumer-protection rights you may have to bring
+        proceedings in the courts of your country of residence.
       </p>
 
       <h2>11. Contact</h2>
       <p>
         <a href="mailto:legal@xyrachat.com">legal@xyrachat.com</a> · Operator: Mll
-        Nexus Group SL (trading as Mll Studio), [registered address — to be completed].
+        Nexus Group SL (trading as Mll Studio), Calle Poetas Españoles 1, Local 1,
+        38678 Armeñime, Santa Cruz de Tenerife, Spain.
       </p>
 
       <p className="text-sm text-white/50">

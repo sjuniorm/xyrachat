@@ -3,9 +3,10 @@ import { XyraWordmark } from "@/components/brand/xyra-wordmark";
 
 export const metadata = { title: "Privacy Policy — Xyra Chat" };
 
-// NOTE: thorough, app-accurate DRAFT. Have it reviewed by counsel (and fill the
-// [bracketed] entity/jurisdiction details) before relying on it commercially.
-const UPDATED = "3 June 2026";
+// NOTE: thorough, app-accurate draft with the real entity + registered address
+// filled in. Still have it reviewed by counsel before relying on it commercially
+// — esp. EU-wide consumer-protection venue rules + whether a DPO is required.
+const UPDATED = "9 June 2026";
 
 const SUBPROCESSORS: { name: string; purpose: string; region: string }[] = [
   { name: "Supabase", purpose: "Database, auth, file storage, realtime", region: "EU (Frankfurt)" },
@@ -144,9 +145,11 @@ export default function PrivacyPage() {
       <h2>11. Contact</h2>
       <p>
         Privacy questions: <a href="mailto:privacy@xyrachat.com">privacy@xyrachat.com</a>.
-        Operator: Mll Nexus Group SL (trading as Mll Studio),
-        [registered address — to be completed]. EU
-        representative / DPO (if applicable): [to be completed].
+        Operator: Mll Nexus Group SL (trading as Mll Studio), Calle Poetas
+        Españoles 1, Local 1, 38678 Armeñime, Santa Cruz de Tenerife, Spain.
+        As an EU-established company we are not required to appoint an Article 27
+        EU representative; we have not appointed a dedicated Data Protection
+        Officer — privacy enquiries reach us at the address above.
       </p>
 
       <p className="text-sm text-white/50">
