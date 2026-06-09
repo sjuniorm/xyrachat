@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.10",
+    date: "2026-06-09",
+    title: "Website chat widget",
+    tag: "feature",
+    highlights: [
+      "Add a live chat bubble to any website with one copy-paste snippet — no Meta or external account needed.",
+      "Website messages land in your unified inbox alongside every other channel; your bot can auto-answer.",
+      "Style it to your brand (color, greeting, labels) right from channel setup.",
+    ],
+  },
+  {
     version: "1.9",
     date: "2026-06-09",
     title: "Drip sequences",
