@@ -38,11 +38,22 @@ function attachmentTypeFromMediaType(mt: string | null): import("@/lib/mock-data
 }
 
 export function adaptMessage(row: MessageRow): UiMessage {
+  // Inbound WhatsApp/Telegram media is stored as a provider ref (media_id /
+  // file_id), not a loadable URL. Route those through the authenticated inbound
+  // proxy, which resolves + streams the bytes via the channel token. Things that
+  // are already an http(s) URL (IG/Messenger CDN) or our own storage proxy path
+  // (outbound send-media) are served as-is.
+  const displayUrl = row.media_url
+    ? /^https?:\/\//.test(row.media_url) || row.media_url.startsWith("/api/media")
+      ? row.media_url
+      : `/api/media/inbound/${row.id}`
+    : null;
+
   const attachments = row.media_url
     ? [
         {
           type: attachmentTypeFromMediaType(row.media_type),
-          url: row.media_url,
+          url: displayUrl!,
           // Prefer the stored original filename (outbound media) over the
           // UUID/last-segment of the URL.
           name:
