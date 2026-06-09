@@ -20,11 +20,13 @@ export function MobileHeader({
   email,
   avatarUrl,
   availability,
+  isOperator = false,
 }: {
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
   availability?: Availability;
+  isOperator?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -61,6 +63,7 @@ export function MobileHeader({
               email={email}
               avatarUrl={avatarUrl}
               availability={availability}
+              isOperator={isOperator}
             />
           </div>
         </SheetContent>

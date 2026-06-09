@@ -16,6 +16,7 @@ import {
   LifeBuoy,
   Rocket,
   Lightbulb,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -40,8 +41,11 @@ const ITEMS: NavItem[] = [
 
 const SEEN_KEY = "xyra:changelog:lastSeen";
 
-export function SidebarNav() {
+export function SidebarNav({ isOperator = false }: { isOperator?: boolean }) {
   const pathname = usePathname();
+  const items = isOperator
+    ? [...ITEMS, { href: "/settings/admin", label: "Operator", icon: ShieldCheck }]
+    : ITEMS;
   // Unseen-release dot on "What's new". Defaults false so SSR + first client
   // render match (localStorage isn't available on the server); the effect
   // reconciles after mount. Viewing /changelog marks the latest version seen.
@@ -63,7 +67,7 @@ export function SidebarNav() {
 
   return (
     <nav className="flex flex-col gap-1 px-3">
-      {ITEMS.map(({ href, label, icon: Icon }) => {
+      {items.map(({ href, label, icon: Icon }) => {
         const active = pathname === href || pathname.startsWith(`${href}/`);
         const showDot = href === "/changelog" && unseen && !active;
         return (

@@ -10,11 +10,13 @@ export function SidebarContent({
   email,
   avatarUrl,
   availability,
+  isOperator = false,
 }: {
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
   availability?: Availability;
+  isOperator?: boolean;
 }) {
   return (
     <div
@@ -28,7 +30,7 @@ export function SidebarContent({
       </div>
       <WorkspaceSwitcher />
       <div className="flex-1 overflow-y-auto py-4">
-        <SidebarNav />
+        <SidebarNav isOperator={isOperator} />
       </div>
       <div className="border-t border-white/5 p-3">
         <SidebarUser

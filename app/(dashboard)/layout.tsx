@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isOperatorProfile } from "@/lib/admin/operator";
 import { SidebarContent } from "@/components/app/sidebar-content";
 import { MobileHeader } from "@/components/app/mobile-header";
 import { BillingBanner } from "@/components/app/billing-banner";
@@ -18,12 +19,13 @@ export default async function DashboardLayout({
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("full_name, email, avatar_url, org_id, availability")
+    .select("full_name, email, avatar_url, org_id, availability, role")
     .eq("id", user.id)
     .maybeSingle();
 
   if (!profile?.org_id) redirect("/onboarding");
 
+  const isOperator = isOperatorProfile(profile.role, profile.org_id);
   const userProps = {
     fullName: profile.full_name ?? null,
     email: profile.email ?? user.email ?? null,
@@ -33,6 +35,7 @@ export default async function DashboardLayout({
       | "away"
       | "offline"
       | null) ?? "online",
+    isOperator,
   };
 
   return (
