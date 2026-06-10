@@ -1,3 +1,4 @@
+import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type Outcome = { type: string; created_at: string };
@@ -7,11 +8,13 @@ export function OverviewTab({
   sourceCount,
   activeChannelCount,
   outcomes,
+  feedback,
 }: {
   bot: { objective: string };
   sourceCount: number;
   activeChannelCount: number;
   outcomes: Outcome[];
+  feedback: { up: number; down: number };
 }) {
   // Aggregate the last-500 outcomes into the tiles we show.
   const byType = outcomes.reduce<Record<string, number>>((acc, o) => {
@@ -33,7 +36,40 @@ export function OverviewTab({
         value={total > 0 ? `${Math.round((resolved / total) * 100)}%` : "—"}
       />
       <ObjectiveKpi objective={bot.objective} byType={byType} />
+      <FeedbackCard up={feedback.up} down={feedback.down} />
     </div>
+  );
+}
+
+// Agent satisfaction with the bot's replies (👍/👎 from the inbox bubbles).
+function FeedbackCard({ up, down }: { up: number; down: number }) {
+  const total = up + down;
+  const pct = total > 0 ? Math.round((up / total) * 100) : null;
+  return (
+    <Card className="border-white/10 bg-card/60 sm:col-span-2 lg:col-span-2">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Agent feedback on replies</CardTitle>
+        <CardDescription>
+          What your team thought of the AI&apos;s answers (👍 / 👎 in the inbox).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex items-center gap-6">
+        <p className="text-3xl font-semibold tracking-tight">
+          {pct === null ? "—" : `${pct}%`}
+          {pct !== null && (
+            <span className="ml-1 text-sm font-normal text-white/50">positive</span>
+          )}
+        </p>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="inline-flex items-center gap-1.5 text-emerald-300">
+            <ThumbsUp className="size-4" /> {up}
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-rose-300">
+            <ThumbsDown className="size-4" /> {down}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

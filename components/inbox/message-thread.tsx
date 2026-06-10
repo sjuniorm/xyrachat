@@ -24,6 +24,7 @@ import {
   markConversationRead,
   setConversationBotOnly,
 } from "@/lib/inbox/actions";
+import { rateBotReply } from "@/lib/bots/feedback";
 import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,7 @@ function shouldShowHeader(prev: Message | undefined, current: Message): boolean 
 export function MessageThread({
   conversation,
   initialMessageRows,
+  botFeedback,
   assignedToId,
   status,
   members,
@@ -67,6 +69,7 @@ export function MessageThread({
 }: {
   conversation: Conversation;
   initialMessageRows: MessageRow[];
+  botFeedback?: Record<string, "up" | "down">;
   assignedToId: string | null;
   status: ConversationStatus;
   members: TeamMember[];
@@ -101,10 +104,16 @@ export function MessageThread({
   const messages: Message[] = useMemo(() => {
     return rows.map((r) => {
       const adapted = adaptMessage(r);
+      // Hydrate the agent's saved 👍/👎 for bot replies (server-fetched once).
+      const fb = botFeedback?.[r.id];
+      const withFb =
+        fb !== undefined && adapted.is_bot_reply
+          ? { ...adapted, bot_feedback: fb }
+          : adapted;
       const o = localOverrides[r.id];
-      return o ? { ...adapted, ...o } : adapted;
+      return o ? { ...withFb, ...o } : withFb;
     });
-  }, [rows, localOverrides]);
+  }, [rows, localOverrides, botFeedback]);
 
   const [quoted, setQuoted] = useState<Message | undefined>();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -144,6 +153,31 @@ export function MessageThread({
           metadata: { ...existingMeta, translation },
         },
       };
+    });
+  }
+
+  // 👍/👎 a bot reply. Optimistic toggle (clicking the active thumb clears it),
+  // reconciled to the server's post-state; reverts on error.
+  function rateBot(messageId: string, rating: "up" | "down") {
+    const current = messagesById.get(messageId)?.bot_feedback ?? null;
+    const optimistic = current === rating ? null : rating;
+    setLocalOverrides((prev) => ({
+      ...prev,
+      [messageId]: { ...(prev[messageId] ?? {}), bot_feedback: optimistic },
+    }));
+    void rateBotReply(messageId, rating).then((res) => {
+      if (!res.ok) {
+        toast.error(res.error);
+        setLocalOverrides((prev) => ({
+          ...prev,
+          [messageId]: { ...(prev[messageId] ?? {}), bot_feedback: current },
+        }));
+        return;
+      }
+      setLocalOverrides((prev) => ({
+        ...prev,
+        [messageId]: { ...(prev[messageId] ?? {}), bot_feedback: res.rating },
+      }));
     });
   }
 
@@ -270,6 +304,7 @@ export function MessageThread({
                   }
                   onReplyWithQuote={setQuoted}
                   onTranslated={applyTranslation}
+                  onRateBot={rateBot}
                 />
               </div>
             );

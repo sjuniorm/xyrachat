@@ -10,6 +10,8 @@ import {
   MessageSquareReply,
   Paperclip,
   Sparkle,
+  ThumbsDown,
+  ThumbsUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -60,6 +62,7 @@ export function MessageBubble({
   quotedMessage,
   onReplyWithQuote,
   onTranslated,
+  onRateBot,
 }: {
   message: Message;
   showHeader: boolean;
@@ -67,6 +70,7 @@ export function MessageBubble({
   quotedMessage?: Message;
   onReplyWithQuote: (m: Message) => void;
   onTranslated: (messageId: string, translation: NonNullable<Message["metadata"]>["translation"]) => void;
+  onRateBot?: (messageId: string, rating: "up" | "down") => void;
 }) {
   const isOutbound = message.direction === "outbound";
   const isInternal = message.is_internal_note;
@@ -383,6 +387,39 @@ export function MessageBubble({
                 {a.label}
               </span>
             ))}
+          </div>
+        )}
+
+        {message.is_bot_reply && onRateBot && (
+          <div className="flex items-center gap-1 self-end px-1">
+            <button
+              type="button"
+              aria-label="Good AI reply"
+              title="Good AI reply"
+              onClick={() => onRateBot(message.id, "up")}
+              className={cn(
+                "inline-flex size-6 items-center justify-center rounded-full transition-colors",
+                message.bot_feedback === "up"
+                  ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/30"
+                  : "text-white/40 hover:bg-white/10 hover:text-white/70",
+              )}
+            >
+              <ThumbsUp className="size-3" />
+            </button>
+            <button
+              type="button"
+              aria-label="Bad AI reply"
+              title="Bad AI reply"
+              onClick={() => onRateBot(message.id, "down")}
+              className={cn(
+                "inline-flex size-6 items-center justify-center rounded-full transition-colors",
+                message.bot_feedback === "down"
+                  ? "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/30"
+                  : "text-white/40 hover:bg-white/10 hover:text-white/70",
+              )}
+            >
+              <ThumbsDown className="size-3" />
+            </button>
           </div>
         )}
 

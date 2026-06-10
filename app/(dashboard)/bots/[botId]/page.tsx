@@ -39,6 +39,7 @@ export default async function BotDetailPage({
     { data: assignments },
     { data: channels },
     { data: outcomeRows },
+    { data: feedbackRows },
   ] = await Promise.all([
     supabase
       .from("bot_sources")
@@ -61,7 +62,23 @@ export default async function BotDetailPage({
       .eq("bot_id", botId)
       .order("created_at", { ascending: false })
       .limit(500),
+    // Agent 👍/👎 on this bot's replies (RLS scopes to the org).
+    supabase
+      .from("bot_reply_feedback")
+      .select("rating")
+      .eq("bot_id", botId)
+      .is("deleted_at", null)
+      .limit(2000),
   ]);
+
+  const feedback = ((feedbackRows ?? []) as Array<{ rating: "up" | "down" }>).reduce(
+    (acc, r) => {
+      if (r.rating === "up") acc.up += 1;
+      else if (r.rating === "down") acc.down += 1;
+      return acc;
+    },
+    { up: 0, down: 0 },
+  );
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
@@ -110,6 +127,7 @@ export default async function BotDetailPage({
                 (assignments ?? []).filter((a) => a.active).length
               }
               outcomes={(outcomeRows ?? []) as Array<{ type: string; created_at: string }>}
+              feedback={feedback}
             />
           </TabsContent>
           <TabsContent value="knowledge" className="mt-6">

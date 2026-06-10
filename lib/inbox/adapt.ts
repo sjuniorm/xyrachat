@@ -107,6 +107,9 @@ export function adaptMessage(row: MessageRow): UiMessage {
       const a = deriveAiActivity(row);
       return a.length ? a : undefined;
     })(),
+    // A genuine AI bot reply (not an automation send) — the inbox shows a
+    // 👍/👎 quality control on these. bot_feedback is layered on in the thread.
+    is_bot_reply: row.sender_type === "bot" && !row.metadata?.automation,
     metadata: row.metadata,
   };
 }

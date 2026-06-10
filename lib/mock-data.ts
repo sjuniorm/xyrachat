@@ -53,6 +53,12 @@ export type Message = {
   delivery_status?: MessageDeliveryStatus; // outbound only
   is_internal_note?: boolean;
   ai_activity?: AiActivity[];
+  // True when this outbound message is a genuine AI bot reply (not an
+  // automation send) — gates the 👍/👎 quality-feedback control in the bubble.
+  is_bot_reply?: boolean;
+  // The current agent's rating on this bot reply, if any. Hydrated server-side
+  // for the initial render; updated optimistically on click.
+  bot_feedback?: "up" | "down" | null;
   metadata?: {
     ai_assisted?: { action: string; model: string; language?: string };
     translation?: {

@@ -554,6 +554,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     conversationId: input.conversationId,
     content: result.response,
     botMetadata: {
+      bot_id: bot.id,
       model: result.model,
       input_tokens: result.usage.input_tokens,
       output_tokens: result.usage.output_tokens,

@@ -4,6 +4,7 @@ import { ContactPanel } from "@/components/inbox/contact-panel";
 import {
   getConversationDetail,
   getMessagesForConversation,
+  getMyBotFeedbackForConversation,
   resolveServingBot,
 } from "@/lib/inbox/server";
 import { adaptConversation } from "@/lib/inbox/adapt";
@@ -22,9 +23,10 @@ export default async function InboxConversationPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [detail, messages, members, botsRes] = await Promise.all([
+  const [detail, messages, myBotFeedback, members, botsRes] = await Promise.all([
     getConversationDetail(id),
     getMessagesForConversation(id),
+    getMyBotFeedbackForConversation(id),
     getOrgMembers(),
     // Active bots for the StatusMenu "Use bot" picker (RLS scopes to the org).
     supabase
@@ -56,6 +58,7 @@ export default async function InboxConversationPage({
         <MessageThread
           conversation={conversation}
           initialMessageRows={messages}
+          botFeedback={myBotFeedback}
           assignedToId={detail.assigned_to}
           status={detail.status}
           members={members}
