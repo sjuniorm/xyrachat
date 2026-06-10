@@ -6,6 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
 import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewChannelForm } from "./new-channel-form";
+import { EmbeddedSignupButton } from "./embedded-signup-button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 async function createChannelAction(
   formData: FormData,
@@ -91,6 +93,12 @@ export default async function NewChannelPage() {
   const webhookUrl = `${proto}://${host}/api/webhooks/whatsapp`;
   const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? "";
 
+  // One-click Embedded Signup is shown only when the Meta app is configured
+  // (these env vars set). Until then, the manual form is the only path.
+  const esAppId = process.env.NEXT_PUBLIC_META_APP_ID ?? "";
+  const esConfigId = process.env.NEXT_PUBLIC_WHATSAPP_ES_CONFIG_ID ?? "";
+  const esEnabled = Boolean(esAppId && esConfigId);
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-2xl">
@@ -99,10 +107,26 @@ export default async function NewChannelPage() {
             Connect WhatsApp Business
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Paste the credentials from your Meta App Dashboard. Embedded Signup for
-            real clients lands in Week 9.
+            {esEnabled
+              ? "Connect in a few clicks with Meta — or paste credentials manually."
+              : "Paste the credentials from your Meta App Dashboard."}
           </p>
         </header>
+
+        {esEnabled && (
+          <Card className="mb-6 border-white/10 bg-card/60">
+            <CardHeader>
+              <CardTitle className="text-base">One-click connect</CardTitle>
+              <CardDescription>
+                Sign in with Meta and pick your WhatsApp number — we set up the
+                webhook + token automatically. No API hunting.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <EmbeddedSignupButton appId={esAppId} configId={esConfigId} />
+            </CardContent>
+          </Card>
+        )}
 
         <NewChannelForm
           action={createChannelAction}
