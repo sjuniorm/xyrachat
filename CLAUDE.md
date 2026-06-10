@@ -1737,6 +1737,47 @@ Also queued:
   Manual entry still works fine for adding new WA channels; ESU is a
   client-onboarding polish item once the marketing site is live.
 
+## Pre-launch batch (2026-06-09 / 10)
+
+Polish + monetization + Meta-onboarding work on top of Week 16. All built in
+auto-mode, each item built→`npm run build`→commit→push.
+
+- **One-click Meta connect** — WhatsApp Embedded Signup
+  (`/api/auth/whatsapp/embedded-signup` + `embedded-signup-button.tsx`) and
+  Messenger Facebook-Login OAuth (`/api/auth/messenger/oauth` +
+  `messenger-login-button.tsx`), sharing `components/meta/use-fb-sdk.ts`. Both
+  are **env-gated** (`NEXT_PUBLIC_META_APP_ID` + `NEXT_PUBLIC_WHATSAPP_ES_CONFIG_ID`
+  / `NEXT_PUBLIC_MESSENGER_OAUTH_CONFIG_ID`): the button only renders when set,
+  manual entry stays the fallback, so the untested-against-real-Meta code can't
+  break prod. Code→token exchanges POST creds in the form body (not URL query).
+  Activates once Meta approves + the config IDs are set in Vercel.
+- **Pricing finalized** — `lib/billing/bundles.ts` now has 4 paid tiers:
+  Starter €39 (2ch/2seats/1 bot/300k AI, no broadcasts) · **Growth €99**
+  (5ch/5seats/2 bots/1M AI/broadcasts, "Most popular") · Pro €199 (unlimited
+  ch/15 seats/5 bots/full API+voice) · Enterprise from €399 (custom). Stripe
+  price lookup is dynamic (`STRIPE_PRICE_<BUNDLE>_<INTERVAL>`), so the new tier
+  just needs the env vars (added to `.env.example`; runbook §3 updated, annual =
+  2 months free). **Social Lite €19** (IG-automations-only) is still TODO —
+  Meta-gated, needs an inbox feature-gate.
+- **Bot reply 👍/👎 feedback** — migration **052** `bot_reply_feedback`
+  (`lib/bots/feedback.ts` `rateBotReply`). Thumbs on bot-reply bubbles only
+  (`is_bot_reply` from adapt), my rating hydrated via
+  `getMyBotFeedbackForConversation`, optimistic with revert. Bot Overview tab
+  shows % positive + counts. bot-gate now stamps `bot_id` into reply metadata
+  for attribution.
+- **Support access (consent layer)** — migration **053** `support_grants` +
+  `support_access_log` (`lib/support/access.ts`). Client owner/admin grants
+  time-boxed (24h/7d/30d), scoped (view&reply / view-only), revocable consent
+  from `/settings/team`; persistent transparency banner to all members while
+  live; operator client-detail page badges consent state;
+  `hasActiveSupportGrant()` is the gate. The **"enter workspace" impersonation
+  (scoped support role) is deferred** — needs `role!=='support'` guards across
+  every destructive action + an adversarial review. See
+  `_docs/support-access-design.md`.
+- Changelog **1.15** covers the customer-facing parts.
+
+**⚠️ Operator: apply migrations 052 + 053** in Supabase. Both are idempotent.
+
 ## Conventions
 
 - Server actions for mutations (form posts) — preferred over `/api/*` route handlers unless the endpoint is for an external caller (webhook, GDPR).
