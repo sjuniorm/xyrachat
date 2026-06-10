@@ -30,6 +30,13 @@ Goal: take Instagram + WhatsApp out of dev-mode so real customers work.
 Claude will prep the per-permission justification text + screencast script.
 
 ## 2) 🧑 Resend domain + emails
+**Status (2026-06-10):** `xyrachat.com` verified for OUTBOUND. `RESEND_API_KEY` +
+`EMAIL_FROM_ADDRESS` set in Vercel. ⏳ **TODO before launch — inbound Email
+channel:** needs a 2nd Resend domain (paid plan) e.g. `mail.xyrachat.com` with
+**MX → Resend** (do NOT MX the root xyrachat.com — it'd hijack business email) +
+`RESEND_WEBHOOK_SECRET` + `INBOUND_EMAIL_DOMAIN`. Customers can't email INTO the
+inbox until this is done.
+
 1. Resend → Domains → add **xyrachat.com** (or mail.xyrachat.com) → add the
    DNS records (SPF/DKIM/DMARC) at the registrar → verify.
 2. Vercel env: `EMAIL_FROM_ADDRESS=Xyra Chat <noreply@xyrachat.com>`,
@@ -43,9 +50,12 @@ Claude will prep the per-permission justification text + screencast script.
 4. Test: trigger /forgot-password → confirm the branded reset email arrives.
 
 ## 3) 🧑 Stripe go-live
-1. Create Products + Prices (live mode): Starter €39/mo + €374/yr, Pro €99/mo +
-   €950/yr, Enterprise €249/mo + €2390/yr. (Match lib/billing/bundles.ts.)
-2. Vercel env: `STRIPE_PRICE_{STARTER,PRO,ENTERPRISE}_{MONTHLY,YEARLY}` =
+1. Create Products + Prices (live mode), **annual = 2 months free (~17% off)**:
+   Starter €39/mo (€390/yr) · **Growth €99/mo (€990/yr)** · Pro €199/mo
+   (€1990/yr) · Enterprise €399/mo (custom). (Match lib/billing/bundles.ts.)
+   Optional: create a `LAUNCH40` Promotion Code (40% off, **repeating 3 months**)
+   for the founder early-bird — or seed via /settings/admin/promos.
+2. Vercel env: `STRIPE_PRICE_{STARTER,GROWTH,PRO,ENTERPRISE}_{MONTHLY,YEARLY}` =
    the `price_…` ids; `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
 3. Webhook endpoint → `https://<app>/api/webhooks/stripe`, subscribe to:
    `checkout.session.completed`, `customer.subscription.updated`,
