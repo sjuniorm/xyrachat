@@ -1,0 +1,142 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { vaultCreateSecret } from "@/lib/supabase/vault";
+import { assertCanAddChannel } from "@/lib/billing/gates";
+
+export const runtime = "nodejs";
+
+const META_GRAPH_VERSION = "v22.0";
+const SUBSCRIBED_FIELDS = "messages,messaging_postbacks,message_deliveries,message_reads";
+
+// One-click Messenger connect via Facebook Login for Business. The client runs
+// FB.login (Messenger config) → returns an auth `code`; we exchange it for a
+// user token, list the user's Pages, connect the first one (page token → Vault,
+// subscribe to our webhook, create the channel).
+//
+// ⚠️ DEV-MODE TEST REQUIRED: built to spec, not yet verified against a live Meta
+// app. Multi-page picker is deferred (auto-picks the first Page) — same as the
+// IG auto-pick-first behavior; noted in the response so the UI can hint.
+type Body = { code?: string; name?: string };
+
+export async function POST(req: Request) {
+  const appId = process.env.META_APP_ID;
+  const appSecret = process.env.META_APP_SECRET;
+  if (!appId || !appSecret) {
+    return NextResponse.json(
+      { error: "Messenger one-click isn't configured (META_APP_ID/SECRET unset)." },
+      { status: 503 },
+    );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  const orgId = profile?.org_id;
+  if (!orgId) return NextResponse.json({ error: "No organization." }, { status: 403 });
+
+  const gate = await assertCanAddChannel(orgId, "facebook");
+  if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: 402 });
+
+  let body: Body;
+  try {
+    body = (await req.json()) as Body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const code = body.code?.trim();
+  if (!code) return NextResponse.json({ error: "Missing authorization code." }, { status: 400 });
+
+  // 1. Exchange code → user access token. Creds in the POST body (not the URL)
+  //    so client_secret + code stay out of request-URL logs.
+  const exchRes = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: appId, client_secret: appSecret, code }).toString(),
+    },
+  );
+  const exchJson = (await exchRes.json().catch(() => null)) as
+    | { access_token?: string; error?: { message: string } }
+    | null;
+  if (!exchRes.ok || exchJson?.error || !exchJson?.access_token) {
+    return NextResponse.json(
+      { error: exchJson?.error?.message ?? `Token exchange failed (HTTP ${exchRes.status}).` },
+      { status: 502 },
+    );
+  }
+  const userToken = exchJson.access_token;
+
+  // 2. List the user's Pages (includes per-page access tokens).
+  const pagesRes = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts?fields=id,name,access_token`,
+    { headers: { Authorization: `Bearer ${userToken}` } },
+  );
+  const pagesJson = (await pagesRes.json().catch(() => null)) as
+    | { data?: Array<{ id: string; name: string; access_token: string }>; error?: { message: string } }
+    | null;
+  if (!pagesRes.ok || pagesJson?.error) {
+    return NextResponse.json(
+      { error: pagesJson?.error?.message ?? "Couldn't list your Facebook Pages." },
+      { status: 502 },
+    );
+  }
+  const pages = pagesJson?.data ?? [];
+  if (pages.length === 0) {
+    return NextResponse.json(
+      { error: "No Facebook Pages found on this account." },
+      { status: 422 },
+    );
+  }
+  const page = pages[0]; // multi-page picker deferred
+
+  // 3. Subscribe the Page to our app's webhook (also validates the page token).
+  const subRes = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/${page.id}/subscribed_apps?subscribed_fields=${SUBSCRIBED_FIELDS}`,
+    { method: "POST", headers: { Authorization: `Bearer ${page.access_token}` } },
+  );
+  if (!subRes.ok) {
+    const j = (await subRes.json().catch(() => null)) as { error?: { message: string } } | null;
+    return NextResponse.json(
+      { error: j?.error?.message ?? `Couldn't subscribe the Page (HTTP ${subRes.status}).` },
+      { status: 502 },
+    );
+  }
+
+  // 4. Store the Page token; create the channel.
+  let vaultId: string;
+  try {
+    vaultId = await vaultCreateSecret(
+      page.access_token,
+      `messenger-oauth-${page.id}-${Date.now()}`,
+      `Facebook Page token for ${page.name}`,
+    );
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? `Vault: ${err.message}` : "Vault store failed." },
+      { status: 500 },
+    );
+  }
+
+  const admin = createAdminClient();
+  const { error: insErr } = await admin.from("channels").insert({
+    org_id: orgId,
+    type: "facebook",
+    name: body.name?.trim() || page.name,
+    page_id: page.id,
+    access_token_vault_id: vaultId,
+    active: true,
+    metadata: { page_name: page.name, oauth: { connected_at: new Date().toISOString(), user_id: user.id } },
+  });
+  if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true, pageName: page.name, otherPages: Math.max(0, pages.length - 1) });
+}

@@ -5,24 +5,14 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-type FbAuthResponse = { authResponse?: { code?: string } | null };
-declare global {
-  interface Window {
-    FB?: {
-      init: (o: Record<string, unknown>) => void;
-      login: (cb: (r: FbAuthResponse) => void, o: Record<string, unknown>) => void;
-    };
-    fbAsyncInit?: () => void;
-  }
-}
+import { useFbSdk } from "@/components/meta/use-fb-sdk";
 
 // One-click WhatsApp connect via Meta's Embedded Signup. Only rendered when
 // NEXT_PUBLIC_META_APP_ID + NEXT_PUBLIC_WHATSAPP_ES_CONFIG_ID are set, so it's
 // inert until the Meta app is configured (the manual form stays the fallback).
 export function EmbeddedSignupButton({ appId, configId }: { appId: string; configId: string }) {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const { ready, fb } = useFbSdk(appId);
   const [busy, setBusy] = useState(false);
   // Meta posts phone_number_id + waba_id via a window message during the flow.
   const session = useRef<{ phone_number_id?: string; waba_id?: string }>({});
@@ -43,29 +33,14 @@ export function EmbeddedSignupButton({ appId, configId }: { appId: string; confi
       }
     }
     window.addEventListener("message", onMessage);
-
-    if (window.FB) {
-      setReady(true);
-    } else if (!document.getElementById("fb-sdk")) {
-      window.fbAsyncInit = () => {
-        window.FB?.init({ appId, autoLogAppEvents: true, xfbml: false, version: "v22.0" });
-        setReady(true);
-      };
-      const s = document.createElement("script");
-      s.id = "fb-sdk";
-      s.async = true;
-      s.defer = true;
-      s.crossOrigin = "anonymous";
-      s.src = "https://connect.facebook.net/en_US/sdk.js";
-      document.body.appendChild(s);
-    }
     return () => window.removeEventListener("message", onMessage);
-  }, [appId]);
+  }, []);
 
   function launch() {
-    if (!window.FB) return;
+    const FB = fb();
+    if (!FB) return;
     setBusy(true);
-    window.FB.login(
+    FB.login(
       (response) => {
         const code = response?.authResponse?.code;
         if (!code) {

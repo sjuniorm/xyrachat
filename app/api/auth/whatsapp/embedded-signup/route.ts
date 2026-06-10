@@ -60,14 +60,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing phone_number_id / waba_id." }, { status: 400 });
   }
 
-  // 1. Exchange the ES auth code for a business access token (token via header
-  //    on subsequent calls; the code exchange itself passes app creds as query).
-  const exchUrl =
-    `https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token` +
-    `?client_id=${encodeURIComponent(appId)}` +
-    `&client_secret=${encodeURIComponent(appSecret)}` +
-    `&code=${encodeURIComponent(code)}`;
-  const exchRes = await fetch(exchUrl, { method: "GET" });
+  // 1. Exchange the ES auth code for a business access token. Creds go in the
+  //    POST body (NOT the URL query) so client_secret + code never land in
+  //    request-URL logs.
+  const exchRes = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: appId, client_secret: appSecret, code }).toString(),
+    },
+  );
   const exchJson = (await exchRes.json().catch(() => null)) as
     | { access_token?: string; error?: { message: string } }
     | null;

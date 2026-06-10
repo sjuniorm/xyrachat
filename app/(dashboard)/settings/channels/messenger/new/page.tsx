@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
 import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewMessengerChannelForm } from "./new-messenger-channel-form";
+import { MessengerLoginButton } from "./messenger-login-button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 const META_GRAPH_VERSION = "v22.0";
 
@@ -124,6 +126,10 @@ export default async function NewMessengerChannelPage() {
   const webhookUrl = `${proto}://${host}/api/webhooks/messenger`;
   const verifyToken = process.env.MESSENGER_WEBHOOK_VERIFY_TOKEN ?? "";
 
+  const oauthAppId = process.env.NEXT_PUBLIC_META_APP_ID ?? "";
+  const oauthConfigId = process.env.NEXT_PUBLIC_MESSENGER_OAUTH_CONFIG_ID ?? "";
+  const oauthEnabled = Boolean(oauthAppId && oauthConfigId);
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-2xl">
@@ -132,10 +138,26 @@ export default async function NewMessengerChannelPage() {
             Connect Facebook Messenger
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Paste your Facebook Page ID and a Page access token. Xyra subscribes
-            the page to the webhook for you.
+            {oauthEnabled
+              ? "Connect in a few clicks with Facebook — or paste a Page token manually."
+              : "Paste your Facebook Page ID and a Page access token. Xyra subscribes the page to the webhook for you."}
           </p>
         </header>
+
+        {oauthEnabled && (
+          <Card className="mb-6 border-white/10 bg-card/60">
+            <CardHeader>
+              <CardTitle className="text-base">One-click connect</CardTitle>
+              <CardDescription>
+                Sign in with Facebook and pick your Page — we wire the webhook +
+                token automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MessengerLoginButton appId={oauthAppId} configId={oauthConfigId} />
+            </CardContent>
+          </Card>
+        )}
 
         <NewMessengerChannelForm
           action={createMessengerChannelAction}
