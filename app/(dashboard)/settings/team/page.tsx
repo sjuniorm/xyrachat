@@ -15,10 +15,12 @@ import {
   cancelInvite,
   removeTeamMember,
 } from "@/lib/team/actions";
+import { getActiveSupportGrant } from "@/lib/support/access";
 import { cn } from "@/lib/utils";
 import { InviteDialog } from "./invite-dialog";
 import { ConfirmAction } from "./confirm-action";
 import { ChangeRoleMenu } from "./change-role-menu";
+import { SupportAccessCard } from "./support-access-card";
 
 const ROLE_BADGE: Record<string, string> = {
   owner:
@@ -40,6 +42,7 @@ export default async function TeamPage() {
   if (!orgId) redirect("/onboarding");
 
   const canManage = me.role === "owner" || me.role === "admin";
+  const supportGrant = canManage ? await getActiveSupportGrant(orgId) : null;
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
@@ -219,6 +222,8 @@ export default async function TeamPage() {
             </CardContent>
           </Card>
         )}
+
+        {canManage && <SupportAccessCard grant={supportGrant} />}
       </div>
     </div>
   );

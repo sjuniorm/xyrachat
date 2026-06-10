@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isOperatorProfile } from "@/lib/admin/operator";
+import { getActiveSupportGrant } from "@/lib/support/access";
 import { getOrgAnalytics } from "@/lib/analytics/reports";
 import { BUNDLES } from "@/lib/billing/bundles";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,10 @@ export default async function ClientDetailPage({
     .eq("id", orgId)
     .maybeSingle();
   if (!org) notFound();
+
+  // Has this client consented to support access right now? Gates whether we're
+  // cleared to enter their workspace (the "enter" action itself is a follow-up).
+  const supportGrant = await getActiveSupportGrant(orgId);
 
   const now = new Date();
   const from = new Date(now.getTime() - 30 * 86_400_000).toISOString();
@@ -90,9 +95,21 @@ export default async function ClientDetailPage({
               {new Date(org.created_at as string).toLocaleDateString()}
             </p>
           </div>
-          <Badge variant="outline" className="border-white/15 bg-white/5 text-xs capitalize text-white/70">
-            {sub?.plan ?? "—"} · {sub?.status ?? "—"}
-          </Badge>
+          <div className="flex flex-col items-end gap-1.5">
+            <Badge variant="outline" className="border-white/15 bg-white/5 text-xs capitalize text-white/70">
+              {sub?.plan ?? "—"} · {sub?.status ?? "—"}
+            </Badge>
+            {supportGrant ? (
+              <Badge variant="outline" className="border-emerald-400/30 bg-emerald-400/15 text-[11px] text-emerald-300">
+                Support access granted · {supportGrant.scope === "read_only" ? "view-only" : "view & reply"} · until{" "}
+                {new Date(supportGrant.expires_at).toLocaleDateString()}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-white/10 bg-white/5 text-[11px] text-white/40">
+                No support access — ask the client to grant it
+              </Badge>
+            )}
+          </div>
         </header>
 
         {/* Stats (last 30 days) */}

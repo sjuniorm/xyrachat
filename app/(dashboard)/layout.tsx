@@ -4,6 +4,7 @@ import { isOperatorProfile } from "@/lib/admin/operator";
 import { SidebarContent } from "@/components/app/sidebar-content";
 import { MobileHeader } from "@/components/app/mobile-header";
 import { BillingBanner } from "@/components/app/billing-banner";
+import { SupportAccessBanner } from "@/components/app/support-access-banner";
 import { HelpWidget } from "@/components/app/help-widget";
 
 export default async function DashboardLayout({
@@ -48,6 +49,7 @@ export default async function DashboardLayout({
       {/* Mobile column: hamburger header + content */}
       <div className="flex h-full flex-1 flex-col">
         <MobileHeader {...userProps} />
+        <SupportAccessBanner orgId={profile.org_id} />
         <BillingBanner orgId={profile.org_id} />
         <main className="flex min-h-0 flex-1 flex-col">{children}</main>
       </div>

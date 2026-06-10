@@ -1,7 +1,44 @@
-# Design: client-granted support access (for your review)
+# Design: client-granted support access
 
-Security-sensitive (cross-tenant data access), so this is a design to approve
-BEFORE I build it — not shipped yet. Decisions you need to make are marked ★.
+> **Status (2026-06-10):** the CONSENT layer is SHIPPED (migration 053).
+> The riskier "enter workspace" impersonation step is intentionally deferred —
+> see *What shipped* vs *Deferred* below. Safe defaults were chosen so it could
+> ship in auto-mode without blocking on the ★ answers; change any of them freely.
+
+## What shipped (migration 053 + lib/support/access.ts)
+- `support_grants` + `support_access_log` tables (org-scoped RLS; writes via
+  the role-checked server actions on the service-role client; one active grant
+  per org via a partial unique index).
+- **Client control** — a "Support access" card on `/settings/team` (owner+admin
+  only): pick duration (24h / **7 days** default / 30 days) + scope
+  (**view & reply** default / view-only), Grant / Revoke. Re-granting revokes
+  the prior grant first.
+- **Transparency** — a persistent amber banner shown to EVERY member of the org
+  while a grant is live (`components/app/support-access-banner.tsx`), with a
+  "Manage" link. A workspace is never quietly accessible.
+- **Audit** — every granted/revoked transition is logged to
+  `support_access_log` (clients can be shown their own history).
+- **Operator surface** — the operator client-detail page badges whether the
+  client has an active grant (so support knows if they're cleared to help) and
+  `hasActiveSupportGrant(orgId)` is the server-side gate for any future assist.
+
+## Chosen safe defaults (the ★ questions, answered)
+1. **Duration** — client picks 24h / 7d / 30d; default 7d.
+2. **Scope** — view & reply default; view-only available.
+3. **Who can grant** — owner + admin.
+4. **Attribution** — TBD when the impersonation lands (lean "Xyra Support").
+
+## Deferred (the riskier half — do NOT enable without the guards)
+The actual "Enter workspace" (a temporary scoped `memberships` row with a
+`support` role + active-org switch) is NOT built. It requires gating every
+destructive/billing/team-management action on `role !== 'support'` — a wide
+surface that needs an adversarial review before shipping. `hasActiveSupportGrant`
+is the consent gate it will sit behind. Original design notes (★ = open) below.
+
+---
+
+## Original design notes
+Security-sensitive (cross-tenant data access). Decisions are marked ★.
 
 ## Goal
 Let Xyra Support enter a client's workspace to actually help (see their inbox,
