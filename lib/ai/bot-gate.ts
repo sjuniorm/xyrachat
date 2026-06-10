@@ -504,6 +504,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   };
 
   let result;
+  const genStart = Date.now();
   try {
     result = await generateBotResponse({
       bot: bot as BotRow,
@@ -561,6 +562,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       sources_used: result.sourcesUsed,
       max_similarity: result.maxSimilarity,
       tools_invoked: result.toolsInvoked,
+      latency_ms: Date.now() - genStart,
     },
     channelId: input.channel.id,
     contactId: input.contactId,

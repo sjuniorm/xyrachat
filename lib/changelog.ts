@@ -15,6 +15,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.14",
+    date: "2026-06-10",
+    title: "AI activity on every message",
+    tag: "feature",
+    highlights: [
+      "Each message now shows what the AI did — e.g. “AI reply · from your knowledge · 2s”, “Auto-translated from Spanish”, “Automated”, or “Lead captured”.",
+      "Live in the unified inbox across every channel, so you can see your bots and automations working at a glance.",
+    ],
+  },
+  {
     version: "1.13",
     date: "2026-06-09",
     title: "Analytics dashboard",

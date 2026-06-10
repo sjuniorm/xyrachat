@@ -106,7 +106,11 @@ async function execLeafAction(
         recipient: pickRecipient(channel.type, contact),
         content: rendered,
         conversationId: convId,
-        extraMetadata: stampKey ? { sched_step: stampKey } : undefined,
+        // Tag the send so the inbox can annotate "Automated · <name>".
+        extraMetadata: {
+          ...(stampKey ? { sched_step: stampKey } : {}),
+          automation_meta: { name: automation.name, trigger_type: automation.trigger_type },
+        },
       });
       return send.ok
         ? { ok: true, conversationId: convId }

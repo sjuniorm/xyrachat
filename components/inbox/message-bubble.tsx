@@ -356,6 +356,36 @@ export function MessageBubble({
           </div>
         )}
 
+        {message.ai_activity && message.ai_activity.length > 0 && (
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-1 px-1",
+              isOutbound ? "justify-end self-end" : "self-start",
+            )}
+          >
+            {message.ai_activity.map((a, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  a.kind === "lead"
+                    ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20"
+                    : "bg-[color:var(--xyra-purple)]/10 text-[color:var(--xyra-glow)] ring-1 ring-[color:var(--xyra-purple)]/20",
+                )}
+              >
+                {a.kind === "lead" ? (
+                  <Check className="size-2.5" />
+                ) : a.kind === "translate" ? (
+                  <Languages className="size-2.5" />
+                ) : (
+                  <Sparkle className="size-2.5" />
+                )}
+                {a.label}
+              </span>
+            ))}
+          </div>
+        )}
+
         {isLastInGroup && (
           <div
             className={cn(

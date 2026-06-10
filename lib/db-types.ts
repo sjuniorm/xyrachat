@@ -136,6 +136,18 @@ export type ConversationMetadata = {
 export type MessageMetadata = {
   ai_assisted?: { action: string; model: string; language?: string };
   transcription?: { text: string; model: string };
+  // Bot-reply provenance (set in bot-gate when a bot answers) — drives the
+  // inbox "AI activity" annotation.
+  model?: string;
+  sources_used?: number;
+  max_similarity?: number;
+  latency_ms?: number;
+  tools_invoked?: string[];
+  // Auto-translation written by lib/ai/auto-translate on inbound messages.
+  auto_translation?: { source: string; target: string; text: string };
+  // Automation provenance (set by the automation executor on its sends).
+  automation?: boolean;
+  automation_meta?: { name?: string; trigger_type?: string; keyword?: string };
   // Original filename of an outbound media attachment (the media_url path is a
   // UUID), so the inbox can show a human name for documents.
   media_filename?: string;

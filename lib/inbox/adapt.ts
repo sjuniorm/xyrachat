@@ -6,11 +6,40 @@
 import type {
   Conversation as UiConversation,
   Message as UiMessage,
+  AiActivity,
 } from "@/lib/mock-data";
 import type {
   ConversationWithRelations,
   MessageRow,
 } from "@/lib/db-types";
+import { languageLabel } from "@/lib/i18n/languages";
+
+// Derive the "AI activity" provenance chips for a message from its metadata +
+// sender. Order: translation (inbound), then automation OR bot reply (an
+// automation send is sender_type='bot' too, so automation wins), then lead.
+function deriveAiActivity(row: MessageRow): AiActivity[] {
+  const m = row.metadata ?? {};
+  const acts: AiActivity[] = [];
+  if (m.auto_translation?.source) {
+    acts.push({ kind: "translate", label: `Auto-translated from ${languageLabel(m.auto_translation.source)}` });
+  }
+  if (m.automation) {
+    const name = m.automation_meta?.name;
+    acts.push({ kind: "automation", label: name ? `Automated · ${name}` : "Automated" });
+  } else if (row.sender_type === "bot") {
+    const parts: string[] = [];
+    if (typeof m.sources_used === "number" && m.sources_used > 0) parts.push("from your knowledge");
+    if (typeof m.latency_ms === "number" && m.latency_ms > 0) {
+      const s = m.latency_ms / 1000;
+      parts.push(s < 10 ? `${s.toFixed(1)}s` : `${Math.round(s)}s`);
+    }
+    acts.push({ kind: "bot", label: parts.length ? `AI reply · ${parts.join(" · ")}` : "AI reply" });
+  }
+  if (Array.isArray(m.tools_invoked) && m.tools_invoked.includes("capture_lead")) {
+    acts.push({ kind: "lead", label: "Lead captured" });
+  }
+  return acts;
+}
 
 function fallbackAvatar(name: string): string {
   const display = (name || "?").trim() || "?";
@@ -74,6 +103,10 @@ export function adaptMessage(row: MessageRow): UiMessage {
     created_at: row.created_at,
     delivery_status: row.direction === "outbound" ? row.status : undefined,
     is_internal_note: row.is_internal_note ?? false,
+    ai_activity: (() => {
+      const a = deriveAiActivity(row);
+      return a.length ? a : undefined;
+    })(),
     metadata: row.metadata,
   };
 }

@@ -38,6 +38,10 @@ export type MessageAttachment = {
   size?: string;
 };
 
+// Small "what the AI/automation did" provenance chip shown under a bubble.
+export type AiActivityKind = "bot" | "translate" | "automation" | "lead";
+export type AiActivity = { kind: AiActivityKind; label: string };
+
 export type Message = {
   id: string;
   conversation_id: string;
@@ -48,6 +52,7 @@ export type Message = {
   created_at: string;
   delivery_status?: MessageDeliveryStatus; // outbound only
   is_internal_note?: boolean;
+  ai_activity?: AiActivity[];
   metadata?: {
     ai_assisted?: { action: string; model: string; language?: string };
     translation?: {
