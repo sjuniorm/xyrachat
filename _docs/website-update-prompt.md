@@ -41,6 +41,15 @@ WHAT XYRA CHAT ACTUALLY DOES (shipped — safe to claim):
 - EU-hosted, GDPR-aligned (data residency in the EU, opt-out handling,
   export/erasure).
 
+PRICING (show a pricing section; EUR/mo, annual = 2 months free):
+- Starter €39 · Growth €99 (mark "Most popular") · Pro €199 · Enterprise "Contact
+  us" (custom, from ~€399). 14-day free trial, no card.
+- Launch intro offer: 40% off the first 3 months (code applied at checkout).
+- "Social Lite" €19/mo — Instagram comment & DM keyword automations only (the
+  cheap wedge). Show it as "coming at launch" until Meta approval clears.
+- Keep the exact numbers in ONE place / config so they're easy to change; treat
+  these as the current intended prices (confirm before publishing).
+
 MESSAGING:
 - Hero: "Every customer conversation, every channel — one inbox, with AI that
   actually replies." (rework, don't copy verbatim)
