@@ -15,6 +15,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.15",
+    date: "2026-06-10",
+    title: "Rate your bot, one-click connect & support access",
+    tag: "feature",
+    highlights: [
+      "Give any AI reply a 👍 or 👎 right in the inbox — your scores roll up on each bot's Overview so you can see (and improve) reply quality.",
+      "Connect WhatsApp and Facebook Messenger in a few clicks with Meta — no hunting for IDs or tokens.",
+      "New Support access control in Settings → Team: let Xyra Support into your workspace only when you choose, time-boxed and revocable, with a banner while it's on.",
+    ],
+  },
+  {
     version: "1.14",
     date: "2026-06-10",
     title: "AI activity on every message",
