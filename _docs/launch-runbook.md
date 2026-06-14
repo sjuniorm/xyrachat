@@ -7,10 +7,16 @@ each step; items marked 🧑 need your accounts/access.
 ---
 
 ## 0) Apply pending migrations (Supabase SQL editor) — 2 min
-Run in order (040–042 already applied):
+Run any not-yet-applied, in order. 040–053 applied as of 2026-06-14.
 - `043_harden_team_messages_update_policy.sql` — team chat RLS hardening
 - `044_trial_reminders.sql` — trial-reminder column + daily pg_cron
 - `045_chat_media_private.sql` — flips chat-media bucket private
+- `046_messenger_channel.sql` · `047_sequences.sql` · `048_webchat_channel.sql`
+  · `049_conversation_metadata.sql` · `050_saved_replies_2.sql`
+  · `051_conversation_ratings.sql` · `052_bot_reply_feedback.sql`
+  · `053_support_access.sql`
+- ⏳ **`054_bot_feedback_notifications.sql`** — NEW (2026-06-14): dedupe table so
+  the bot-👎 support-alert email fires at most once per reply. **Apply this.**
 After 044: it reuses the existing `app_config.cron_secret` + `http` extension
 (already set for webhook-retry/retention) — no new setup.
 
@@ -99,6 +105,10 @@ callback URLs → re-run the full auth + webhook smoke test. See
 project_custom_domain_switch memory.
 
 ## 7) Optional in-app config (env)
+- `SUPPORT_FEEDBACK_EMAIL` — where the team is alerted when a client adds a note
+  to a bot 👎 (e.g. `feedback@xyrachat.com`). Unset → no alert (feature still works).
+- `NEXT_PUBLIC_SUPPORT_BOOKING_URL` — your Cal.com/Calendly link; shows a
+  "Book a call" button in the 👎 note. Unset → button hidden.
 - `SUPPORT_BOT_ID` — id of your "Xyra Helper" bot (operator org) → activates the
   in-app help widget's AI answers.
 - `NEXT_PUBLIC_CANNY_APP_ID` + `NEXT_PUBLIC_CANNY_BOARD_TOKEN` + `CANNY_PRIVATE_KEY`
