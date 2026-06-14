@@ -59,6 +59,8 @@ export type Message = {
   // The current agent's rating on this bot reply, if any. Hydrated server-side
   // for the initial render; updated optimistically on click.
   bot_feedback?: "up" | "down" | null;
+  // The current agent's free-text "what went wrong" note on a 👎, if any.
+  bot_feedback_reason?: string | null;
   metadata?: {
     ai_assisted?: { action: string; model: string; language?: string };
     translation?: {

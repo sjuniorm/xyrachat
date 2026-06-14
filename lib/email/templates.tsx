@@ -89,6 +89,73 @@ export function TrialEndingEmail({
   );
 }
 
+export function BotFeedbackEmail({
+  orgName,
+  botName,
+  replyText,
+  reason,
+  conversationUrl,
+}: {
+  orgName: string;
+  botName: string;
+  replyText: string;
+  reason: string;
+  conversationUrl: string;
+}) {
+  const quote = (s: string) => (s.length > 600 ? `${s.slice(0, 600)}…` : s);
+  return (
+    <EmailLayout preview={`Negative bot feedback from ${orgName}`}>
+      <EmailHeading>👎 Bot feedback from {orgName}</EmailHeading>
+      <EmailText>
+        An agent at <strong style={{ color: emailColors.text }}>{orgName}</strong>{" "}
+        marked a reply from <strong style={{ color: emailColors.text }}>{botName}</strong>{" "}
+        as unhelpful. Reach out to help them tune it.
+      </EmailText>
+      <Text
+        style={{
+          color: emailColors.muted,
+          fontSize: 12,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          margin: "16px 0 4px",
+        }}
+      >
+        What went wrong
+      </Text>
+      <Text style={{ color: emailColors.text, fontSize: 15, lineHeight: "22px", margin: "0 0 12px" }}>
+        {reason}
+      </Text>
+      {replyText && (
+        <>
+          <Text
+            style={{
+              color: emailColors.muted,
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+              margin: "16px 0 4px",
+            }}
+          >
+            The bot reply
+          </Text>
+          <Text
+            style={{
+              color: emailColors.muted,
+              fontSize: 14,
+              lineHeight: "21px",
+              margin: "0 0 16px",
+              fontStyle: "italic",
+            }}
+          >
+            “{quote(replyText)}”
+          </Text>
+        </>
+      )}
+      <EmailButton href={conversationUrl}>Open the conversation</EmailButton>
+    </EmailLayout>
+  );
+}
+
 export function PaymentFailedEmail({
   orgName,
   manageUrl,

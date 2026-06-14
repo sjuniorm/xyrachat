@@ -238,9 +238,11 @@ export async function getMessagesForConversation(
 // { messageId: 'up'|'down' } map for hydrating the inbox bubbles. RLS already
 // scopes reads to the agent's org; we additionally filter to created_by = me so
 // the control reflects *my* opinion (the team aggregate lives on the bot page).
+export type MyBotFeedback = { rating: "up" | "down"; reason: string | null };
+
 export async function getMyBotFeedbackForConversation(
   conversationId: string,
-): Promise<Record<string, "up" | "down">> {
+): Promise<Record<string, MyBotFeedback>> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -248,13 +250,13 @@ export async function getMyBotFeedbackForConversation(
   if (!user) return {};
   const { data } = await supabase
     .from("bot_reply_feedback")
-    .select("message_id, rating")
+    .select("message_id, rating, reason")
     .eq("conversation_id", conversationId)
     .eq("created_by", user.id)
     .is("deleted_at", null);
-  const map: Record<string, "up" | "down"> = {};
-  for (const r of (data as Array<{ message_id: string; rating: "up" | "down" }> | null) ?? []) {
-    map[r.message_id] = r.rating;
+  const map: Record<string, MyBotFeedback> = {};
+  for (const r of (data as Array<{ message_id: string; rating: "up" | "down"; reason: string | null }> | null) ?? []) {
+    map[r.message_id] = { rating: r.rating, reason: r.reason };
   }
   return map;
 }

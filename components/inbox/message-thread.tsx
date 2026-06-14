@@ -24,7 +24,7 @@ import {
   markConversationRead,
   setConversationBotOnly,
 } from "@/lib/inbox/actions";
-import { rateBotReply } from "@/lib/bots/feedback";
+import { rateBotReply, submitBotFeedbackReason } from "@/lib/bots/feedback";
 import { formatSnoozeUntil } from "@/lib/inbox/snooze";
 import type { TeamMember } from "@/lib/team/server";
 import { cn } from "@/lib/utils";
@@ -69,7 +69,7 @@ export function MessageThread({
 }: {
   conversation: Conversation;
   initialMessageRows: MessageRow[];
-  botFeedback?: Record<string, "up" | "down">;
+  botFeedback?: Record<string, { rating: "up" | "down"; reason: string | null }>;
   assignedToId: string | null;
   status: ConversationStatus;
   members: TeamMember[];
@@ -104,11 +104,11 @@ export function MessageThread({
   const messages: Message[] = useMemo(() => {
     return rows.map((r) => {
       const adapted = adaptMessage(r);
-      // Hydrate the agent's saved 👍/👎 for bot replies (server-fetched once).
+      // Hydrate the agent's saved 👍/👎 (+ 👎 note) for bot replies.
       const fb = botFeedback?.[r.id];
       const withFb =
         fb !== undefined && adapted.is_bot_reply
-          ? { ...adapted, bot_feedback: fb }
+          ? { ...adapted, bot_feedback: fb.rating, bot_feedback_reason: fb.reason }
           : adapted;
       const o = localOverrides[r.id];
       return o ? { ...withFb, ...o } : withFb;
@@ -178,6 +178,26 @@ export function MessageThread({
         ...prev,
         [messageId]: { ...(prev[messageId] ?? {}), bot_feedback: res.rating },
       }));
+    });
+  }
+
+  // Save a "what went wrong" note on a 👎 (optimistic; reverts on error).
+  function submitReason(messageId: string, reason: string) {
+    const prevReason = messagesById.get(messageId)?.bot_feedback_reason ?? null;
+    setLocalOverrides((prev) => ({
+      ...prev,
+      [messageId]: { ...(prev[messageId] ?? {}), bot_feedback_reason: reason || null },
+    }));
+    void submitBotFeedbackReason(messageId, reason).then((res) => {
+      if (!res.ok) {
+        toast.error(res.error);
+        setLocalOverrides((prev) => ({
+          ...prev,
+          [messageId]: { ...(prev[messageId] ?? {}), bot_feedback_reason: prevReason },
+        }));
+        return;
+      }
+      toast.success("Thanks — feedback sent.");
     });
   }
 
@@ -305,6 +325,7 @@ export function MessageThread({
                   onReplyWithQuote={setQuoted}
                   onTranslated={applyTranslation}
                   onRateBot={rateBot}
+                  onSubmitBotReason={submitReason}
                 />
               </div>
             );

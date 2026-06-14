@@ -21,7 +21,17 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { CalendarClock, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const SUPPORT_BOOKING_URL = process.env.NEXT_PUBLIC_SUPPORT_BOOKING_URL;
 import { VoiceNoteTranscript } from "@/components/inbox/voice-note-transcript";
 import type { Message } from "@/lib/mock-data";
 
@@ -63,6 +73,7 @@ export function MessageBubble({
   onReplyWithQuote,
   onTranslated,
   onRateBot,
+  onSubmitBotReason,
 }: {
   message: Message;
   showHeader: boolean;
@@ -71,6 +82,7 @@ export function MessageBubble({
   onReplyWithQuote: (m: Message) => void;
   onTranslated: (messageId: string, translation: NonNullable<Message["metadata"]>["translation"]) => void;
   onRateBot?: (messageId: string, rating: "up" | "down") => void;
+  onSubmitBotReason?: (messageId: string, reason: string) => void;
 }) {
   const isOutbound = message.direction === "outbound";
   const isInternal = message.is_internal_note;
@@ -391,36 +403,13 @@ export function MessageBubble({
         )}
 
         {message.is_bot_reply && onRateBot && (
-          <div className="flex items-center gap-1 self-end px-1">
-            <button
-              type="button"
-              aria-label="Good AI reply"
-              title="Good AI reply"
-              onClick={() => onRateBot(message.id, "up")}
-              className={cn(
-                "inline-flex size-6 items-center justify-center rounded-full transition-colors",
-                message.bot_feedback === "up"
-                  ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/30"
-                  : "text-white/40 hover:bg-white/10 hover:text-white/70",
-              )}
-            >
-              <ThumbsUp className="size-3" />
-            </button>
-            <button
-              type="button"
-              aria-label="Bad AI reply"
-              title="Bad AI reply"
-              onClick={() => onRateBot(message.id, "down")}
-              className={cn(
-                "inline-flex size-6 items-center justify-center rounded-full transition-colors",
-                message.bot_feedback === "down"
-                  ? "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/30"
-                  : "text-white/40 hover:bg-white/10 hover:text-white/70",
-              )}
-            >
-              <ThumbsDown className="size-3" />
-            </button>
-          </div>
+          <BotFeedbackControl
+            messageId={message.id}
+            rating={message.bot_feedback ?? null}
+            reason={message.bot_feedback_reason ?? null}
+            onRate={onRateBot}
+            onSubmitReason={onSubmitBotReason}
+          />
         )}
 
         {isLastInGroup && (
@@ -449,6 +438,129 @@ export function MessageBubble({
         )}
       </div>
     </div>
+  );
+}
+
+// 👍 / 👎 on a bot reply, with an optional "what went wrong" note on a 👎 and a
+// "Book a call" link (when NEXT_PUBLIC_SUPPORT_BOOKING_URL is set). Rating and
+// note are independent: thumbs toggle the rating; the pencil opens the note.
+function BotFeedbackControl({
+  messageId,
+  rating,
+  reason,
+  onRate,
+  onSubmitReason,
+}: {
+  messageId: string;
+  rating: "up" | "down" | null;
+  reason: string | null;
+  onRate: (messageId: string, rating: "up" | "down") => void;
+  onSubmitReason?: (messageId: string, reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(reason ?? "");
+  const canNote = Boolean(onSubmitReason);
+
+  function clickDown() {
+    const willBeDown = rating !== "down";
+    onRate(messageId, "down");
+    if (willBeDown && canNote) {
+      setDraft(reason ?? "");
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  }
+
+  function openNote() {
+    setDraft(reason ?? "");
+    setOpen(true);
+  }
+
+  function save() {
+    onSubmitReason?.(messageId, draft.trim());
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <div className="flex items-center gap-1 self-end px-1">
+          <button
+            type="button"
+            aria-label="Good AI reply"
+            title="Good AI reply"
+            onClick={() => onRate(messageId, "up")}
+            className={cn(
+              "inline-flex size-6 items-center justify-center rounded-full transition-colors",
+              rating === "up"
+                ? "bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/30"
+                : "text-white/40 hover:bg-white/10 hover:text-white/70",
+            )}
+          >
+            <ThumbsUp className="size-3" />
+          </button>
+          <button
+            type="button"
+            aria-label="Bad AI reply"
+            title="Bad AI reply"
+            onClick={clickDown}
+            className={cn(
+              "inline-flex size-6 items-center justify-center rounded-full transition-colors",
+              rating === "down"
+                ? "bg-rose-400/15 text-rose-300 ring-1 ring-rose-400/30"
+                : "text-white/40 hover:bg-white/10 hover:text-white/70",
+            )}
+          >
+            <ThumbsDown className="size-3" />
+          </button>
+          {canNote && rating === "down" && (
+            <button
+              type="button"
+              aria-label={reason ? "Edit feedback note" : "Add feedback note"}
+              title={reason ? "Edit feedback note" : "Add a note"}
+              onClick={openNote}
+              className={cn(
+                "inline-flex size-6 items-center justify-center rounded-full transition-colors",
+                reason
+                  ? "text-[color:var(--xyra-glow)] hover:bg-white/10"
+                  : "text-white/40 hover:bg-white/10 hover:text-white/70",
+              )}
+            >
+              <PenLine className="size-3" />
+            </button>
+          )}
+        </div>
+      </PopoverAnchor>
+      <PopoverContent align="end" className="w-72 space-y-2">
+        <p className="text-xs font-medium text-white/80">What went wrong? (optional)</p>
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={2000}
+          rows={3}
+          placeholder="e.g. wrong info, off-tone, ignored the question…"
+          className="text-sm"
+        />
+        <div className="flex items-center justify-between gap-2">
+          {SUPPORT_BOOKING_URL ? (
+            <a
+              href={SUPPORT_BOOKING_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-white/60 underline hover:text-white"
+            >
+              <CalendarClock className="size-3" /> Book a call
+            </a>
+          ) : (
+            <span />
+          )}
+          <Button size="sm" onClick={save} className="xyra-gradient text-white">
+            Send feedback
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

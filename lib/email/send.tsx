@@ -2,6 +2,7 @@ import "server-only";
 import { Resend } from "resend";
 import type { ReactElement } from "react";
 import {
+  BotFeedbackEmail,
   PaymentFailedEmail,
   TeamInviteEmail,
   TrialEndingEmail,
@@ -82,6 +83,31 @@ export function sendTrialEndingEmail(
     subject: `Your Xyra Chat trial ends in ${d} day${d === 1 ? "" : "s"}`,
     react: (
       <TrialEndingEmail orgName={orgName} daysLeft={d} manageUrl={appUrl("/settings/billing")} />
+    ),
+  });
+}
+
+export function sendBotFeedbackEmail(
+  to: string,
+  args: {
+    orgName: string;
+    botName: string;
+    replyText: string;
+    reason: string;
+    conversationId: string;
+  },
+): Promise<SendResult> {
+  return send({
+    to,
+    subject: `👎 Bot feedback from ${args.orgName}`,
+    react: (
+      <BotFeedbackEmail
+        orgName={args.orgName}
+        botName={args.botName}
+        replyText={args.replyText}
+        reason={args.reason}
+        conversationUrl={appUrl(`/inbox/${args.conversationId}`)}
+      />
     ),
   });
 }
