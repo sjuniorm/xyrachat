@@ -85,6 +85,10 @@ TASKS:
    we flip it on after verification clears. Do not show it by default.
 4. Keep CTAs pointing at the app sign-up. Keep /privacy + /terms links.
 5. Match the app's brand tokens exactly.
+6. Add a YouTube link in the footer (and any "follow us"/social row): the
+   official channel is https://www.youtube.com/@XyraChat — use a YouTube icon,
+   open in a new tab (rel="noopener"). It's the only social link for now; leave
+   placeholders for others off unless we have real URLs.
 
 After: list what you changed and what (if anything) you weren't sure we ship so
 I can confirm before it goes live.
