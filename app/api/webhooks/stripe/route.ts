@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { getStripe, bundleIdFromPriceId } from "@/lib/billing/stripe";
 import { provisionBundle, clearAllBundleEntitlements } from "@/lib/billing/provision";
+import { recomputeAddonEntitlements } from "@/lib/billing/addon-provision";
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { submitDisputeEvidence } from "@/lib/billing/dispute-evidence";
@@ -140,7 +141,7 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
   const stripe = getStripe();
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-  const priceId = subscription.items.data[0]?.price.id ?? null;
+  const priceId = basePriceId(subscription);
   const resolvedBundleId = bundleId ?? (priceId ? bundleIdFromPriceId(priceId) : null);
   if (!resolvedBundleId || !BUNDLES[resolvedBundleId]) {
     console.error("[stripe webhook] could not resolve bundle id from price", priceId);
@@ -209,13 +210,46 @@ async function recordCheckoutPromo(orgId: string, session: Stripe.Checkout.Sessi
   }
 }
 
+// The base PLAN price among the subscription's items — i.e. the one that maps
+// to a bundle. Add-on items (extra users, etc.) are also items on the same
+// subscription, so we must NOT assume items.data[0] is the base.
+function basePriceId(subscription: Stripe.Subscription): string | null {
+  for (const it of subscription.items.data) {
+    const pid = it.price.id;
+    if (pid && bundleIdFromPriceId(pid)) return pid;
+  }
+  return subscription.items.data[0]?.price.id ?? null;
+}
+
+// Reconcile local org_addons against the subscription's actual items: any active
+// local add-on whose Stripe item is no longer present (e.g. removed via the
+// Customer Portal) is marked canceled, so entitlements recompute correctly.
+async function reconcileOrgAddons(orgId: string, subscription: Stripe.Subscription) {
+  const liveItemIds = new Set(subscription.items.data.map((i) => i.id));
+  const admin = createAdminClient();
+  const { data: rows } = await admin
+    .from("org_addons")
+    .select("id, stripe_subscription_item_id")
+    .eq("org_id", orgId)
+    .eq("status", "active")
+    .is("deleted_at", null);
+  for (const r of (rows as Array<{ id: string; stripe_subscription_item_id: string | null }> | null) ?? []) {
+    if (r.stripe_subscription_item_id && !liveItemIds.has(r.stripe_subscription_item_id)) {
+      await admin
+        .from("org_addons")
+        .update({ status: "canceled", deleted_at: new Date().toISOString() })
+        .eq("id", r.id);
+    }
+  }
+}
+
 async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
   const orgId = subscription.metadata?.org_id as string | undefined;
   if (!orgId) {
     console.warn("[stripe webhook] subscription.updated without org_id metadata");
     return;
   }
-  const priceId = subscription.items.data[0]?.price.id ?? null;
+  const priceId = basePriceId(subscription);
   const bundleId = priceId ? bundleIdFromPriceId(priceId) : null;
   if (!bundleId) {
     console.warn("[stripe webhook] subscription.updated without resolvable bundle");
@@ -230,6 +264,10 @@ async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
     stripeSubscriptionId: subscription.id,
     expiresAt: null,
   });
+  // Then reconcile + recompute add-on entitlements against the (possibly new)
+  // base pack. Order matters: base first, add-ons layer on top.
+  await reconcileOrgAddons(orgId, subscription);
+  await recomputeAddonEntitlements(orgId);
 }
 
 async function onSubscriptionDeleted(subscription: Stripe.Subscription) {
@@ -250,6 +288,14 @@ async function onSubscriptionDeleted(subscription: Stripe.Subscription) {
   // Wipe bundle entitlements. Per-org overrides survive — they'll be
   // valid until their own expires_at (if set).
   await clearAllBundleEntitlements(orgId);
+  // The subscription that billed any add-ons is gone — drop their entitlements
+  // + cancel the local rows so a future re-subscribe starts clean.
+  await admin.from("org_entitlements").delete().eq("org_id", orgId).like("source", "addon:%");
+  await admin
+    .from("org_addons")
+    .update({ status: "canceled", deleted_at: new Date().toISOString() })
+    .eq("org_id", orgId)
+    .is("deleted_at", null);
 }
 
 // Stripe fires this ~3 days before a Stripe-MANAGED trial converts. App-managed

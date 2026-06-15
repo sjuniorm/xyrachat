@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { getAllEntitlements, isProvisioned } from "@/lib/billing/entitlements";
 import { UpgradePanel } from "./upgrade-panel";
+import { AddonShelf } from "./addon-shelf";
 
 // Live usage counts for the meters. Cheap COUNT(*) per resource.
 async function usageCounts(orgId: string) {
@@ -52,7 +53,7 @@ export default async function BillingPage() {
 
   // The subscription row only needs orgId (resolved above) — fold it into the
   // existing parallel batch instead of an extra sequential round-trip.
-  const [{ data: sub }, provisioned, entMap, usage] = await Promise.all([
+  const [{ data: sub }, provisioned, entMap, usage, { data: addonRows }] = await Promise.all([
     supabase
       .from("subscriptions")
       .select("plan, status, monthly_ai_tokens_limit, tokens_used_this_month, billing_cycle_start, current_period_end, cancel_at_period_end, trial_ends_at")
@@ -61,7 +62,17 @@ export default async function BillingPage() {
     isProvisioned(orgId),
     getAllEntitlements(orgId),
     usageCounts(orgId),
+    supabase
+      .from("org_addons")
+      .select("addon_id, quantity")
+      .eq("org_id", orgId)
+      .eq("status", "active")
+      .is("deleted_at", null),
   ]);
+  const ownedAddons: Record<string, number> = {};
+  for (const r of (addonRows as Array<{ addon_id: string; quantity: number }> | null) ?? []) {
+    ownedAddons[r.addon_id] = r.quantity;
+  }
 
   // Resolve effective numeric limits from entitlements (fail-open →
   // unlimited shown as ∞ for un-provisioned orgs).
@@ -173,6 +184,11 @@ export default async function BillingPage() {
           isOwner={isOwner}
           hasStripeCustomer={sub?.status !== undefined}
         />
+
+        {/* Add-ons — only for packs that allow them (Edge/Prime) */}
+        {bundle?.addonsAllowed && (
+          <AddonShelf bundleId={bundle.id} owned={ownedAddons} isOwner={isOwner} />
+        )}
       </div>
     </div>
   );
