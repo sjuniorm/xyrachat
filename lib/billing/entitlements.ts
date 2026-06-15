@@ -29,8 +29,11 @@ export type FeatureKey =
   | "channels:instagram"
   | "channels:telegram"
   | "channels:email"
+  | "channels:facebook"
   // Team
   | "team_members:max"
+  // Automation rule cap (-1 = unlimited)
+  | "automations:max"
   // Bots
   | "bots:max"
   | "bots:knowledge_sources_max"

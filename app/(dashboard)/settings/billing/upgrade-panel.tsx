@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { recordCancellationFeedback } from "@/lib/billing/cancellation-actions";
+import { BUNDLES, PAID_BUNDLE_IDS, type BundleId } from "@/lib/billing/bundles";
 
 type StartTransition = (cb: () => Promise<void>) => void;
 
@@ -16,36 +17,47 @@ type StartTransition = (cb: () => Promise<void>) => void;
 // to the returned Stripe URL.
 
 type PlanCard = {
-  id: "starter" | "pro" | "enterprise";
+  id: BundleId;
   name: string;
   monthly: number;
   blurb: string;
   highlights: string[];
 };
 
-const PLAN_CARDS: PlanCard[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    monthly: 39,
-    blurb: "Solo founders + small teams.",
-    highlights: ["3 channels", "3 team members", "1 bot", "1,000 broadcasts/mo", "Read-only API"],
+// Marketing copy per pack; name + price come from BUNDLES (single source).
+const PLAN_DISPLAY: Record<
+  Exclude<BundleId, "trial">,
+  { blurb: string; highlights: string[] }
+> = {
+  solo: {
+    blurb: "Instagram automation, solo.",
+    highlights: ["Instagram only", "Auto-DMs + comment replies", "1 user", "Limited automations"],
   },
-  {
-    id: "pro",
-    name: "Pro",
-    monthly: 99,
-    blurb: "Growing teams that automate.",
-    highlights: ["Unlimited channels", "10 team members", "3 bots", "Automations", "Full API + webhooks"],
+  core: {
+    blurb: "One channel, done right.",
+    highlights: ["1 channel (any)", "1 user", "1 AI chatbot", "Automations"],
   },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    monthly: 249,
-    blurb: "High volume + white-label.",
-    highlights: ["Unlimited everything", "White-label", "Priority support", "Custom integrations"],
+  edge: {
+    blurb: "Small teams that automate.",
+    highlights: ["6 channels", "5 users", "3 chatbots", "Full API", "Add-ons available"],
   },
-];
+  prime: {
+    blurb: "Scaling teams + broadcasts.",
+    highlights: ["10 channels", "10 users", "3 chatbots", "Integrations + broadcasts", "Add-ons available"],
+  },
+  infinite: {
+    blurb: "Unlimited + white-label.",
+    highlights: ["Unlimited everything", "White-label", "Priority support", "Voice (soon)"],
+  },
+};
+
+const PLAN_CARDS: PlanCard[] = PAID_BUNDLE_IDS.map((id) => ({
+  id,
+  name: BUNDLES[id].name,
+  monthly: BUNDLES[id].monthlyPriceEur ?? 0,
+  blurb: PLAN_DISPLAY[id as Exclude<BundleId, "trial">].blurb,
+  highlights: PLAN_DISPLAY[id as Exclude<BundleId, "trial">].highlights,
+}));
 
 export function UpgradePanel({
   currentPlan,
@@ -124,7 +136,7 @@ export function UpgradePanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {PLAN_CARDS.map((p) => {
             const isCurrent = currentPlan === p.id;
             const price = interval === "yearly" ? Math.round(p.monthly * 12 * 0.8) : p.monthly;

@@ -41,12 +41,27 @@ WHAT XYRA CHAT ACTUALLY DOES (shipped — safe to claim):
 - EU-hosted, GDPR-aligned (data residency in the EU, opt-out handling,
   export/erasure).
 
-PRICING (show a pricing section; EUR/mo, annual = 2 months free):
-- Starter €39 · Growth €99 (mark "Most popular") · Pro €199 · Enterprise "Contact
-  us" (custom, from ~€399). 14-day free trial, no card.
-- Launch intro offer: 40% off the first 3 months (code applied at checkout).
-- "Social Lite" €19/mo — Instagram comment & DM keyword automations only (the
-  cheap wedge). Show it as "coming at launch" until Meta approval clears.
+PRICING (show a pricing section; EUR/mo, annual = 2 months free). FIVE packs —
+these are the final names + prices (match lib/billing/bundles.ts):
+- **Solo €29/mo** — Instagram ONLY: auto-DMs, comment & DM keyword replies. 1 user.
+  No other channels, no add-ons. (The cheap ManyChat-style wedge. Show as "coming
+  at launch" until Meta/Instagram approval clears.)
+- **Core €49/mo** — 1 channel (any), 1 user, 1 AI chatbot, automations (limited).
+  No API, no integrations, no broadcasts.
+- **Edge €99/mo** — 6 channels, 5 users, 3 chatbots, full API, unlimited
+  automations. Add-ons available. (Mark "Most popular".)
+- **Prime €199/mo** — 10 channels, 10 users, 3 chatbots, integrations
+  (Make/Zapier/n8n), broadcasts, full API. Add-ons available.
+- **Infinite €399/mo** — unlimited everything, white-label, priority support,
+  voice (soon). (Can show as "Contact us / from €399".)
+- 14-day free trial, no card. Launch intro offer: 40% off the first 3 months.
+- ADD-ONS (only on Edge & Prime): extra user €10/mo; + (prices TBD, mark "from")
+  extra channel, extra chatbot, extra AI tokens (+500k), integrations unlock
+  (Edge), broadcasts unlock (Edge); voice/PBX "coming". A reseller plan is planned
+  (don't list yet).
+- WhatsApp messages: customers connect their own WhatsApp Business — they pay Meta
+  directly at cost, Xyra adds **no markup**. Answering customers is free; only
+  marketing broadcasts cost (Meta's per-message fee). Use this as a selling point.
 - Keep the exact numbers in ONE place / config so they're easy to change; treat
   these as the current intended prices (confirm before publishing).
 

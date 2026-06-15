@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Action, TriggerConfig, TriggerType } from "./types";
 import { allowedTriggersForChannel } from "./types";
+import { assertCanUseAutomations } from "@/lib/billing/gates";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -51,6 +52,10 @@ export async function createAutomation(payload: {
 
   const name = payload.name.trim();
   if (!name) return { ok: false, error: "Automation name is required." };
+
+  // Plan gate: feature flag + rule-count cap (Solo/Core are "limited").
+  const gate = await assertCanUseAutomations(auth.orgId);
+  if (!gate.ok) return { ok: false, error: gate.error };
 
   const admin = createAdminClient();
   const { data: ch } = await admin

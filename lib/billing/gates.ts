@@ -28,15 +28,11 @@ export async function assertCanAddChannel(
   orgId: string,
   channelType: "whatsapp" | "instagram" | "telegram" | "email" | "facebook" | "webchat",
 ): Promise<GateResult> {
-  // Per-type availability flag. facebook reuses the instagram flag (same Meta
-  // app surface). webchat is a free first-party channel — always available, only
-  // bounded by the overall channel count limit below.
+  // Per-type availability flag. webchat is a free first-party channel — always
+  // available, only bounded by the overall channel count limit below. Facebook
+  // has its own flag (so Solo can be Instagram-only).
   const typeKey: FeatureKey | null =
-    channelType === "webchat"
-      ? null
-      : channelType === "facebook"
-        ? "channels:instagram"
-        : (`channels:${channelType}` as FeatureKey);
+    channelType === "webchat" ? null : (`channels:${channelType}` as FeatureKey);
   if (typeKey && !(await hasFeature(orgId, typeKey))) {
     return {
       ok: false,
@@ -160,13 +156,28 @@ export async function assertCanCreateBroadcast(orgId: string): Promise<GateResul
   return { ok: true };
 }
 
-// Automations — feature flag only (feature:automations). No count cap
-// today; bundles all grant it true, but a custom deal could disable it.
+// Automations — feature flag (feature:automations) plus a rule-count cap
+// (automations:max; -1 = unlimited). Solo/Core are "limited" via the cap.
+// Counts non-deleted automations in the org.
 export async function assertCanUseAutomations(orgId: string): Promise<GateResult> {
   if (!(await hasFeature(orgId, "feature:automations"))) {
     return {
       ok: false,
       error: "Automations aren't included on your plan.",
+    };
+  }
+  const max = await getLimit(orgId, "automations:max");
+  if (max === Infinity) return { ok: true };
+  const admin = createAdminClient();
+  const { count } = await admin
+    .from("automations")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId)
+    .is("deleted_at", null);
+  if ((count ?? 0) >= max) {
+    return {
+      ok: false,
+      error: `You've reached your automation limit (${max}). Upgrade your plan to add more.`,
     };
   }
   return { ok: true };

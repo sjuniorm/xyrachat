@@ -24,7 +24,7 @@ type Org = {
   provisioned: boolean;
 };
 
-const BUNDLE_IDS = ["trial", "starter", "pro", "enterprise"] as const;
+const BUNDLE_IDS = ["trial", "solo", "core", "edge", "prime", "infinite"] as const;
 
 export function EntitlementsAdmin({ orgs }: { orgs: Org[] }) {
   const [busy, startTransition] = useTransition();

@@ -7,7 +7,7 @@ import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 export const runtime = "nodejs";
 
 // POST /api/billing/checkout
-// body: { bundle: 'starter' | 'pro' | 'enterprise', interval: 'monthly' | 'yearly' }
+// body: { bundle: 'solo'|'core'|'edge'|'prime'|'infinite', interval: 'monthly'|'yearly' }
 // Returns: { url: 'https://checkout.stripe.com/...' }
 //
 // Creates (or reuses) the Stripe customer for the org, opens a checkout
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   const interval = body.interval ?? "monthly";
   if (!bundleId || !BUNDLES[bundleId]) {
     return NextResponse.json(
-      { error: "Pick a valid bundle (starter / pro / enterprise)." },
+      { error: "Pick a valid bundle (solo / core / edge / prime / infinite)." },
       { status: 400 },
     );
   }
