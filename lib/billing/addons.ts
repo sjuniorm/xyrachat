@@ -64,7 +64,7 @@ export const ADDONS: Record<AddonId, Addon> = {
   extra_channels: {
     id: "extra_channels",
     name: "Extra channel",
-    monthlyPriceEur: 10, // PRICE TBD
+    monthlyPriceEur: 15, // recommended default — confirm
     kind: "quantity",
     description: "Connect another channel beyond your plan's limit.",
     allowedBundles: EDGE_PRIME,
@@ -74,7 +74,7 @@ export const ADDONS: Record<AddonId, Addon> = {
   extra_chatbots: {
     id: "extra_chatbots",
     name: "Extra chatbot",
-    monthlyPriceEur: 15, // PRICE TBD
+    monthlyPriceEur: 25, // recommended default — confirm
     kind: "quantity",
     description: "Train and run another AI chatbot.",
     allowedBundles: EDGE_PRIME,
@@ -84,7 +84,7 @@ export const ADDONS: Record<AddonId, Addon> = {
   extra_ai_tokens: {
     id: "extra_ai_tokens",
     name: "Extra AI tokens",
-    monthlyPriceEur: 15, // PRICE TBD
+    monthlyPriceEur: 19, // recommended default — the only add-on with real COGS
     kind: "quantity",
     description: "+500,000 AI tokens / month.",
     allowedBundles: EDGE_PRIME,
@@ -94,7 +94,7 @@ export const ADDONS: Record<AddonId, Addon> = {
   integrations: {
     id: "integrations",
     name: "Integrations (Make / Zapier / n8n)",
-    monthlyPriceEur: 29, // PRICE TBD
+    monthlyPriceEur: 29, // recommended default — confirm
     kind: "feature",
     description: "Unlock the Make, Zapier and n8n connectors.",
     allowedBundles: ["edge"], // Prime already includes integrations
@@ -104,7 +104,7 @@ export const ADDONS: Record<AddonId, Addon> = {
   broadcasts: {
     id: "broadcasts",
     name: "Broadcasts",
-    monthlyPriceEur: 20, // PRICE TBD
+    monthlyPriceEur: 29, // recommended default — confirm
     kind: "feature",
     description: "Unlock WhatsApp broadcast campaigns.",
     allowedBundles: ["edge"], // Prime already includes broadcasts
