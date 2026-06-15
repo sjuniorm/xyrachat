@@ -22,6 +22,10 @@ import { recomputeAddonEntitlements } from "./addon-provision";
 
 type Result = { ok: true } | { ok: false; error: string };
 
+// Sane upper bound on a quantity add-on — guards runaway self-billing + keeps
+// well under Stripe's + Postgres int4 limits. Bump if a real customer needs more.
+const MAX_ADDON_QTY = 100;
+
 function priceIdForAddon(addonId: AddonId): string | null {
   const key = `STRIPE_PRICE_ADDON_${addonId.toUpperCase()}_MONTHLY`;
   const v = process.env[key];
@@ -79,6 +83,12 @@ async function loadContext(
 
 // Buy (or change the quantity of) an add-on. quantity applies to 'quantity'
 // add-ons; 'feature' add-ons are always quantity 1.
+//
+// Ordering matters for money-safety: we CLAIM the local org_addons row FIRST
+// (the partial unique index serializes concurrent first-purchases to one
+// winner), and only the winner touches Stripe — so a double-click / two tabs
+// can't create duplicate billed items. Any Stripe or DB failure rolls back so we
+// never leave a billed item without a local mirror + entitlement.
 export async function purchaseAddon(addonId: AddonId, quantity = 1): Promise<Result> {
   const auth = await requireOwnerOrg();
   if (!auth.ok) return auth;
@@ -86,13 +96,21 @@ export async function purchaseAddon(addonId: AddonId, quantity = 1): Promise<Res
   if (!ctx.ok) return ctx;
 
   const addon = ADDONS[addonId];
-  const qty = addon.kind === "quantity" ? Math.max(1, Math.floor(quantity)) : 1;
+  // Validate quantity: finite integer in [1, MAX]. (Server actions can be called
+  // with arbitrary args, so this is the real guard — not the UI stepper.)
+  const n = Math.floor(Number(quantity));
+  if (!Number.isFinite(n)) return { ok: false, error: "Invalid quantity." };
+  const qty = addon.kind === "quantity" ? Math.min(MAX_ADDON_QTY, Math.max(1, n)) : 1;
+
   const priceId = priceIdForAddon(addonId);
   if (!priceId) {
     return { ok: false, error: `${addon.name} isn't configured for purchase yet. (Operator: set STRIPE_PRICE_ADDON_${addonId.toUpperCase()}_MONTHLY.)` };
   }
 
   const admin = createAdminClient();
+  const now = new Date().toISOString();
+
+  // Existing active row?
   const { data: existing } = await admin
     .from("org_addons")
     .select("id, stripe_subscription_item_id")
@@ -101,46 +119,83 @@ export async function purchaseAddon(addonId: AddonId, quantity = 1): Promise<Res
     .is("deleted_at", null)
     .maybeSingle();
 
-  // Manage the Stripe subscription item (create or update quantity).
-  let stripeItemId: string | null = existing?.stripe_subscription_item_id ?? null;
-  try {
-    const stripe = getStripe();
-    if (stripeItemId) {
-      await stripe.subscriptionItems.update(stripeItemId, {
-        quantity: qty,
-        proration_behavior: "create_prorations",
-      });
-    } else {
-      const item = await stripe.subscriptionItems.create({
-        subscription: ctx.stripeSubId,
-        price: priceId,
-        quantity: qty,
-        proration_behavior: "create_prorations",
-      });
-      stripeItemId = item.id;
-    }
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? `Stripe: ${err.message}` : "Stripe error." };
-  }
-
-  const now = new Date().toISOString();
+  // ---- UPDATE path: a row already exists -------------------------------------
   if (existing) {
-    await admin
+    let stripeItemId = existing.stripe_subscription_item_id;
+    try {
+      const stripe = getStripe();
+      if (stripeItemId) {
+        await stripe.subscriptionItems.update(stripeItemId, {
+          quantity: qty,
+          proration_behavior: "create_prorations",
+        });
+      } else {
+        const item = await stripe.subscriptionItems.create(
+          { subscription: ctx.stripeSubId, price: priceId, quantity: qty, proration_behavior: "create_prorations" },
+          { idempotencyKey: `addon:${existing.id}` },
+        );
+        stripeItemId = item.id;
+      }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? `Stripe: ${err.message}` : "Stripe error." };
+    }
+    const { error: updErr } = await admin
       .from("org_addons")
       .update({ quantity: qty, stripe_subscription_item_id: stripeItemId, status: "active", updated_at: now })
       .eq("id", existing.id);
-  } else {
-    await admin.from("org_addons").insert({
-      org_id: auth.orgId,
-      addon_id: addonId,
-      quantity: qty,
-      stripe_subscription_item_id: stripeItemId,
-      status: "active",
-    });
+    if (updErr) return { ok: false, error: "Couldn't save the change. Please retry." };
+    await recomputeAddonEntitlements(auth.orgId);
+    revalidatePath("/settings/billing");
+    return { ok: true };
   }
 
-  // The webhook will also recompute on subscription.updated, but do it now so
-  // the entitlement is live immediately (no wait for the event round-trip).
+  // ---- CLAIM-FIRST path: no row yet ------------------------------------------
+  // Claim the slot before any money moves. The unique index means only one
+  // concurrent caller wins; the loser (23505) falls back to the update path.
+  const { data: claimed, error: claimErr } = await admin
+    .from("org_addons")
+    .insert({ org_id: auth.orgId, addon_id: addonId, quantity: qty, status: "active" })
+    .select("id")
+    .single();
+  if (claimErr) {
+    // Unique violation → another request just claimed it → retry as an update.
+    if ((claimErr as { code?: string }).code === "23505") {
+      return purchaseAddon(addonId, qty);
+    }
+    return { ok: false, error: "Couldn't start the purchase. Please retry." };
+  }
+
+  // Create the Stripe item; key it to the claim row so retries don't double-bill.
+  let stripeItemId: string;
+  try {
+    const stripe = getStripe();
+    const item = await stripe.subscriptionItems.create(
+      { subscription: ctx.stripeSubId, price: priceId, quantity: qty, proration_behavior: "create_prorations" },
+      { idempotencyKey: `addon:${claimed.id}` },
+    );
+    stripeItemId = item.id;
+  } catch (err) {
+    // Free the slot so the customer can retry; nothing was billed beyond Stripe's
+    // own atomicity on a failed create.
+    await admin.from("org_addons").update({ status: "canceled", deleted_at: now }).eq("id", claimed.id);
+    return { ok: false, error: err instanceof Error ? `Stripe: ${err.message}` : "Stripe error." };
+  }
+
+  const { error: linkErr } = await admin
+    .from("org_addons")
+    .update({ stripe_subscription_item_id: stripeItemId, updated_at: now })
+    .eq("id", claimed.id);
+  if (linkErr) {
+    // Roll back the Stripe item so we never bill for an unlinked add-on.
+    try {
+      await getStripe().subscriptionItems.del(stripeItemId, { proration_behavior: "create_prorations" });
+    } catch {
+      /* best-effort — the webhook reconcile will adopt/clean it otherwise */
+    }
+    await admin.from("org_addons").update({ status: "canceled", deleted_at: now }).eq("id", claimed.id);
+    return { ok: false, error: "Couldn't link the add-on. Please retry." };
+  }
+
   await recomputeAddonEntitlements(auth.orgId);
   revalidatePath("/settings/billing");
   return { ok: true };

@@ -39,10 +39,11 @@ export type Addon = {
   // Which base packs may purchase this add-on.
   allowedBundles: BundleId[];
   // The entitlement(s) this add-on affects. For 'quantity', `perUnit` is the
-  // increment added to the base limit per unit bought. For 'feature', `flags`
-  // lists the keys it sets to "true".
+  // increment added to the base limit per unit bought. For 'feature', `grants`
+  // is the exact set of entitlement values it writes (flags AND any numeric
+  // caps the feature implies — e.g. broadcasts must also raise broadcasts:monthly).
   perUnit?: { key: FeatureKey; amount: number };
-  flags?: FeatureKey[];
+  grants?: Partial<Record<FeatureKey, string>>;
   // Stripe Price ID is resolved dynamically from env at purchase time:
   // STRIPE_PRICE_ADDON_<ID>_MONTHLY.
   available: boolean; // false = announced but not yet purchasable (voice_pbx)
@@ -98,7 +99,11 @@ export const ADDONS: Record<AddonId, Addon> = {
     kind: "feature",
     description: "Unlock the Make, Zapier and n8n connectors.",
     allowedBundles: ["edge"], // Prime already includes integrations
-    flags: ["integration:make", "integration:zapier", "integration:n8n"],
+    grants: {
+      "integration:make": "true",
+      "integration:zapier": "true",
+      "integration:n8n": "true",
+    },
     available: true,
   },
   broadcasts: {
@@ -108,7 +113,13 @@ export const ADDONS: Record<AddonId, Addon> = {
     kind: "feature",
     description: "Unlock WhatsApp broadcast campaigns.",
     allowedBundles: ["edge"], // Prime already includes broadcasts
-    flags: ["feature:broadcasts"],
+    // Must raise the numeric caps too, not just the flag — otherwise
+    // broadcasts:monthly stays 0 and every send is blocked. Mirror Prime.
+    grants: {
+      "feature:broadcasts": "true",
+      "broadcasts:monthly": "5000",
+      "broadcasts:wa_conversations_included": "5000",
+    },
     available: true,
   },
   voice_pbx: {
@@ -118,7 +129,7 @@ export const ADDONS: Record<AddonId, Addon> = {
     kind: "feature",
     description: "Voice calling / PBX. Coming later.",
     allowedBundles: EDGE_PRIME,
-    flags: ["bots:voice_transcription"],
+    grants: { "bots:voice_transcription": "true" },
     available: false,
   },
 };

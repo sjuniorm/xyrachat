@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { getStripe, bundleIdFromPriceId } from "@/lib/billing/stripe";
 import { provisionBundle, clearAllBundleEntitlements } from "@/lib/billing/provision";
-import { recomputeAddonEntitlements } from "@/lib/billing/addon-provision";
+import { recomputeAddonEntitlements, addonIdFromPriceId } from "@/lib/billing/addon-provision";
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { submitDisputeEvidence } from "@/lib/billing/dispute-evidence";
@@ -221,25 +221,46 @@ function basePriceId(subscription: Stripe.Subscription): string | null {
   return subscription.items.data[0]?.price.id ?? null;
 }
 
-// Reconcile local org_addons against the subscription's actual items: any active
-// local add-on whose Stripe item is no longer present (e.g. removed via the
-// Customer Portal) is marked canceled, so entitlements recompute correctly.
+// Reconcile local org_addons against the subscription's actual items, BOTH ways
+// (Stripe is the source of truth):
+//   1. Cancel local rows whose Stripe item vanished (e.g. removed via Portal).
+//   2. Adopt Stripe add-on items that have no local row (self-heal an orphan
+//      from a failed purchase write — so a billed item still grants its
+//      entitlement instead of silently charging for nothing).
 async function reconcileOrgAddons(orgId: string, subscription: Stripe.Subscription) {
-  const liveItemIds = new Set(subscription.items.data.map((i) => i.id));
   const admin = createAdminClient();
+  const now = new Date().toISOString();
   const { data: rows } = await admin
     .from("org_addons")
-    .select("id, stripe_subscription_item_id")
+    .select("id, addon_id, stripe_subscription_item_id")
     .eq("org_id", orgId)
     .eq("status", "active")
     .is("deleted_at", null);
-  for (const r of (rows as Array<{ id: string; stripe_subscription_item_id: string | null }> | null) ?? []) {
+  const local = (rows as Array<{ id: string; addon_id: string; stripe_subscription_item_id: string | null }> | null) ?? [];
+  const liveItemIds = new Set(subscription.items.data.map((i) => i.id));
+  const localItemIds = new Set(local.filter((r) => r.stripe_subscription_item_id).map((r) => r.stripe_subscription_item_id));
+  const localAddonIds = new Set(local.map((r) => r.addon_id));
+
+  // 1. Cancel local rows whose Stripe item disappeared.
+  for (const r of local) {
     if (r.stripe_subscription_item_id && !liveItemIds.has(r.stripe_subscription_item_id)) {
-      await admin
-        .from("org_addons")
-        .update({ status: "canceled", deleted_at: new Date().toISOString() })
-        .eq("id", r.id);
+      await admin.from("org_addons").update({ status: "canceled", deleted_at: now }).eq("id", r.id);
     }
+  }
+
+  // 2. Adopt orphaned add-on items present in Stripe but not locally.
+  for (const item of subscription.items.data) {
+    const addonId = addonIdFromPriceId(item.price.id);
+    if (!addonId) continue;
+    if (localItemIds.has(item.id)) continue; // already tracked
+    if (localAddonIds.has(addonId)) continue; // a row for this add-on exists — avoid unique conflict
+    await admin.from("org_addons").insert({
+      org_id: orgId,
+      addon_id: addonId,
+      quantity: item.quantity ?? 1,
+      stripe_subscription_item_id: item.id,
+      status: "active",
+    });
   }
 }
 
