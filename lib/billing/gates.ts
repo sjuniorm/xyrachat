@@ -28,12 +28,11 @@ export async function assertCanAddChannel(
   orgId: string,
   channelType: "whatsapp" | "instagram" | "telegram" | "email" | "facebook" | "webchat",
 ): Promise<GateResult> {
-  // Per-type availability flag. webchat is a free first-party channel — always
-  // available, only bounded by the overall channel count limit below. Facebook
-  // has its own flag (so Solo can be Instagram-only).
-  const typeKey: FeatureKey | null =
-    channelType === "webchat" ? null : (`channels:${channelType}` as FeatureKey);
-  if (typeKey && !(await hasFeature(orgId, typeKey))) {
+  // Per-type availability flag — every channel type (incl. webchat + facebook)
+  // has its own flag, so a pack can allow some types and deny others (e.g. Solo
+  // is Instagram-only). Un-provisioned orgs fail OPEN via hasFeature.
+  const typeKey = `channels:${channelType}` as FeatureKey;
+  if (!(await hasFeature(orgId, typeKey))) {
     return {
       ok: false,
       error: `Your plan doesn't include ${channelType} channels. Upgrade to connect one.`,

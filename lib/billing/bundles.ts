@@ -53,6 +53,7 @@ const ALL_CHANNELS = {
   "channels:telegram": "true",
   "channels:email": "true",
   "channels:facebook": "true",
+  "channels:webchat": "true",
 } as const;
 
 export const BUNDLES: Record<BundleId, Bundle> = {
@@ -107,6 +108,7 @@ export const BUNDLES: Record<BundleId, Bundle> = {
       "channels:telegram": "false",
       "channels:email": "false",
       "channels:facebook": "false",
+      "channels:webchat": "false", // Solo = Instagram ONLY
       "team_members:max": "1",
       "bots:max": "0", // ASSUMED: automations only, no AI chatbot at this tier
       "bots:knowledge_sources_max": "0",

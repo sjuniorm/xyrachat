@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { PAID_BUNDLE_IDS } from "@/lib/billing/bundles";
 
 export const runtime = "nodejs";
 
@@ -56,9 +57,12 @@ export async function GET(req: NextRequest) {
       { name: "STRIPE_SECRET_KEY", ok: has("STRIPE_SECRET_KEY"), required: true },
       { name: "STRIPE_WEBHOOK_SECRET", ok: has("STRIPE_WEBHOOK_SECRET"), required: true },
       { name: "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", ok: has("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"), required: true },
-      { name: "STRIPE_PRICE_STARTER_MONTHLY", ok: has("STRIPE_PRICE_STARTER_MONTHLY"), required: true },
-      { name: "STRIPE_PRICE_PRO_MONTHLY", ok: has("STRIPE_PRICE_PRO_MONTHLY"), required: true },
-      { name: "STRIPE_PRICE_ENTERPRISE_MONTHLY", ok: has("STRIPE_PRICE_ENTERPRISE_MONTHLY"), required: true },
+      // Derived from the paid packs (lib/billing/bundles.ts) so it can't drift on
+      // the next rename — checks the exact monthly price var checkout reads.
+      ...PAID_BUNDLE_IDS.map((id) => {
+        const name = `STRIPE_PRICE_${id.toUpperCase()}_MONTHLY`;
+        return { name, ok: has(name), required: true };
+      }),
     ],
     channels: [
       { name: "META_APP_SECRET", ok: has("META_APP_SECRET"), required: true, note: "WhatsApp webhook HMAC" },

@@ -56,13 +56,17 @@ inbox until this is done.
 4. Test: trigger /forgot-password → confirm the branded reset email arrives.
 
 ## 3) 🧑 Stripe go-live
-1. Create Products + Prices (live mode), **annual = 2 months free (~17% off)**:
-   Starter €39/mo (€390/yr) · **Growth €99/mo (€990/yr)** · Pro €199/mo
-   (€1990/yr) · Enterprise €399/mo (custom). (Match lib/billing/bundles.ts.)
+1. Create Products + Prices (live mode), **annual = 2 months free**:
+   Solo €29/mo (€290/yr) · Core €49/mo (€490/yr) · **Edge €99/mo (€990/yr,
+   "Most popular")** · Prime €199/mo (€1990/yr) · Infinite €399/mo (custom).
+   (Match lib/billing/bundles.ts — 5 packs.)
    Optional: create a `LAUNCH40` Promotion Code (40% off, **repeating 3 months**)
-   for the founder early-bird — or seed via /settings/admin/promos.
-2. Vercel env: `STRIPE_PRICE_{STARTER,GROWTH,PRO,ENTERPRISE}_{MONTHLY,YEARLY}` =
+   for the launch early-bird — or seed via /settings/admin/promos.
+   Add-on Prices (only if shipping the add-on purchase flow): one per add-on in
+   lib/billing/addons.ts (extra user €10 + the TBD-priced ones).
+2. Vercel env: `STRIPE_PRICE_{SOLO,CORE,EDGE,PRIME,INFINITE}_{MONTHLY,YEARLY}` =
    the `price_…` ids; `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+   (Add-on flow also needs `STRIPE_PRICE_ADDON_*_MONTHLY` — see .env.example.)
 3. Webhook endpoint → `https://<app>/api/webhooks/stripe`, subscribe to:
    `checkout.session.completed`, `customer.subscription.updated`,
    `customer.subscription.deleted`, `customer.subscription.trial_will_end`,

@@ -30,6 +30,7 @@ export type FeatureKey =
   | "channels:telegram"
   | "channels:email"
   | "channels:facebook"
+  | "channels:webchat"
   // Team
   | "team_members:max"
   // Automation rule cap (-1 = unlimited)
