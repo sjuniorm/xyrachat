@@ -111,9 +111,9 @@ function ObjectiveKpi({
       value: byType.link_clicked ?? 0,
     },
     booking: {
-      title: "Booking clicks",
-      description: "Times the booking URL was shared.",
-      value: byType.booking_clicked ?? 0,
+      title: "Meetings booked",
+      description: "Events the bot scheduled on your calendar (plus booking links shared).",
+      value: (byType.booking_created ?? 0) + (byType.booking_clicked ?? 0),
     },
     qualification: {
       title: "Qualified leads",
