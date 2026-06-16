@@ -404,11 +404,15 @@ async function bookMeeting(input: unknown, ctx: ToolExecContext): Promise<ToolRe
     .maybeSingle();
   const attendeeEmails = contact?.email ? [contact.email as string] : [];
 
+  // Strip any offset/Z the model may have added — the time_zone field is
+  // authoritative. (Must match how the end is computed, or providers see a
+  // start/end timezone mismatch → end-before-start.)
+  const startNaive = startLocal.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");
   const created = await orgCalendarCreateEvent(ctx.orgId, {
     title,
     description: description || undefined,
-    startIso: startLocal,
-    endIso: addMinutesNaive(startLocal, duration),
+    startIso: startNaive,
+    endIso: addMinutesNaive(startNaive, duration),
     timeZone,
     attendeeEmails,
   });

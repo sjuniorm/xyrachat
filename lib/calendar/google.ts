@@ -21,6 +21,13 @@ function appUrl(path = ""): string {
   return `${process.env.NEXT_PUBLIC_APP_URL ?? "https://xyra-chat.vercel.app"}${path}`;
 }
 
+// Strip any Z/offset so the event's timeZone field is authoritative — defensive
+// symmetry with the Microsoft client (and a guard if a caller passes an
+// offset-bearing start/end alongside a timeZone).
+function localPart(iso: string): string {
+  return iso.replace(/(Z|[+-]\d{2}:?\d{2})$/, "");
+}
+
 export function googleConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
@@ -84,14 +91,17 @@ export async function exchangeGoogleCode(code: string): Promise<OAuthTokens & { 
   return { ...tokens, email };
 }
 
-export async function refreshGoogleToken(refreshToken: string): Promise<{ accessToken: string; expiresInSec: number }> {
+export async function refreshGoogleToken(
+  refreshToken: string,
+): Promise<{ accessToken: string; expiresInSec: number; refreshToken?: string }> {
   const t = await tokenRequest({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     client_id: process.env.GOOGLE_CLIENT_ID ?? "",
     client_secret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   });
-  return { accessToken: t.accessToken, expiresInSec: t.expiresInSec };
+  // Google rarely rotates, but pass it through if present so the facade persists it.
+  return { accessToken: t.accessToken, expiresInSec: t.expiresInSec, refreshToken: t.refreshToken };
 }
 
 export const googleClient: CalendarClient = {
@@ -118,8 +128,8 @@ export const googleClient: CalendarClient = {
         summary: input.title,
         description: input.description,
         location: input.location,
-        start: { dateTime: input.startIso, timeZone: input.timeZone },
-        end: { dateTime: input.endIso, timeZone: input.timeZone },
+        start: { dateTime: localPart(input.startIso), timeZone: input.timeZone },
+        end: { dateTime: localPart(input.endIso), timeZone: input.timeZone },
         attendees: (input.attendeeEmails ?? []).map((email) => ({ email })),
       }),
     });

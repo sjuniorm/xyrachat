@@ -75,10 +75,21 @@ async function getValidAccessToken(conn: CalendarConnectionRow): Promise<string 
     } else {
       accessVaultId = await vaultCreateSecret(refreshed.accessToken, `cal-access-${conn.id}`, "calendar access token");
     }
+    // Persist a ROTATED refresh token (Microsoft rotates on every grant +
+    // invalidates the old one). Without this the next refresh uses a dead token.
+    let refreshVaultId = conn.refresh_token_vault_id;
+    if (refreshed.refreshToken) {
+      if (refreshVaultId) {
+        await vaultUpdateSecret(refreshVaultId, refreshed.refreshToken);
+      } else {
+        refreshVaultId = await vaultCreateSecret(refreshed.refreshToken, `cal-refresh-${conn.id}`, "calendar refresh token");
+      }
+    }
     await admin
       .from("calendar_connections")
       .update({
         access_token_vault_id: accessVaultId,
+        refresh_token_vault_id: refreshVaultId,
         token_expires_at: new Date(Date.now() + refreshed.expiresInSec * 1000).toISOString(),
         status: "active",
         error_message: null,

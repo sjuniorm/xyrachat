@@ -76,7 +76,9 @@ export async function exchangeMicrosoftCode(code: string): Promise<OAuthTokens &
   return { ...tokens, email };
 }
 
-export async function refreshMicrosoftToken(refreshToken: string): Promise<{ accessToken: string; expiresInSec: number }> {
+export async function refreshMicrosoftToken(
+  refreshToken: string,
+): Promise<{ accessToken: string; expiresInSec: number; refreshToken?: string }> {
   const t = await tokenRequest({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
@@ -84,7 +86,9 @@ export async function refreshMicrosoftToken(refreshToken: string): Promise<{ acc
     client_secret: process.env.MICROSOFT_CLIENT_SECRET ?? "",
     scope: SCOPES,
   });
-  return { accessToken: t.accessToken, expiresInSec: t.expiresInSec };
+  // Microsoft ROTATES the refresh token on every grant + invalidates the old
+  // one — the facade MUST persist this or the connection breaks within days.
+  return { accessToken: t.accessToken, expiresInSec: t.expiresInSec, refreshToken: t.refreshToken };
 }
 
 // MS start/end dateTimes are LOCAL + a timeZone field — strip any Z/offset so
