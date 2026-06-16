@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 
   let q = admin
     .from("messages")
-    .select("id, content, created_at")
+    .select("id, content, created_at, sender_type")
     .eq("conversation_id", conv.id)
     .eq("direction", "outbound")
     // CRITICAL: never return internal staff notes to the visitor. Notes are
@@ -74,7 +74,12 @@ export async function GET(req: Request) {
   const { data: msgs } = await q;
   return NextResponse.json(
     {
-      messages: (msgs ?? []).map((m) => ({ id: m.id, content: m.content, created_at: m.created_at })),
+      messages: (msgs ?? []).map((m) => ({
+        id: m.id,
+        content: m.content,
+        created_at: m.created_at,
+        sender_type: m.sender_type, // 'bot' → widget shows 👍/👎
+      })),
     },
     { headers: WEBCHAT_CORS },
   );

@@ -40,6 +40,7 @@ export default async function BotDetailPage({
     { data: channels },
     { data: outcomeRows },
     { data: feedbackRows },
+    { data: visitorFeedbackRows },
   ] = await Promise.all([
     supabase
       .from("bot_sources")
@@ -69,16 +70,25 @@ export default async function BotDetailPage({
       .eq("bot_id", botId)
       .is("deleted_at", null)
       .limit(2000),
+    // End-CUSTOMER 👍/👎 from the webchat widget.
+    supabase
+      .from("bot_reply_visitor_feedback")
+      .select("rating")
+      .eq("bot_id", botId)
+      .limit(2000),
   ]);
 
-  const feedback = ((feedbackRows ?? []) as Array<{ rating: "up" | "down" }>).reduce(
-    (acc, r) => {
-      if (r.rating === "up") acc.up += 1;
-      else if (r.rating === "down") acc.down += 1;
-      return acc;
-    },
-    { up: 0, down: 0 },
-  );
+  const tally = (rows: unknown) =>
+    ((rows ?? []) as Array<{ rating: "up" | "down" }>).reduce(
+      (acc, r) => {
+        if (r.rating === "up") acc.up += 1;
+        else if (r.rating === "down") acc.down += 1;
+        return acc;
+      },
+      { up: 0, down: 0 },
+    );
+  const feedback = tally(feedbackRows);
+  const customerFeedback = tally(visitorFeedbackRows);
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
@@ -128,6 +138,7 @@ export default async function BotDetailPage({
               }
               outcomes={(outcomeRows ?? []) as Array<{ type: string; created_at: string }>}
               feedback={feedback}
+              customerFeedback={customerFeedback}
             />
           </TabsContent>
           <TabsContent value="knowledge" className="mt-6">

@@ -50,6 +50,11 @@ const WIDGET = String.raw`(function(){
       '.b{max-width:80%;padding:9px 12px;border-radius:14px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}' +
       '.b.in{align-self:flex-start;background:#fff;color:#111;border:1px solid #ececf0;border-bottom-left-radius:4px;}' +
       '.b.out{align-self:flex-end;color:#fff;border-bottom-right-radius:4px;background:'+cfg.color+';}' +
+      '.fb{align-self:flex-start;display:flex;align-items:center;gap:2px;margin:-2px 0 2px 2px;}' +
+      '.fbb{background:none;border:none;cursor:pointer;font-size:13px;line-height:1;opacity:.5;padding:2px 3px;border-radius:6px;}' +
+      '.fbb:hover{opacity:1;background:#f0f0f3;}' +
+      '.fb.done .fbb{opacity:.3;cursor:default;}' +
+      '.fbt{font-size:11px;color:#999;margin-left:4px;}' +
       '.ft{display:flex;gap:8px;padding:10px;border-top:1px solid #ececf0;background:#fff;}' +
       '.ft input{flex:1;border:1px solid #d9d9e0;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;}' +
       '.ft input:focus{border-color:'+cfg.color+';}' +
@@ -71,7 +76,7 @@ const WIDGET = String.raw`(function(){
     root.getElementById('xform').onsubmit = onSend;
   }
 
-  function addMsg(text, dir, id){
+  function addMsg(text, dir, id, canRate){
     if (id){ if (seen[id]) return; seen[id]=1; }
     var m = root.getElementById('xmsgs');
     if (!m) return;
@@ -79,7 +84,30 @@ const WIDGET = String.raw`(function(){
     b.className = 'b ' + (dir==='out'?'in':'out'); // visitor's own = 'out' visual; agent = 'in'
     b.textContent = text;
     m.appendChild(b);
+    if (canRate && id){
+      var fb = document.createElement('div'); fb.className = 'fb';
+      var up = document.createElement('button'); up.className='fbb'; up.type='button'; up.title='Good answer'; up.textContent='👍';
+      var dn = document.createElement('button'); dn.className='fbb'; dn.type='button'; dn.title='Bad answer'; dn.textContent='👎';
+      up.onclick = function(){ rate(id,'up',fb); };
+      dn.onclick = function(){ rate(id,'down',fb); };
+      fb.appendChild(up); fb.appendChild(dn);
+      m.appendChild(fb);
+    }
     m.scrollTop = m.scrollHeight;
+  }
+
+  function rate(id, val, fb){
+    if (fb.classList.contains('done')) return;
+    fb.classList.add('done');
+    var btns = fb.querySelectorAll('.fbb');
+    for (var i=0;i<btns.length;i++){ btns[i].disabled = true; }
+    var note = document.createElement('span'); note.className='fbt';
+    note.textContent = val==='up' ? 'Thanks!' : 'Thanks for the feedback';
+    fb.appendChild(note);
+    fetch(API+'/api/webchat/rate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ k:KEY, visitorId:visitorId, messageId:id, rating:val })
+    }).catch(function(){});
   }
 
   function toggle(){
@@ -115,7 +143,7 @@ const WIDGET = String.raw`(function(){
         if (!j || !j.messages) return;
         for (var i=0;i<j.messages.length;i++){
           var msg = j.messages[i];
-          addMsg(msg.content, 'agent', msg.id);
+          addMsg(msg.content, 'agent', msg.id, msg.sender_type==='bot');
           if (msg.created_at > since) since = msg.created_at;
         }
       }).catch(function(){});
