@@ -69,7 +69,14 @@ export async function finishCalendarOAuth(req: Request, provider: CalendarProvid
   const expected = jar.get(stateCookie(provider))?.value;
   jar.delete(stateCookie(provider));
 
-  if (providerErr) return `${SETTINGS}?error=${encodeURIComponent(providerErr)}`;
+  if (providerErr) {
+    // Surface the provider's error_description (e.g. the real AADSTS… reason)
+    // instead of a bare "server_error", and log it for the runtime logs.
+    const desc = url.searchParams.get("error_description");
+    console.error(`[calendar oauth ${provider}] provider error:`, providerErr, desc);
+    const detail = desc ? `${providerErr} — ${desc.slice(0, 200)}` : providerErr;
+    return `${SETTINGS}?error=${encodeURIComponent(detail)}`;
+  }
   if (!code || !state || !expected || state !== expected) return `${SETTINGS}?error=state_mismatch`;
 
   const auth = await ownerAdminOrg();
@@ -86,6 +93,7 @@ export async function finishCalendarOAuth(req: Request, provider: CalendarProvid
     });
     return `${SETTINGS}?connected=${provider}`;
   } catch (err) {
+    console.error(`[calendar oauth ${provider}] exchange/save failed:`, err);
     return `${SETTINGS}?error=${encodeURIComponent(err instanceof Error ? err.message : "connect_failed")}`;
   }
 }
