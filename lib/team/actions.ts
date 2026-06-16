@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertCanInviteMember } from "@/lib/billing/gates";
+import { AGENT_PERMISSION_DEFAULTS, type AgentPermissions } from "@/lib/team/permissions";
 import type { ProfileRole } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -396,5 +397,45 @@ export async function setAvailability(
     .eq("id", user.id);
   if (error) return { ok: false, error: error.message };
 
+  return { ok: true };
+}
+
+// Update the org's agent-permission toggles (owner/admin only). Writes the full
+// bag so unspecified keys fall back to defaults.
+export async function updateAgentPermissions(
+  perms: Partial<AgentPermissions>,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!me?.org_id) return { ok: false, error: "Not in an org." };
+  if (me.role !== "owner" && me.role !== "admin") {
+    return { ok: false, error: "Only owners and admins can change agent permissions." };
+  }
+
+  const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
+  const value: AgentPermissions = {
+    restrict_to_assigned: bool(perms.restrict_to_assigned, AGENT_PERMISSION_DEFAULTS.restrict_to_assigned),
+    can_delete_conversations: bool(perms.can_delete_conversations, AGENT_PERMISSION_DEFAULTS.can_delete_conversations),
+    can_export: bool(perms.can_export, AGENT_PERMISSION_DEFAULTS.can_export),
+    can_edit_contacts: bool(perms.can_edit_contacts, AGENT_PERMISSION_DEFAULTS.can_edit_contacts),
+  };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("organizations")
+    .update({ agent_permissions: value })
+    .eq("id", me.org_id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/settings/team");
+  revalidatePath("/inbox");
   return { ok: true };
 }

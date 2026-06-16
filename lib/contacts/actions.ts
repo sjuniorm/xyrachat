@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getAgentPermissions, agentBlocked } from "@/lib/team/permissions";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -23,6 +24,19 @@ export async function updateContact(input: {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in." };
+
+  // Agent-permission gate: the org can forbid agents from editing contacts.
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (me?.org_id) {
+    const perms = await getAgentPermissions(me.org_id);
+    if (agentBlocked(me.role, perms, "can_edit_contacts")) {
+      return { ok: false, error: "Your role can't edit contacts." };
+    }
+  }
 
   const patch: Record<string, unknown> = {};
   if (input.name !== undefined) patch.name = input.name.trim() || null;

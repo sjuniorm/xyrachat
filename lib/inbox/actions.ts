@@ -7,6 +7,7 @@ import { resolveServingBot } from "@/lib/inbox/server";
 import { buildConversationSummary } from "@/lib/ai/summarize";
 import { maybeSendSurvey } from "@/lib/surveys/server";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
+import { getAgentPermissions, agentBlocked } from "@/lib/team/permissions";
 import type { ConversationStatus } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -15,7 +16,7 @@ type SummaryResult =
   | { ok: false; error: string };
 
 async function requireUserOrg(): Promise<
-  { ok: true; orgId: string; userId: string } | { ok: false; error: string }
+  { ok: true; orgId: string; userId: string; role: string | null } | { ok: false; error: string }
 > {
   const supabase = await createClient();
   const {
@@ -24,11 +25,11 @@ async function requireUserOrg(): Promise<
   if (!user) return { ok: false, error: "Not signed in." };
   const { data: me } = await supabase
     .from("profiles")
-    .select("org_id")
+    .select("org_id, role")
     .eq("id", user.id)
     .maybeSingle();
   if (!me?.org_id) return { ok: false, error: "Not in an org." };
-  return { ok: true, orgId: me.org_id, userId: user.id };
+  return { ok: true, orgId: me.org_id, userId: user.id, role: me.role ?? null };
 }
 
 async function authorizeConversation(
@@ -323,6 +324,12 @@ export async function deleteConversationsBulk(
 
   const auth = await requireUserOrg();
   if (!auth.ok) return auth;
+
+  // Agent-permission gate: the org can forbid agents from deleting conversations.
+  const perms = await getAgentPermissions(auth.orgId);
+  if (agentBlocked(auth.role, perms, "can_delete_conversations")) {
+    return { ok: false, error: "Your role can't delete conversations." };
+  }
 
   const admin = createAdminClient();
   const { error } = await admin

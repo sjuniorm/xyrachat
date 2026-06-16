@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAgentPermissions, agentBlocked } from "@/lib/team/permissions";
 
 export const runtime = "nodejs";
 
@@ -23,10 +24,16 @@ export async function GET(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data: profile } = await supabase
     .from("profiles")
-    .select("org_id")
+    .select("org_id, role")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.org_id) return NextResponse.json({ error: "No org" }, { status: 403 });
+
+  // Agent-permission gate: the org can forbid agents from exporting.
+  const perms = await getAgentPermissions(profile.org_id);
+  if (agentBlocked(profile.role, perms, "can_export")) {
+    return NextResponse.json({ error: "Your role can't export data." }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const days = RANGE_DAYS[url.searchParams.get("range") ?? "30"] ?? 30;

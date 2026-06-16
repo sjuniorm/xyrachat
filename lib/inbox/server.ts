@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAgentPermissions } from "@/lib/team/permissions";
 import type {
   ConversationRow,
   ContactRow,
@@ -51,7 +52,12 @@ export async function getConversationsForCurrentOrg(): Promise<
   await wakeSnoozedConversations();
   const supabase = await createClient();
 
-  const { data: convs } = await supabase
+  // Agent-permission: when restrict_to_assigned is on, an `agent` only sees
+  // conversations assigned to them or unassigned (the org restricting its own
+  // members — RLS still scopes to the org).
+  const restrict = await currentAgentRestrictedToAssigned();
+
+  let listQuery = supabase
     .from("conversations")
     .select(
       `
@@ -62,6 +68,10 @@ export async function getConversationsForCurrentOrg(): Promise<
       `,
     )
     .order("last_message_at", { ascending: false });
+  if (restrict.restricted) {
+    listQuery = listQuery.or(`assigned_to.eq.${restrict.userId},assigned_to.is.null`);
+  }
+  const { data: convs } = await listQuery;
 
   const rows = (convs as RawConversation[] | null) ?? [];
   if (rows.length === 0) return [];
@@ -148,6 +158,12 @@ export async function getConversationDetail(
   if (!data) return null;
   const row = data as RawConversation;
   if (!row.contact || !row.channel) return null;
+  // Agent-permission guard: a restricted agent can't open another agent's chat
+  // by direct URL (the list already hides them).
+  const restrict = await currentAgentRestrictedToAssigned();
+  if (restrict.restricted && row.assigned_to && row.assigned_to !== restrict.userId) {
+    return null;
+  }
   return {
     ...row,
     contact: row.contact,
@@ -155,6 +171,28 @@ export async function getConversationDetail(
     last_message_preview: null,
     unread_count: 0,
   };
+}
+
+// Resolves whether the CURRENT caller is an `agent` whose org has
+// restrict_to_assigned ON. Used by both inbox fetchers.
+async function currentAgentRestrictedToAssigned(): Promise<
+  { restricted: false } | { restricted: true; userId: string }
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { restricted: false };
+  const { data: me } = await supabase
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!me?.org_id || me.role !== "agent") return { restricted: false };
+  const perms = await getAgentPermissions(me.org_id);
+  return perms.restrict_to_assigned
+    ? { restricted: true, userId: user.id }
+    : { restricted: false };
 }
 
 /**

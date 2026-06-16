@@ -16,11 +16,13 @@ import {
   removeTeamMember,
 } from "@/lib/team/actions";
 import { getActiveSupportGrant } from "@/lib/support/access";
+import { getAgentPermissions } from "@/lib/team/permissions";
 import { cn } from "@/lib/utils";
 import { InviteDialog } from "./invite-dialog";
 import { ConfirmAction } from "./confirm-action";
 import { ChangeRoleMenu } from "./change-role-menu";
 import { SupportAccessCard } from "./support-access-card";
+import { AgentPermissionsCard } from "./agent-permissions-card";
 
 const ROLE_BADGE: Record<string, string> = {
   owner:
@@ -43,6 +45,7 @@ export default async function TeamPage() {
 
   const canManage = me.role === "owner" || me.role === "admin";
   const supportGrant = canManage ? await getActiveSupportGrant(orgId) : null;
+  const agentPerms = canManage ? await getAgentPermissions(orgId) : null;
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
@@ -223,6 +226,7 @@ export default async function TeamPage() {
           </Card>
         )}
 
+        {canManage && agentPerms && <AgentPermissionsCard initial={agentPerms} />}
         {canManage && <SupportAccessCard grant={supportGrant} />}
       </div>
     </div>
