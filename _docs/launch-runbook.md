@@ -55,26 +55,59 @@ inbox until this is done.
    Change Email). Turn ON "Confirm email" for production.
 4. Test: trigger /forgot-password → confirm the branded reset email arrives.
 
-## 3) 🧑 Stripe go-live
-1. Create Products + Prices (live mode), **annual = 2 months free**:
-   Solo €29/mo (€290/yr) · Core €49/mo (€490/yr) · **Edge €99/mo (€990/yr,
-   "Most popular")** · Prime €199/mo (€1990/yr) · Infinite €399/mo (custom).
-   (Match lib/billing/bundles.ts — 5 packs.)
-   Optional: create a `LAUNCH40` Promotion Code (40% off, **repeating 3 months**)
-   for the launch early-bird — or seed via /settings/admin/promos.
-   Add-on Prices (only if shipping the add-on purchase flow): one per add-on in
-   lib/billing/addons.ts (extra user €10 + the TBD-priced ones).
-2. Vercel env: `STRIPE_PRICE_{SOLO,CORE,EDGE,PRIME,INFINITE}_{MONTHLY,YEARLY}` =
-   the `price_…` ids; `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-   (Add-on flow also needs `STRIPE_PRICE_ADDON_*_MONTHLY` — see .env.example.)
-3. Webhook endpoint → `https://<app>/api/webhooks/stripe`, subscribe to:
-   `checkout.session.completed`, `customer.subscription.updated`,
-   `customer.subscription.deleted`, `customer.subscription.trial_will_end`,
-   `invoice.paid`, `invoice.payment_failed`, `charge.dispute.created/.updated/.closed`.
-   Paste signing secret → `STRIPE_WEBHOOK_SECRET`.
-4. **Backfill existing orgs**: `/settings/admin/entitlements` → backfill
-   un-provisioned orgs → Trial (new signups now auto-provision Trial; this
-   catches orgs created before that landed).
+## 3) 🧑 Stripe go-live  ← FULL REFERENCE (prices confirmed 2026-06-16)
+> Deferred until the SL (Mll Nexus Group SL) clears — LIVE mode needs account
+> activation (business + bank). Sandbox/test mode works now without the SL.
+> Test↔live are isolated: each product has a **"Copy to live mode"** button that
+> brings the product + its prices over, but the copied live prices get NEW
+> `price_…` ids → re-grab + swap the env VALUES (names below are stable). Keys +
+> webhook are per-mode too. (See _docs/stripe walkthrough or ask Claude.)
+
+**3a. API keys** (Developers → API keys): `STRIPE_SECRET_KEY` = `sk_…`;
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` = `pk_…`.
+
+**3b. The 5 packs** — one product each, Monthly + Yearly EUR price (annual = 2
+months free = monthly×10). Copy each price's `price_…` id into the env:
+
+| Pack | Monthly | Yearly | Monthly env | Yearly env |
+|---|---|---|---|---|
+| Solo | €29 | €290 | `STRIPE_PRICE_SOLO_MONTHLY` | `STRIPE_PRICE_SOLO_YEARLY` |
+| Core | €49 | €490 | `STRIPE_PRICE_CORE_MONTHLY` | `STRIPE_PRICE_CORE_YEARLY` |
+| Edge ("Most popular") | €99 | €990 | `STRIPE_PRICE_EDGE_MONTHLY` | `STRIPE_PRICE_EDGE_YEARLY` |
+| Prime | €199 | €1990 | `STRIPE_PRICE_PRIME_MONTHLY` | `STRIPE_PRICE_PRIME_YEARLY` |
+| Infinite | €399 | €3990 | `STRIPE_PRICE_INFINITE_MONTHLY` | `STRIPE_PRICE_INFINITE_YEARLY` |
+
+(Create the Infinite price even if marketed "Contact us" — launch-check expects it.)
+
+**3c. The 6 add-ons** (Edge/Prime only, monthly; the "extra X" ones are per-UNIT —
+price one unit, quantity is set per purchase):
+
+| Add-on | Price | Env |
+|---|---|---|
+| Extra user | €10 | `STRIPE_PRICE_ADDON_EXTRA_USERS_MONTHLY` |
+| Extra channel | €15 | `STRIPE_PRICE_ADDON_EXTRA_CHANNELS_MONTHLY` |
+| Extra chatbot | €25 | `STRIPE_PRICE_ADDON_EXTRA_CHATBOTS_MONTHLY` |
+| +500k AI tokens | €19 | `STRIPE_PRICE_ADDON_EXTRA_AI_TOKENS_MONTHLY` |
+| Integrations (Make/Zapier/n8n) | €29 | `STRIPE_PRICE_ADDON_INTEGRATIONS_MONTHLY` |
+| Broadcasts | €29 | `STRIPE_PRICE_ADDON_BROADCASTS_MONTHLY` |
+
+**3d. Webhook** → endpoint `https://xyra-chat.vercel.app/api/webhooks/stripe`,
+events: `checkout.session.completed`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `customer.subscription.trial_will_end`,
+`invoice.paid`, `invoice.payment_failed`, `charge.dispute.created`,
+`charge.dispute.updated`, `charge.dispute.closed`. Signing secret → `STRIPE_WEBHOOK_SECRET`.
+
+**3e. Promo** (no copy button) — create a `LAUNCH40` Promotion Code (40% off,
+duration **repeating 3 months**), or seed `LAUNCH40` via `/settings/admin/promos`.
+
+**3f. Redeploy**, then **backfill**: `/settings/admin/entitlements` → backfill
+un-provisioned orgs → Trial (needs `XYRA_OPERATOR_ORG_ID` set, §4).
+
+**3g. Verify** (do in TEST mode FIRST — this is the add-on flow's test-pass):
+checkout into Edge with card `4242 4242 4242 4242`; then buy an "Extra user"
+add-on on `/settings/billing` and confirm the team limit rises. Then repeat 3a–3f
+in LIVE mode (Copy-to-live the products, swap to `sk_live`/`pk_live`/live price
+ids/live `whsec_`).
 
 ## 4) Post-deploy security finalization
 - 🧑 **Set `XYRA_OPERATOR_ORG_ID`** in Vercel = your (Xyra team's) org UUID
