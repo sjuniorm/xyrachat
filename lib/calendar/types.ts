@@ -39,11 +39,20 @@ export type CreateEventInput = {
 
 export type CreatedEvent = { id: string; htmlLink?: string };
 
+// What the facade passes to a provider call: a resolved access token + enough
+// to address the right calendar (Google keys off calendarId, Microsoft's
+// getSchedule keys off the account email).
+export type CalendarRef = {
+  accessToken: string;
+  calendarId: string;
+  accountEmail: string | null;
+};
+
 // What each provider module implements. The token is already resolved (Vault
 // read + refreshed if expired) by the facade before these are called.
 export interface CalendarClient {
-  freeBusy(accessToken: string, calendarId: string, q: FreeBusyQuery): Promise<BusySlot[]>;
-  createEvent(accessToken: string, calendarId: string, input: CreateEventInput): Promise<CreatedEvent>;
+  freeBusy(ref: CalendarRef, q: FreeBusyQuery): Promise<BusySlot[]>;
+  createEvent(ref: CalendarRef, input: CreateEventInput): Promise<CreatedEvent>;
 }
 
 // OAuth token bundle returned by a provider's code-exchange / refresh.
