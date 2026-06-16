@@ -141,6 +141,22 @@ Vercel domain + DNS → update Supabase Auth redirect URLs → update Meta webho
 callback URLs → re-run the full auth + webhook smoke test. See
 project_custom_domain_switch memory.
 
+## 6b) 🧑 Calendar — Google (for launch)
+Outlook/Microsoft 365 is DONE + connected (env set, app registered). **Google
+Calendar is deferred to launch** (founder's call 2026-06-16):
+1. Google Cloud Console → enable **Google Calendar API**.
+2. OAuth consent screen (External) → add scopes `calendar.freebusy` +
+   `calendar.events` → add test users. ⚠️ These are "sensitive" scopes → submit
+   for **verification** (scope justification + demo video) before non-test users
+   can connect; in "Testing" status refresh tokens expire after 7 days.
+3. Credentials → OAuth client ID (Web) → redirect URI
+   `https://xyra-chat.vercel.app/api/auth/google-calendar/callback`.
+4. Vercel env: `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` → redeploy. The
+   "Connect Google Calendar" button then auto-appears on `/settings/calendar`.
+- ⚠️ Microsoft client secret expires in ≤24 months → set a reminder ~1 month
+  prior to rotate (new secret in Entra → update `MICROSOFT_CLIENT_SECRET` →
+  redeploy). On expiry the Outlook connection shows "Reconnect needed."
+
 ## 7) Optional in-app config (env)
 - `SUPPORT_FEEDBACK_EMAIL` — where the team is alerted when a client adds a note
   to a bot 👎 (e.g. `feedback@xyrachat.com`). Unset → no alert (feature still works).
