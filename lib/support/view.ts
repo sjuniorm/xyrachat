@@ -47,32 +47,50 @@ export async function getClientConversations(
   if (!gate.ok) return gate;
 
   const admin = createAdminClient();
-  const { data } = await admin
+  // NB: last_message_preview is NOT a column — it's computed (see inbox/server.ts).
+  const { data, error } = await admin
     .from("conversations")
     .select(
-      "id, status, last_message_at, last_message_preview, contact:contacts!conversations_contact_id_fkey(name), channel:channels!conversations_channel_id_fkey(type)",
+      "id, status, last_message_at, contact:contacts!conversations_contact_id_fkey(name), channel:channels!conversations_channel_id_fkey(type)",
     )
     .eq("org_id", orgId)
     .is("deleted_at", null)
     .order("last_message_at", { ascending: false })
     .limit(50);
+  if (error) return { ok: false, error: "Could not load conversations." };
 
-  await audit(orgId, gate.operatorUserId, "entered", { view: "conversations" });
-
-  const conversations: SupportConversation[] = (
-    (data as Array<{
+  const rows =
+    (data as unknown as Array<{
       id: string;
       status: string;
       last_message_at: string | null;
-      last_message_preview: string | null;
       contact: { name: string | null } | null;
       channel: { type: string | null } | null;
-    }> | null) ?? []
-  ).map((c) => ({
+    }> | null) ?? [];
+
+  // Latest-message preview per conversation (one query over the ids).
+  const previews: Record<string, string> = {};
+  const ids = rows.map((r) => r.id);
+  if (ids.length > 0) {
+    const { data: msgs } = await admin
+      .from("messages")
+      .select("conversation_id, content, created_at")
+      .in("conversation_id", ids)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    for (const m of (msgs as Array<{ conversation_id: string; content: string | null }> | null) ?? []) {
+      if (!(m.conversation_id in previews)) previews[m.conversation_id] = m.content ?? "";
+    }
+  }
+
+  await audit(orgId, gate.operatorUserId, "entered", { view: "conversations" });
+
+  const conversations: SupportConversation[] = rows.map((c) => ({
     id: c.id,
     status: c.status,
     last_message_at: c.last_message_at,
-    last_message_preview: c.last_message_preview,
+    last_message_preview: previews[c.id] ?? null,
     contact_name: c.contact?.name ?? null,
     channel_type: c.channel?.type ?? null,
   }));
