@@ -5,9 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isOperatorProfile } from "@/lib/admin/operator";
 import { getActiveSupportGrant } from "@/lib/support/access";
+import { getClientConversations } from "@/lib/support/view";
 import { getOrgAnalytics } from "@/lib/analytics/reports";
 import { BUNDLES } from "@/lib/billing/bundles";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ClientActions } from "./client-actions";
 
@@ -46,9 +47,10 @@ export default async function ClientDetailPage({
     .maybeSingle();
   if (!org) notFound();
 
-  // Has this client consented to support access right now? Gates whether we're
-  // cleared to enter their workspace (the "enter" action itself is a follow-up).
+  // Has this client consented to support access right now? When granted, we can
+  // read their inbox (read-only, audited) to help.
   const supportGrant = await getActiveSupportGrant(orgId);
+  const supportConvos = supportGrant ? await getClientConversations(orgId) : null;
 
   const now = new Date();
   const from = new Date(now.getTime() - 30 * 86_400_000).toISOString();
@@ -171,6 +173,49 @@ export default async function ClientDetailPage({
             </p>
           </CardContent>
         </Card>
+
+        {/* Support view — read-only client inbox, only while a grant is active */}
+        {supportGrant && supportConvos?.ok && (
+          <Card className="border-amber-400/20 bg-amber-400/[0.03]">
+            <CardHeader>
+              <CardTitle className="text-base">Support view — recent conversations</CardTitle>
+              <CardDescription>
+                Read-only. The client granted access until{" "}
+                {new Date(supportGrant.expires_at).toLocaleDateString()}. Every conversation
+                you open is logged.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {supportConvos.conversations.length === 0 ? (
+                <p className="text-sm text-white/50">No conversations.</p>
+              ) : (
+                <ul className="divide-y divide-white/5">
+                  {supportConvos.conversations.slice(0, 25).map((c) => (
+                    <li key={c.id}>
+                      <Link
+                        href={`/settings/admin/clients/${orgId}/c/${c.id}`}
+                        className="flex items-center gap-3 px-1 py-2.5 hover:bg-white/5"
+                      >
+                        <span className="w-16 shrink-0 text-[11px] capitalize text-white/50">
+                          {c.channel_type ?? "—"}
+                        </span>
+                        <span className="w-40 shrink-0 truncate text-sm text-white">
+                          {c.contact_name ?? "Unknown"}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs text-white/50">
+                          {c.last_message_preview ?? ""}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-white/35" suppressHydrationWarning>
+                          {c.last_message_at ? new Date(c.last_message_at).toLocaleDateString() : ""}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Recent errors */}
         <Card className="border-white/10 bg-card/60">

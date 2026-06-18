@@ -37,7 +37,28 @@ is the consent gate it will sit behind. Original design notes (★ = open) below
 
 ---
 
-## Original design notes
+## DECISION (2026-06-18): ship grant-gated READ-ONLY support view, not impersonation
+After implementing the consent layer, the membership-impersonation path was
+re-evaluated and **rejected for v1** on safety grounds: `switch_active_org` sets
+`profiles.role` to the membership role, so a `support` member would gain write
+access through EVERY member-writable path (messages, conversations, contacts,
+and any table whose RLS allows any-member writes). Guarding that exhaustively is
+a wide, error-prone surface where a single miss = cross-tenant data loss.
+
+**Shipped instead:** a read-only "Support view" INSIDE the operator console
+(`lib/support/view.ts` + the client-detail page). Support reads the client's
+conversations/messages via the service-role client, gated by `requireOperator()`
+AND `getActiveSupportGrant(orgId)`, and every access is logged to
+`support_access_log`. Support never becomes a member, never switches active org,
+never touches a write path — the capability is exactly read-only, bounded by
+construction. No `role='support'` + no app-wide guard sweep needed.
+
+**Deferred (needs its own design + adversarial review if pursued):** write access
+— "reply as support" (customer-facing send via the channel) and/or posting an
+internal note — and the full product-UI impersonation. The consent `scope`
+(read_only / read_reply) already exists to drive these later.
+
+## Original design notes (membership-impersonation — NOT the shipped path)
 Security-sensitive (cross-tenant data access). Decisions are marked ★.
 
 ## Goal
