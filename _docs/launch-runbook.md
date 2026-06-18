@@ -157,6 +157,17 @@ Calendar is deferred to launch** (founder's call 2026-06-16):
   prior to rotate (new secret in Entra → update `MICROSOFT_CLIENT_SECRET` →
   redeploy). On expiry the Outlook connection shows "Reconnect needed."
 
+## 6c) 🧑 CRM — HubSpot (deferred; chat leads → CRM)
+Code shipped (migration 060 + lib/crm/*). Off until configured:
+1. developers.hubspot.com → create a **public app** (not private).
+2. App → Auth tab → copy Client ID + Secret → Vercel env `HUBSPOT_CLIENT_ID` /
+   `HUBSPOT_CLIENT_SECRET`. Add redirect URL
+   `https://xyra-chat.vercel.app/api/auth/hubspot/callback` (+ localhost). Add
+   scopes `crm.objects.contacts.read` + `crm.objects.contacts.write`.
+3. Redeploy → the "Connect HubSpot" button appears on `/settings/crm`. Once a
+   client connects, leads the bot captures auto-sync into their HubSpot.
+- Pipedrive / Salesforce: same facade, not built yet (slot in later).
+
 ## 7) Optional in-app config (env)
 - `SUPPORT_FEEDBACK_EMAIL` — where the team is alerted when a client adds a note
   to a bot 👎 (e.g. `feedback@xyrachat.com`). Unset → no alert (feature still works).
