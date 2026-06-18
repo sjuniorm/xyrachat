@@ -24,7 +24,7 @@ const WIDGET = String.raw`(function(){
     try { localStorage.setItem(LS, visitorId); } catch(e){}
   }
 
-  var cfg = { title:'Chat with us', greeting:'Hi! How can we help?', color:'#9333EA', launcher_text:'Chat' };
+  var cfg = { title:'Chat with us', greeting:'Hi! How can we help?', color:'#9333EA', launcher_text:'Chat', powered_by:'Xyra Chat' };
   var since = new Date().toISOString();
   var isOpen = false, pollTimer = null, greeted = false, seen = {};
 
@@ -67,7 +67,7 @@ const WIDGET = String.raw`(function(){
           '<div class="hd"><span>'+esc(cfg.title)+'</span><button id="xclose" aria-label="Close">×</button></div>' +
           '<div class="msgs" id="xmsgs"></div>' +
           '<form class="ft" id="xform"><input id="xinput" placeholder="Type a message…" autocomplete="off" maxlength="4000"/><button type="submit">Send</button></form>' +
-          '<div class="cr">Powered by Xyra Chat</div>' +
+          (cfg.powered_by ? '<div class="cr">Powered by '+esc(cfg.powered_by)+'</div>' : '') +
         '</div>' +
         '<button class="launch" id="xlaunch">💬 '+esc(cfg.launcher_text)+'</button>' +
       '</div>';
@@ -153,7 +153,7 @@ const WIDGET = String.raw`(function(){
   // Boot: fetch appearance, then render.
   fetch(API+'/api/webchat/config?k='+encodeURIComponent(KEY))
     .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(j){ if (j){ cfg.title=j.title; cfg.greeting=j.greeting; cfg.color=safeColor(j.color); cfg.launcher_text=j.launcher_text; } })
+    .then(function(j){ if (j){ cfg.title=j.title; cfg.greeting=j.greeting; cfg.color=safeColor(j.color); cfg.launcher_text=j.launcher_text; cfg.powered_by=(j.powered_by==null?'':j.powered_by); } })
     .catch(function(){})
     .then(function(){ render(); });
 })();`;
