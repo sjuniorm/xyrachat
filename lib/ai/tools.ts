@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { retrieveContext } from "@/lib/ai/retrieval";
 import { orgCalendarFreeBusy, orgCalendarCreateEvent } from "@/lib/calendar/connections";
+import { syncContactToCrm } from "@/lib/crm/connections";
 
 // =====================================================================
 // Bot tool use (Anthropic function calling).
@@ -263,6 +264,14 @@ async function captureLead(input: unknown, ctx: ToolExecContext): Promise<ToolRe
     .eq("id", ctx.contactId)
     .eq("org_id", ctx.orgId);
   if (error) return { content: "Couldn't save the lead right now.", isError: true };
+
+  // Sync the lead into the org's connected CRM (HubSpot etc.) — fire-and-forget,
+  // never blocks or fails the bot. No-op when no CRM is connected.
+  void syncContactToCrm(ctx.orgId, {
+    email: email || (contact.email as string | null),
+    phone: phone || (contact.phone as string | null),
+    fullName: name || (contact.name as string | null),
+  }).catch(() => {});
 
   // GDPR: don't duplicate raw PII into bot_outcomes (its contact_id FK is ON
   // DELETE SET NULL, so a payload copy would survive contact erasure). Store

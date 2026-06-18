@@ -8,6 +8,7 @@ const TABS = [
   { href: "/settings/channels", label: "Channels" },
   { href: "/settings/team", label: "Team" },
   { href: "/settings/calendar", label: "Calendar" },
+  { href: "/settings/crm", label: "CRM" },
   { href: "/settings/inbox", label: "Inbox" },
   { href: "/settings/api", label: "API & Webhooks" },
   { href: "/settings/billing", label: "Plan & Usage" },
