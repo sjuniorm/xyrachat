@@ -6,6 +6,7 @@ import { fetchAudience } from "@/lib/broadcasts/audience";
 import { rateLimit } from "@/lib/rate-limit";
 import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
 import { applyVariables, type TemplateComponent } from "@/lib/templates/types";
+import { emit } from "@/lib/api/emit";
 
 export const runtime = "nodejs";
 // Vercel default is 300s on Hobby+. Big broadcasts (>~15k recipients at
@@ -335,6 +336,14 @@ export async function POST(req: NextRequest) {
     })
     .eq("id", bc.id);
 
+  if (!cancelled) {
+    void emit({
+      type: "broadcast.completed",
+      orgId: bc.org_id,
+      data: { id: bc.id, sent_count: sent, failed_count: failed, total_count: eligible.length },
+    }).catch(() => {});
+  }
+
   return NextResponse.json({
     ok: true,
     sent,
@@ -404,6 +413,18 @@ function buildTemplateComponents(
         parameters: values.map((v) => ({ type: "text", text: v })),
       });
     }
+  } else if (
+    header &&
+    "format" in header &&
+    (header.format === "IMAGE" || header.format === "VIDEO" || header.format === "DOCUMENT") &&
+    mapping.header_media?.link
+  ) {
+    // Media-header template: attach the media at send time (Meta requires it).
+    const kind = mapping.header_media.kind;
+    out.push({
+      type: "header",
+      parameters: [{ type: kind, [kind]: { link: mapping.header_media.link } }],
+    });
   }
   const bodyMap = mapping.body ?? [];
   if (bodyMap.length > 0) {

@@ -1,6 +1,7 @@
 import { apiHandler } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notFound, unprocessable } from "@/lib/api/errors";
+import { hasFeature } from "@/lib/billing/entitlements";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,14 @@ export const runtime = "nodejs";
 export const POST = apiHandler({
   scopes: ["broadcasts:write"],
   handler: async (req, ctx, params) => {
+    // Entitlement gate — broadcasts is a paid feature/add-on. Without this an
+    // api:write key could launch broadcasts on a plan that doesn't include them.
+    if (!(await hasFeature(ctx.orgId, "feature:broadcasts"))) {
+      return unprocessable(
+        "broadcasts_not_allowed",
+        "Broadcasts aren't included on your plan. Upgrade to send campaigns.",
+      );
+    }
     const admin = createAdminClient();
     const { data: bc } = await admin
       .from("broadcasts")
@@ -31,8 +40,8 @@ export const POST = apiHandler({
         "Broadcast launching requires CRON_SECRET on the server.",
       );
     }
-    // Flag as sending pessimistically; the send-internal route picks it up.
-    await admin.from("broadcasts").update({ status: "sending" }).eq("id", params.id);
+    // Do NOT pre-flip status — send-internal owns the single-winner atomic
+    // claim, so a concurrent launch (or the cron) can't double-send.
     const internalUrl = new URL("/api/broadcasts/send-internal", req.url);
     void fetch(internalUrl.toString(), {
       method: "POST",

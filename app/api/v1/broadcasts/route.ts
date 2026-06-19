@@ -4,6 +4,7 @@ import { decodeCursor, encodeCursor, parseLimit } from "@/lib/api/pagination";
 import { invalidRequest, unprocessable } from "@/lib/api/errors";
 import { shapeBroadcast } from "@/lib/api/shapes";
 import { getCachedIdempotentResponse, storeIdempotentResponse } from "@/lib/api/idempotency";
+import { assertCanCreateBroadcast } from "@/lib/billing/gates";
 
 export const runtime = "nodejs";
 
@@ -74,6 +75,13 @@ export const POST = apiHandler({
     }
     if (!body.name?.trim() || !body.channel_id || !body.template_id) {
       return invalidRequest("missing_field", "name, channel_id and template_id are required.");
+    }
+    // Entitlement gate — same as the server-action path. Without this the API
+    // gives broadcasts away free to any org with an api:write key (e.g. Edge,
+    // where broadcasts is a paid add-on).
+    const gate = await assertCanCreateBroadcast(ctx.orgId);
+    if (!gate.ok) {
+      return unprocessable("broadcasts_not_allowed", gate.error ?? "Broadcasts not available on your plan.");
     }
     const admin = createAdminClient();
     // Verify channel + template org match.

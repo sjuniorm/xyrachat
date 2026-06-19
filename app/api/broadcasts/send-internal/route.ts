@@ -4,6 +4,7 @@ import { vaultReadSecret } from "@/lib/supabase/vault";
 import { fetchAudience } from "@/lib/broadcasts/audience";
 import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
 import { applyVariables, type TemplateComponent } from "@/lib/templates/types";
+import { emit } from "@/lib/api/emit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -41,11 +42,23 @@ export async function POST(req: NextRequest) {
   if (!bc) {
     return NextResponse.json({ ok: false, error: "Broadcast not found" }, { status: 404 });
   }
-  // The cron runner pessimistically flipped status to 'sending' before
-  // calling us. If we got here from another path (e.g. manual VPS
-  // re-trigger), accept 'sending' too — but refuse 'done' / 'cancelled'.
-  if (!["sending", "scheduled", "draft"].includes(bc.status)) {
-    return NextResponse.json({ ok: false, error: `Broadcast is ${bc.status}` }, { status: 409 });
+  // SINGLE-WINNER CLAIM. This route owns the status transition — callers
+  // (cron, v1 launch) must NOT pre-flip. The atomic conditional UPDATE only
+  // succeeds for the first invocation that moves the row out of a launchable
+  // state; concurrent/duplicate invocations match 0 rows and bail. This is
+  // what stops the cron + an API launch (or two API launches) double-sending
+  // to Meta. Re-launch of a 'failed' row is allowed.
+  const { data: claimed } = await admin
+    .from("broadcasts")
+    .update({ status: "sending", started_at: new Date().toISOString() })
+    .eq("id", bc.id)
+    .in("status", ["scheduled", "draft", "failed"])
+    .select("id");
+  if (!claimed || claimed.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: `Broadcast is ${bc.status} — already claimed or not launchable` },
+      { status: 409 },
+    );
   }
 
   const [{ data: tpl }, { data: channel }] = await Promise.all([
@@ -83,14 +96,26 @@ export async function POST(req: NextRequest) {
     bc.org_id,
     (bc.audience_filter ?? { all: true }) as AudienceFilter,
   );
-  const eligible = audience.filter((c) => c.phone && !c.opted_out);
+  let eligible = audience.filter((c) => c.phone && !c.opted_out);
+
+  // Idempotent re-dispatch: skip recipients we already sent to in a prior
+  // (possibly interrupted) run. The send-then-upsert order can't prevent a
+  // duplicate Meta POST on its own, so we dedupe up front. This is what makes
+  // the stuck-'sending' sweeper safe to re-launch a partially-sent broadcast.
+  const { data: alreadySent } = await admin
+    .from("broadcast_recipients")
+    .select("contact_id")
+    .eq("broadcast_id", bc.id)
+    .eq("status", "sent");
+  if (alreadySent && alreadySent.length > 0) {
+    const sentIds = new Set(alreadySent.map((r) => r.contact_id));
+    eligible = eligible.filter((c) => !sentIds.has(c.id));
+  }
 
   await admin
     .from("broadcasts")
     .update({
-      status: "sending",
-      started_at: new Date().toISOString(),
-      total_count: eligible.length,
+      total_count: eligible.length + (alreadySent?.length ?? 0),
       skipped_opt_out_count: audience.filter((c) => c.opted_out).length,
     })
     .eq("id", bc.id);
@@ -195,16 +220,30 @@ export async function POST(req: NextRequest) {
     if (i < eligible.length - 1) await sleep(SEND_GAP_MS);
   }
 
+  const totalSent = sent + (alreadySent?.length ?? 0);
   await admin
     .from("broadcasts")
     .update({
       status: cancelled ? "cancelled" : "done",
-      sent_count: sent,
+      sent_count: totalSent,
       failed_count: failed,
       last_error: lastErr,
       finished_at: new Date().toISOString(),
     })
     .eq("id", bc.id);
+
+  if (!cancelled) {
+    void emit({
+      type: "broadcast.completed",
+      orgId: bc.org_id,
+      data: {
+        id: bc.id,
+        sent_count: totalSent,
+        failed_count: failed,
+        total_count: eligible.length + (alreadySent?.length ?? 0),
+      },
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true, sent, failed, cancelled, total: eligible.length });
 }
@@ -266,6 +305,17 @@ function resolveComponents(
         parameters: values.map((v) => ({ type: "text", text: v })),
       });
     }
+  } else if (
+    header &&
+    "format" in header &&
+    (header.format === "IMAGE" || header.format === "VIDEO" || header.format === "DOCUMENT") &&
+    mapping.header_media?.link
+  ) {
+    const kind = mapping.header_media.kind;
+    out.push({
+      type: "header",
+      parameters: [{ type: kind, [kind]: { link: mapping.header_media.link } }],
+    });
   }
   const bodyMap = mapping.body ?? [];
   if (bodyMap.length > 0) {

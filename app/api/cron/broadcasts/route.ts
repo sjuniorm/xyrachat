@@ -23,6 +23,22 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = createAdminClient();
+
+  // Reap broadcasts stuck in 'sending'. send-internal has maxDuration 300s,
+  // so anything 'sending' with started_at older than 15 min means the
+  // fire-and-forget dispatch died (cold-start abort, timeout). Reset to
+  // 'scheduled' so this run re-dispatches it — send-internal skips
+  // already-sent recipients, so re-dispatch can't double-send.
+  const stuckCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const { data: stuck } = await admin
+    .from("broadcasts")
+    .update({ status: "scheduled", last_error: "Re-queued after a stalled send" })
+    .eq("status", "sending")
+    .lt("started_at", stuckCutoff)
+    .is("deleted_at", null)
+    .select("id");
+  const reaped = (stuck ?? []).map((b) => b.id);
+
   const { data: due } = await admin
     .from("broadcasts")
     .select("id, name")
@@ -33,19 +49,9 @@ export async function GET(req: NextRequest) {
 
   const launched: string[] = [];
   for (const b of due ?? []) {
-    // Flip status pessimistically so a concurrent run doesn't double-fire.
-    const { data: claim } = await admin
-      .from("broadcasts")
-      .update({ status: "sending" })
-      .eq("id", b.id)
-      .eq("status", "scheduled")
-      .select("id")
-      .maybeSingle();
-    if (!claim) continue;
-
-    // Fire and forget — the send endpoint manages its own status updates.
-    // We POST to ourselves with an internal-only header so /send accepts
-    // it without an interactive session.
+    // Do NOT pre-flip status — send-internal owns the single-winner atomic
+    // claim. Two cron ticks both dispatching is harmless: the first POST
+    // claims the row, the second matches 0 rows and 409s.
     const url = new URL("/api/broadcasts/send-internal", req.url);
     fetch(url.toString(), {
       method: "POST",
@@ -55,11 +61,10 @@ export async function GET(req: NextRequest) {
       },
       body: JSON.stringify({ broadcastId: b.id }),
     }).catch(() => {
-      // best-effort; if this fails the broadcast will be left in
-      // 'sending' — surface it on the list page with last_error.
+      // best-effort; the stuck-sweeper above re-queues anything that stalls.
     });
     launched.push(b.id);
   }
 
-  return NextResponse.json({ ok: true, launched });
+  return NextResponse.json({ ok: true, launched, reaped });
 }
