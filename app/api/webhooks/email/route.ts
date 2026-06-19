@@ -4,6 +4,10 @@ import { resumeWaitingReplies } from "@/lib/automations/executor";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sanitizeEmailHtml } from "@/lib/security/sanitize";
+import { runBotGate } from "@/lib/ai/bot-gate";
+import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
+import { emit } from "@/lib/api/emit";
+import { notifyNewInbound } from "@/lib/push/notify";
 
 export const runtime = "nodejs";
 
@@ -172,6 +176,7 @@ async function handleInbound(email: ResendInboundEmail) {
 
   let conversationId: string | null = null;
   let repliedToId: string | null = null;
+  let wasNewConversation = false;
   const candidateIds = [inReplyTo, ...references].filter(
     (x): x is string => Boolean(x),
   );
@@ -185,19 +190,17 @@ async function handleInbound(email: ResendInboundEmail) {
       .maybeSingle();
     if (prior) {
       conversationId = prior.conversation_id;
-      if (inReplyTo === (prior as { email_message_id?: string }).email_message_id) {
-        repliedToId = prior.id;
-      } else {
-        repliedToId = prior.id;
-      }
+      repliedToId = prior.id;
     }
   }
   if (!conversationId) {
-    conversationId = await findOrCreateOpenConversation(
+    const resolved = await findOrCreateOpenConversation(
       channel.org_id,
       channel.id,
       contactId,
     );
+    conversationId = resolved.id;
+    wasNewConversation = resolved.created;
   }
   if (!conversationId) return;
 
@@ -241,6 +244,68 @@ async function handleInbound(email: ResendInboundEmail) {
       last_inbound_at: new Date().toISOString(),
     })
     .eq("id", conversationId);
+
+  // Zero-click inbound translation (cached on the message), before the gate.
+  await maybeAutoTranslate({
+    channel: {
+      id: channel.id,
+      type: "email",
+      auto_translate_inbound: channel.auto_translate_inbound,
+      auto_translate_target_lang: channel.auto_translate_target_lang,
+    },
+    orgId: channel.org_id,
+    contactId,
+    messageId: insertedId as string,
+    content,
+  }).catch((err) => console.error("[email] maybeAutoTranslate failed", err));
+
+  // Outbound event for external integrations subscribed via webhook_endpoints —
+  // email was previously the only channel that never emitted this.
+  void emit({
+    type: "message.received",
+    orgId: channel.org_id,
+    data: {
+      id: insertedId,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      channel_id: channel.id,
+      channel_type: "email",
+      direction: "inbound",
+      content,
+      created_at: new Date().toISOString(),
+    },
+  });
+  // Brand-new email thread → conversation.opened (connectors subscribe to it).
+  if (wasNewConversation) {
+    void emit({
+      type: "conversation.opened",
+      orgId: channel.org_id,
+      data: {
+        id: conversationId,
+        contact_id: contactId,
+        channel_id: channel.id,
+        channel_type: "email",
+      },
+    });
+  }
+  // Wake the assigned agent's mobile device(s).
+  void notifyNewInbound({
+    conversationId,
+    channelType: "email",
+    preview: content,
+  });
+  // Auto-reply if a bot is assigned to this email channel.
+  await runBotGate({
+    channel: { id: channel.id, type: "email", org_id: channel.org_id },
+    conversationId,
+    contactId,
+    newMessage: {
+      content,
+      media_type: null,
+      isFirstFromContact: wasNewConversation,
+      messageId: insertedId as string,
+    },
+  }).catch((err) => console.error("[email] runBotGate failed", err));
 
   // Resume any automation parked on a wait_for_reply for this conversation.
   void resumeWaitingReplies(conversationId, content ?? "").catch((err) => {
@@ -320,7 +385,7 @@ async function findChannelByInboxEmail(toAddresses: string[]) {
   const admin = createAdminClient();
   const { data } = await admin
     .from("channels")
-    .select("id, org_id, type, inbox_email")
+    .select("id, org_id, type, inbox_email, auto_translate_inbound, auto_translate_target_lang")
     .in("inbox_email", toAddresses)
     .eq("type", "email")
     .is("deleted_at", null)
@@ -359,7 +424,7 @@ async function findOrCreateOpenConversation(
   orgId: string,
   channelId: string,
   contactId: string,
-): Promise<string | null> {
+): Promise<{ id: string | null; created: boolean }> {
   const admin = createAdminClient();
   const existing = await admin
     .from("conversations")
@@ -371,11 +436,11 @@ async function findOrCreateOpenConversation(
     .order("last_message_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (existing.data) return existing.data.id;
+  if (existing.data) return { id: existing.data.id, created: false };
   const { data } = await admin
     .from("conversations")
     .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
     .select("id")
     .single();
-  return data?.id ?? null;
+  return { id: data?.id ?? null, created: Boolean(data?.id) };
 }

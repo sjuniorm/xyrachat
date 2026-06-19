@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
+import { emit } from "@/lib/api/emit";
 import {
   renderTemplate,
   evaluateConditions,
@@ -560,6 +561,20 @@ export async function executeAutomation(input: {
     })
     .eq("id", automation.id);
 
+  // Outbound webhook event for external integrations (connectors advertise
+  // "Automation fired"). Fire-and-forget so a slow delivery can't block.
+  void emit({
+    type: "automation.fired",
+    orgId: automation.org_id,
+    data: {
+      automation_id: automation.id,
+      automation_name: automation.name,
+      contact_id: contact.id,
+      conversation_id: r.conversationId,
+      status,
+    },
+  }).catch(() => {});
+
   return { status, steps: r.steps, error_message: r.firstFailure };
 }
 
@@ -770,13 +785,70 @@ async function sendChannelMessage(input: {
   const { channel, recipient, content, conversationId } = input;
   const msgMetadata = { automation: true, ...(input.extraMetadata ?? {}) };
   if (!recipient) return { ok: false, error: "Contact has no handle for this channel" };
-  if (!channel.access_token_vault_id) return { ok: false, error: "Channel token missing" };
-  const token = await vaultReadSecret(channel.access_token_vault_id);
-  if (!token) return { ok: false, error: "Channel token unreadable" };
 
   const admin = createAdminClient();
   const trimmed = content.trim();
   if (!trimmed) return { ok: false, error: "Empty message" };
+
+  // Email uses Resend (no Vault token) — handle it before the token check.
+  if (channel.type === "email") {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return { ok: false, error: "RESEND_API_KEY not configured" };
+    const [{ data: ch }, { data: lastInbound }] = await Promise.all([
+      admin.from("channels").select("inbox_email, metadata, name").eq("id", channel.id).maybeSingle(),
+      admin
+        .from("messages")
+        .select("email_message_id, metadata")
+        .eq("conversation_id", conversationId)
+        .eq("direction", "inbound")
+        .not("email_message_id", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    const chMeta = (ch?.metadata ?? {}) as { from_name?: string };
+    const fromName = chMeta.from_name ?? ch?.name ?? "Xyra Chat";
+    const fromAddress = ch?.inbox_email ?? process.env.EMAIL_FROM_ADDRESS ?? "support@xyrachat.com";
+    const priorEmail = (lastInbound?.metadata as { email?: { subject?: string; references?: string[] } } | null)?.email;
+    const inReplyTo = lastInbound?.email_message_id ?? undefined;
+    const references = inReplyTo ? [...(priorEmail?.references ?? []), inReplyTo] : undefined;
+    let subject = priorEmail?.subject ?? ch?.name ?? "Message";
+    if (!/^re:/i.test(subject)) subject = `Re: ${subject}`;
+    const inboundDomain = process.env.INBOUND_EMAIL_DOMAIN ?? "mail.xyrachat.com";
+    const outboundMessageId = `<${crypto.randomUUID()}@${inboundDomain}>`;
+    const { Resend } = await import("resend");
+    const sendRes = await new Resend(apiKey).emails.send({
+      from: `${fromName} <${fromAddress}>`,
+      to: recipient,
+      subject,
+      text: trimmed,
+      headers: {
+        "Message-ID": outboundMessageId,
+        ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
+        ...(references && references.length ? { References: references.join(" ") } : {}),
+      },
+    });
+    if (sendRes.error) return { ok: false, error: sendRes.error.message };
+    await admin.from("messages").insert({
+      conversation_id: conversationId,
+      direction: "outbound",
+      content: trimmed,
+      sender_type: "bot",
+      status: "sent",
+      email_message_id: outboundMessageId,
+      metadata: {
+        ...msgMetadata,
+        email: { subject, from_address: fromAddress, from_name: fromName, to_addresses: [recipient], message_id: outboundMessageId, in_reply_to: inReplyTo, references },
+        resend_id: sendRes.data?.id ?? null,
+      },
+    });
+    await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+    return { ok: true };
+  }
+
+  if (!channel.access_token_vault_id) return { ok: false, error: "Channel token missing" };
+  const token = await vaultReadSecret(channel.access_token_vault_id);
+  if (!token) return { ok: false, error: "Channel token unreadable" };
 
   if (channel.type === "whatsapp") {
     if (!channel.phone_number_id) return { ok: false, error: "Channel missing phone_number_id" };
@@ -946,6 +1018,7 @@ function pickRecipient(
   channelType: string,
   contact: {
     phone: string | null;
+    email: string | null;
     instagram_id: string | null;
     telegram_id: string | null;
     messenger_id: string | null;
@@ -960,6 +1033,8 @@ function pickRecipient(
       return contact.telegram_id ?? "";
     case "facebook":
       return contact.messenger_id ?? "";
+    case "email":
+      return contact.email ?? "";
     case "webchat":
       return "webchat"; // sentinel: send target is the conversation, not a handle
     default:

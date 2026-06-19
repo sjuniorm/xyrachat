@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret, vaultUpdateSecret } from "@/lib/supabase/vault";
+import { emit } from "@/lib/api/emit";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -133,6 +134,13 @@ export async function disconnectChannel(
     .update({ deleted_at: new Date().toISOString(), active: false })
     .eq("id", channelId);
   if (updErr) return { ok: false, error: updErr.message };
+
+  // Outbound webhook event for external integrations.
+  void emit({
+    type: "channel.disconnected",
+    orgId: channel.org_id,
+    data: { id: channel.id, channel_type: channel.type },
+  }).catch(() => {});
 
   revalidatePath("/settings/channels");
   return { ok: true };

@@ -143,7 +143,15 @@ export async function POST(req: Request) {
   const baseHtml = trimmedHtml ?? (trimmedText ? textToHtml(trimmedText) : "");
   const finalHtml = signatureHtml ? `${baseHtml}<br><br>${signatureHtml}` : trimmedHtml ?? null;
 
+  // Generate our OWN Message-Id and set it explicitly on the outbound email so
+  // we can store it in messages.email_message_id. The inbound webhook threads
+  // replies by matching In-Reply-To / References against that column — Resend
+  // doesn't return the Message-Id it would otherwise auto-generate, so without
+  // this every customer reply falls back to coarse contact-level matching.
+  const inboundDomain = process.env.INBOUND_EMAIL_DOMAIN ?? "mail.xyrachat.com";
+  const outboundMessageId = `<${crypto.randomUUID()}@${inboundDomain}>`;
   const threadHeaders = {
+    "Message-ID": outboundMessageId,
     ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
     ...(references && references.length > 0 ? { References: references.join(" ") } : {}),
   };
@@ -173,10 +181,9 @@ export async function POST(req: Request) {
     );
   }
 
-  // Resend returns its own `id`. The actual outbound Message-Id header is
-  // generated server-side by Resend and isn't returned here — for threading
-  // we rely on inbound replies carrying In-Reply-To referencing whatever
-  // Resend sent. We stash the Resend id in metadata for traceability.
+  // We set our own Message-ID above and persist it in email_message_id so
+  // inbound replies thread correctly. Resend's own id is kept in metadata for
+  // traceability.
   const resendId = sendRes.data?.id ?? null;
 
   const { data: stored, error: insertErr } = await admin
@@ -188,6 +195,7 @@ export async function POST(req: Request) {
       sender_type: "agent",
       sender_id: user.id,
       status: "sent",
+      email_message_id: outboundMessageId,
       replied_to_message_id: body.repliedToMessageId ?? null,
       metadata: {
         email: {
@@ -196,6 +204,7 @@ export async function POST(req: Request) {
           from_name: fromName,
           to_addresses: [contact.email],
           html_body: htmlBody?.trim() || undefined,
+          message_id: outboundMessageId,
           in_reply_to: inReplyTo,
           references,
         },

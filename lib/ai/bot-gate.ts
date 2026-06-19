@@ -9,11 +9,21 @@ import { isAnthropicConfigured } from "@/lib/ai/clients";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 import { selectEnabledTools, executeTool, type ToolExecContext } from "@/lib/ai/tools";
 import { transcribeInboundAudio } from "@/lib/ai/transcription";
+import { emit } from "@/lib/api/emit";
+import type { EventType } from "@/lib/api/events";
+
+// Bot outcome type → outbound webhook event. Connectors advertise these as
+// triggers, so the live bot must emit them (the manual API route alone didn't).
+const OUTCOME_EVENT: Record<string, EventType> = {
+  lead_captured: "bot.lead_captured",
+  link_clicked: "bot.link_clicked",
+  qualified: "bot.qualified",
+};
 
 // Channels supported by the bot gate. The gate is provider-agnostic — it
 // runs the same 6-gate decision tree for each — but a few gates need to
 // know the channel type (WA 24h window, send endpoint).
-export type ProviderChannel = "whatsapp" | "instagram" | "telegram" | "facebook" | "webchat";
+export type ProviderChannel = "whatsapp" | "instagram" | "telegram" | "facebook" | "webchat" | "email";
 
 export type BotGateInput = {
   channel: {
@@ -548,6 +558,19 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   // CHECK; handoff is logged separately by the handoff block below.
   for (const o of result.toolOutcomes) {
     await logOutcome(bot.id, input.conversationId, input.contactId, o.type, o.payload);
+    const evt = OUTCOME_EVENT[o.type];
+    if (evt) {
+      void emit({
+        type: evt,
+        orgId: input.channel.org_id,
+        data: {
+          bot_id: bot.id,
+          conversation_id: input.conversationId,
+          contact_id: input.contactId,
+          ...o.payload,
+        },
+      });
+    }
   }
 
   await sendOutbound(input.channel.type, {
@@ -582,6 +605,18 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     await logOutcome(bot.id, input.conversationId, input.contactId, "handoff", {
       reason: result.handoffReason,
       max_similarity: result.maxSimilarity,
+    });
+    // Connectors (Make/Zapier/n8n) subscribe to bot.handoff — the live gate
+    // must emit it, not just the manual API route.
+    void emit({
+      type: "bot.handoff",
+      orgId: input.channel.org_id,
+      data: {
+        bot_id: bot.id,
+        conversation_id: input.conversationId,
+        contact_id: input.contactId,
+        reason: result.handoffReason,
+      },
     });
   } else {
     // Mark the conversation as bot-active so the inbox filter "Bot" picks it up.
@@ -705,7 +740,112 @@ export async function sendOutbound(
     await sendMessenger(admin, args);
   } else if (channelType === "webchat") {
     await sendWebchat(admin, args);
+  } else if (channelType === "email") {
+    await sendEmail(admin, args);
   }
+}
+
+// Email bot reply via Resend. Threads onto the most recent inbound email on
+// the conversation (In-Reply-To / References + a fresh Message-Id stored on
+// email_message_id) so the customer's client groups it. Plain-text body.
+async function sendEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  args: {
+    conversationId: string;
+    content: string;
+    botMetadata: Record<string, unknown>;
+    channelId: string;
+    contactId: string;
+  },
+): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn("[bot-gate] sendEmail: RESEND_API_KEY not set — skipping");
+    return;
+  }
+  const [{ data: channel }, { data: contact }, { data: lastInbound }] = await Promise.all([
+    admin
+      .from("channels")
+      .select("inbox_email, metadata, name")
+      .eq("id", args.channelId)
+      .maybeSingle(),
+    admin
+      .from("contacts")
+      .select("email")
+      .eq("id", args.contactId)
+      .maybeSingle(),
+    admin
+      .from("messages")
+      .select("email_message_id, metadata")
+      .eq("conversation_id", args.conversationId)
+      .eq("direction", "inbound")
+      .not("email_message_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (!contact?.email) return;
+
+  const metadata = (channel?.metadata ?? {}) as { from_name?: string };
+  const fromName = metadata.from_name ?? channel?.name ?? "Xyra Chat";
+  const fromAddress =
+    channel?.inbox_email ?? process.env.EMAIL_FROM_ADDRESS ?? "support@xyrachat.com";
+
+  // Threading off the inbound we're answering.
+  const priorEmail = (lastInbound?.metadata as { email?: { subject?: string; references?: string[] } } | null)?.email;
+  const inReplyTo = lastInbound?.email_message_id ?? undefined;
+  const references = inReplyTo
+    ? [...(priorEmail?.references ?? []), inReplyTo]
+    : undefined;
+  let subject = priorEmail?.subject ?? channel?.name ?? "Re:";
+  if (!/^re:/i.test(subject)) subject = `Re: ${subject}`;
+
+  const inboundDomain = process.env.INBOUND_EMAIL_DOMAIN ?? "mail.xyrachat.com";
+  const outboundMessageId = `<${crypto.randomUUID()}@${inboundDomain}>`;
+
+  const { Resend } = await import("resend");
+  const resend = new Resend(apiKey);
+  const sendRes = await resend.emails.send({
+    from: `${fromName} <${fromAddress}>`,
+    to: contact.email,
+    subject,
+    text: args.content,
+    headers: {
+      "Message-ID": outboundMessageId,
+      ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
+      ...(references && references.length ? { References: references.join(" ") } : {}),
+    },
+  });
+  if (sendRes.error) {
+    console.error("[bot-gate] sendEmail failed", sendRes.error);
+    return;
+  }
+
+  await admin.from("messages").insert({
+    conversation_id: args.conversationId,
+    direction: "outbound",
+    content: args.content,
+    sender_type: "bot",
+    status: "sent",
+    email_message_id: outboundMessageId,
+    metadata: {
+      ...args.botMetadata,
+      email: {
+        subject,
+        from_address: fromAddress,
+        from_name: fromName,
+        to_addresses: [contact.email],
+        message_id: outboundMessageId,
+        in_reply_to: inReplyTo,
+        references,
+      },
+      resend_id: sendRes.data?.id ?? null,
+    },
+  });
+  await admin
+    .from("conversations")
+    .update({ last_message_at: new Date().toISOString() })
+    .eq("id", args.conversationId);
 }
 
 // Webchat has no provider — the bot reply is just an outbound row the visitor's

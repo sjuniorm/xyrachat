@@ -241,7 +241,7 @@ async function findOrCreateConversation(
   orgId: string,
   channelId: string,
   contactId: string,
-): Promise<string | null> {
+): Promise<{ id: string | null; created: boolean }> {
   const admin = createAdminClient();
   // Find the most recent conversation with this contact on this channel —
   // INCLUDING closed/snoozed ones. If the customer messages again after
@@ -264,14 +264,14 @@ async function findOrCreateConversation(
         .update({ status: "open", snooze_until: null })
         .eq("id", existing.data.id);
     }
-    return existing.data.id;
+    return { id: existing.data.id, created: false };
   }
   const { data } = await admin
     .from("conversations")
     .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
     .select("id")
     .single();
-  return data?.id ?? null;
+  return { id: data?.id ?? null, created: Boolean(data?.id) };
 }
 
 function extractContent(msg: WaInboundMessage): {
@@ -336,11 +336,8 @@ async function handleInbound(
     );
     return;
   }
-  const conversationId = await findOrCreateConversation(
-    channel.org_id,
-    channel.id,
-    contactId,
-  );
+  const { id: conversationId, created: wasNewConversation } =
+    await findOrCreateConversation(channel.org_id, channel.id, contactId);
   if (!conversationId) {
     console.error(
       `[wa webhook] failed to find/create conversation for contact ${contactId}`,
@@ -471,6 +468,18 @@ async function handleInbound(
       created_at: new Date(Number(msg.timestamp) * 1000).toISOString(),
     },
   });
+  if (wasNewConversation) {
+    void emit({
+      type: "conversation.opened",
+      orgId: channel.org_id,
+      data: {
+        id: conversationId,
+        contact_id: contactId,
+        channel_id: channel.id,
+        channel_type: channel.type ?? "whatsapp",
+      },
+    });
+  }
   // Wake the assigned agent's mobile device(s). Fire-and-forget.
   void notifyNewInbound({
     conversationId,

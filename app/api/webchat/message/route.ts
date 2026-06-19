@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
+import { resumeWaitingReplies } from "@/lib/automations/executor";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 import {
@@ -135,6 +136,11 @@ export async function POST(req: Request) {
   } catch {
     // bot failure must not break the visitor's send
   }
+  // Resume any automation parked on a wait_for_reply for this conversation so
+  // the reply branch fires immediately (not only on the 24h timeout).
+  void resumeWaitingReplies(conversationId, content).catch((err) => {
+    console.error("[webchat] resumeWaitingReplies failed", err);
+  });
   // Fire conversation_opened automations (once per contact, deduped in the
   // dispatcher). Keyword triggers are WA/IG only; webchat uses the agnostic one.
   void dispatchTrigger({

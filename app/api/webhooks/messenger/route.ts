@@ -6,6 +6,7 @@ import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { resumeWaitingReplies } from "@/lib/automations/executor";
+import { dispatchTrigger } from "@/lib/automations/triggers";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 
@@ -203,7 +204,7 @@ async function findOrCreateConversation(
   orgId: string,
   channelId: string,
   contactId: string,
-): Promise<string | null> {
+): Promise<{ id: string | null; created: boolean }> {
   const admin = createAdminClient();
   const existing = await admin
     .from("conversations")
@@ -221,14 +222,14 @@ async function findOrCreateConversation(
         .update({ status: "open", snooze_until: null })
         .eq("id", existing.data.id);
     }
-    return existing.data.id;
+    return { id: existing.data.id, created: false };
   }
   const { data } = await admin
     .from("conversations")
     .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
     .select("id")
     .single();
-  return data?.id ?? null;
+  return { id: data?.id ?? null, created: Boolean(data?.id) };
 }
 
 function extractContent(msg: FbInboundMessage): {
@@ -251,7 +252,8 @@ async function handleInbound(channel: FbChannel, ev: FbMessagingEvent) {
 
   const contactId = await findOrCreateContact(channel, ev.sender.id);
   if (!contactId) return;
-  const conversationId = await findOrCreateConversation(channel.org_id, channel.id, contactId);
+  const { id: conversationId, created: wasNewConversation } =
+    await findOrCreateConversation(channel.org_id, channel.id, contactId);
   if (!conversationId) return;
 
   let repliedToId: string | null = null;
@@ -322,6 +324,18 @@ async function handleInbound(channel: FbChannel, ev: FbMessagingEvent) {
       created_at: new Date(ev.timestamp).toISOString(),
     },
   });
+  if (wasNewConversation) {
+    void emit({
+      type: "conversation.opened",
+      orgId: channel.org_id,
+      data: {
+        id: conversationId,
+        contact_id: contactId,
+        channel_id: channel.id,
+        channel_type: channel.type,
+      },
+    });
+  }
   void notifyNewInbound({
     conversationId,
     channelType: channel.type,
@@ -334,13 +348,30 @@ async function handleInbound(channel: FbChannel, ev: FbMessagingEvent) {
     newMessage: {
       content: extracted.content,
       media_type: extracted.media_type,
-      isFirstFromContact: false,
+      isFirstFromContact: wasNewConversation,
       media_url: extracted.media_url,
       messageId: insertedId,
     },
   });
   void resumeWaitingReplies(conversationId, extracted.content ?? "").catch((err) => {
     console.error("[messenger] resumeWaitingReplies failed", err);
+  });
+
+  // Automation triggers — Facebook supports conversation_opened (one-shot per
+  // automation+contact via automation_fires). Previously never dispatched, so
+  // Facebook automations silently never fired.
+  void dispatchTrigger({
+    channel: {
+      id: channel.id,
+      type: channel.type,
+      org_id: channel.org_id,
+      page_id: channel.page_id,
+      access_token_vault_id: channel.access_token_vault_id,
+    },
+    contactId,
+    triggerType: "conversation_opened",
+    conversationId,
+    triggerData: { messenger_message_id: msg.mid },
   });
 }
 
