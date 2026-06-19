@@ -68,6 +68,16 @@ const TOOL_OPTIONS: Array<{ key: string; label: string; blurb: string }> = [
     label: "Search knowledge (agentic)",
     blurb: "Let the bot decide when to search its knowledge base mid-conversation.",
   },
+  {
+    key: "check_availability",
+    label: "Check calendar availability",
+    blurb: "Read free/busy from a connected Google/Outlook calendar to offer real open slots. Needs a calendar connected in Settings → Calendar.",
+  },
+  {
+    key: "book_meeting",
+    label: "Book meetings",
+    blurb: "Create a calendar event directly in chat once the customer picks a time. Needs a calendar connected in Settings → Calendar.",
+  },
 ];
 
 export function SettingsTab({ bot }: { bot: BotRow }) {

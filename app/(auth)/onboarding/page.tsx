@@ -65,11 +65,19 @@ async function createOrgAction(formData: FormData) {
     const trialEnds = new Date(
       Date.now() + BUNDLES.trial.trialDays * 86_400_000,
     ).toISOString();
+    // expiresAt = null on purpose: if the trial entitlement rows themselves
+    // expired, getEntitlement/hasFeature/getLimit would see ZERO active rows
+    // while isProvisioned() (which ignores expiry) still returns true — i.e.
+    // STRICT mode with no entitlements = total feature lockout for every
+    // non-converting trial. Instead the rows never expire; trial state is
+    // tracked on subscriptions.status / trial_ends_at and surfaced by the
+    // billing banner + reminders. The post-trial paywall is a deliberate
+    // product decision, not an accidental hard-stop.
     await provisionBundle({
       orgId: orgId as string,
       bundleId: "trial",
       stripeSubscriptionId: null,
-      expiresAt: trialEnds,
+      expiresAt: null,
     });
     await admin
       .from("subscriptions")

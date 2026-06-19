@@ -74,12 +74,12 @@ const OBJECTIVES = [
   {
     id: "booking",
     title: "Booking",
-    blurb: "Qualify intent and share booking link.",
+    blurb: "Qualify intent, then book the meeting in chat (or share a link).",
     icon: CalendarCheck,
     defaults: {
       instructions:
-        "Help visitors book a meeting. Qualify briefly, then share the booking link.",
-      greeting: "Hi! Want to chat? Let me know what you're looking for and I'll share a booking link.",
+        "Help visitors book a meeting. Qualify briefly, then — if a calendar is connected — offer real open times and book the meeting directly in the chat. Otherwise share the booking link.",
+      greeting: "Hi! Want to book a time? Tell me what you're looking for and I'll find a slot that works.",
       triggers: ["speak to human"],
     },
   },

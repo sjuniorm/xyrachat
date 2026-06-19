@@ -4,8 +4,9 @@ import { requireApiKey, logApiRequest } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { assertSafeOutboundUrl } from "@/lib/api/ssrf";
 import { EVENT_TYPES, type EventType } from "@/lib/api/events";
-import { invalidRequest, rateLimited } from "@/lib/api/errors";
+import { invalidRequest, rateLimited, forbidden } from "@/lib/api/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { hasFeature, type FeatureKey } from "@/lib/billing/entitlements";
 
 export const runtime = "nodejs";
 
@@ -61,6 +62,20 @@ export async function POST(req: NextRequest) {
   const source = ["make", "zapier", "n8n", "api"].includes(sourceHeader)
     ? sourceHeader
     : "api";
+
+  // Connector entitlement gate: Make/Zapier/n8n are gated per-bundle + sold as
+  // the "integrations" add-on. Enforce the matching integration:<source>
+  // feature so the SKU actually does something (raw API source isn't gated
+  // here — that's covered by the api:write scope/entitlement on key creation).
+  if (source === "make" || source === "zapier" || source === "n8n") {
+    const featureKey = `integration:${source}` as FeatureKey;
+    if (!(await hasFeature(auth.ctx.orgId, featureKey))) {
+      return forbidden(
+        "integration_not_enabled",
+        `The ${source} integration isn't included on your plan. Add the Integrations add-on or upgrade.`,
+      );
+    }
+  }
 
   const secret = randomBytes(32).toString("hex");
   const admin = createAdminClient();

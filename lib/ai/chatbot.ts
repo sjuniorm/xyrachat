@@ -355,7 +355,7 @@ function objectiveBlock(
     case "booking": {
       const booking = config.booking_url ?? "";
       const qualifiers = JSON.stringify(config.qualifier_questions ?? []);
-      return `PRIMARY OBJECTIVE: booking. Qualify the user's intent with: ${qualifiers}. Once qualified, share ${booking} and confirm they have what they need to book. Don't try to take the booking inside chat.`;
+      return `PRIMARY OBJECTIVE: booking. Qualify the user's intent with: ${qualifiers}. Once qualified: if you have calendar tools (check_availability / book_meeting), use them to propose real open slots and book the meeting directly in the chat, then confirm the details. If you do NOT have calendar tools${booking ? `, share ${booking}` : ", share the booking link"} and confirm they have what they need to book.`;
     }
     case "qualification": {
       const questions = JSON.stringify(config.questions ?? []);
