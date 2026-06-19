@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { SurveySettings } from "./survey-settings";
+import { EmailSignatureSettings } from "./email-signature-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,11 @@ export default async function InboxSettingsPage() {
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("survey_kind")
+    .select("survey_kind, email_signature")
     .eq("id", profile.org_id)
     .maybeSingle();
   const surveyKind = (org?.survey_kind as "off" | "csat" | "nps") ?? "off";
+  const emailSignature = (org?.email_signature as string | null) ?? "";
 
   // The org's own rating results so far.
   const admin = createAdminClient();
@@ -68,6 +70,19 @@ export default async function InboxSettingsPage() {
           </CardHeader>
           <CardContent>
             <SurveySettings initial={surveyKind} canEdit={canEdit} />
+          </CardContent>
+        </Card>
+
+        <Card className="border-white/10 bg-card/60">
+          <CardHeader>
+            <CardTitle className="text-base">Email reply signature</CardTitle>
+            <CardDescription>
+              HTML appended below every email reply your agents send (a branded
+              footer / sign-off). Sanitized automatically.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <EmailSignatureSettings initial={emailSignature} canEdit={canEdit} />
           </CardContent>
         </Card>
 

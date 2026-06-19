@@ -3,9 +3,17 @@ import { Resend } from "resend";
 import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
+import { sanitizeEmailHtml } from "@/lib/security/sanitize";
 import type { ChannelMetadata } from "@/lib/db-types";
 
 export const runtime = "nodejs";
+
+// Plain-text reply → minimal safe HTML (escape + line breaks) so it can sit
+// above the HTML signature.
+function textToHtml(t: string): string {
+  const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<div>${esc.replace(/\r?\n/g, "<br>")}</div>`;
+}
 
 type SendBody = {
   conversationId: string;
@@ -118,34 +126,44 @@ export async function POST(req: Request) {
   const resend = new Resend(apiKey);
   const trimmedText = content?.trim();
   const trimmedHtml = htmlBody?.trim();
-  // Resend's v6 type union requires either `text` or `html` to be present
-  // as a string. Build the payload conditionally so TypeScript can pick
-  // the right branch.
-  const sendRes = await (trimmedHtml
+
+  // Org-level branded reply signature (HTML), re-sanitized at send time. When
+  // present, the reply goes out as HTML (body + signature). NULL = today's
+  // plain behaviour.
+  let signatureHtml: string | null = null;
+  {
+    const { data: org } = await admin
+      .from("organizations")
+      .select("email_signature")
+      .eq("id", conv.org_id)
+      .maybeSingle();
+    const raw = (org?.email_signature ?? "").trim();
+    if (raw) signatureHtml = sanitizeEmailHtml(raw);
+  }
+  const baseHtml = trimmedHtml ?? (trimmedText ? textToHtml(trimmedText) : "");
+  const finalHtml = signatureHtml ? `${baseHtml}<br><br>${signatureHtml}` : trimmedHtml ?? null;
+
+  const threadHeaders = {
+    ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
+    ...(references && references.length > 0 ? { References: references.join(" ") } : {}),
+  };
+  // Resend's v6 type union requires either `text` or `html`. Send HTML whenever
+  // we have it (htmlBody or a signature); otherwise plain text.
+  const sendRes = await (finalHtml
     ? resend.emails.send({
         from: fromLine,
         to: contact.email,
         subject,
-        html: trimmedHtml,
+        html: finalHtml,
         ...(trimmedText ? { text: trimmedText } : {}),
-        headers: {
-          ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
-          ...(references && references.length > 0
-            ? { References: references.join(" ") }
-            : {}),
-        },
+        headers: threadHeaders,
       })
     : resend.emails.send({
         from: fromLine,
         to: contact.email,
         subject,
         text: trimmedText ?? "",
-        headers: {
-          ...(inReplyTo ? { "In-Reply-To": inReplyTo } : {}),
-          ...(references && references.length > 0
-            ? { References: references.join(" ") }
-            : {}),
-        },
+        headers: threadHeaders,
       }));
 
   if (sendRes.error) {

@@ -8,6 +8,7 @@ import { buildConversationSummary } from "@/lib/ai/summarize";
 import { maybeSendSurvey } from "@/lib/surveys/server";
 import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
 import { getAgentPermissions, agentBlocked } from "@/lib/team/permissions";
+import { sanitizeEmailHtml } from "@/lib/security/sanitize";
 import type { ConversationStatus } from "@/lib/db-types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -481,5 +482,24 @@ export async function markConversationUnread(
   );
   if (error) return { ok: false, error: error.message };
   revalidatePath("/inbox");
+  return { ok: true };
+}
+
+// Save the org's outbound email-reply signature (owner/admin). Sanitized at
+// write time; re-sanitized at send time. Empty clears it.
+export async function updateEmailSignature(html: string): Promise<ActionResult> {
+  const auth = await requireUserOrg();
+  if (!auth.ok) return auth;
+  if (auth.role !== "owner" && auth.role !== "admin") {
+    return { ok: false, error: "Only owners and admins can edit the email signature." };
+  }
+  const clean = sanitizeEmailHtml((html ?? "").trim()).slice(0, 10000);
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("organizations")
+    .update({ email_signature: clean || null })
+    .eq("id", auth.orgId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings/inbox");
   return { ok: true };
 }
