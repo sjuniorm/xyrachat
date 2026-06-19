@@ -42,16 +42,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: false, error: "Automation is inactive" }, { status: 409 });
   }
 
-  // Authenticate the shared secret (constant-time).
-  const url = new URL(req.url);
-  const provided =
-    req.headers.get("x-xyra-secret") ?? url.searchParams.get("secret") ?? "";
-  const expected = (automation.trigger_config as TriggerConfig | null)?.webhook_secret ?? "";
-  if (!expected || !secretMatches(provided, expected)) {
-    return NextResponse.json({ ok: false, error: "Invalid secret" }, { status: 401 });
-  }
-
   let body: {
+    secret?: string;
     contact_id?: string;
     phone?: string;
     email?: string;
@@ -64,6 +56,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     body = (await req.json()) as typeof body;
   } catch {
     body = {};
+  }
+
+  // Authenticate the shared secret (constant-time). Accept it from the
+  // X-Xyra-Secret header OR the JSON body — NEVER from the URL query string
+  // (query params leak into server/proxy/access logs and browser history).
+  const provided = req.headers.get("x-xyra-secret") ?? body.secret ?? "";
+  const expected = (automation.trigger_config as TriggerConfig | null)?.webhook_secret ?? "";
+  if (!expected || !secretMatches(provided, expected)) {
+    return NextResponse.json({ ok: false, error: "Invalid secret" }, { status: 401 });
   }
 
   // Resolve the contact — existing id, or find-or-create by an identifier.

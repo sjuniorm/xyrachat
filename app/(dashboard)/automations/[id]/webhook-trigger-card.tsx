@@ -27,9 +27,10 @@ export function WebhookTriggerCard({ automationId, secret }: { automationId: str
         <CardTitle className="text-base">Webhook trigger</CardTitle>
         <CardDescription>
           POST to this URL from any external system to fire this automation. Send the
-          secret as an <code>X-Xyra-Secret</code> header (or <code>?secret=</code>). Identify the
-          contact in the JSON body with <code>contact_id</code> or a <code>phone</code>/
-          <code>email</code>/<code>instagram_id</code>/<code>telegram_id</code>.
+          secret as an <code>X-Xyra-Secret</code> header (or a <code>secret</code> field in the
+          JSON body — never in the URL). Identify the contact in the JSON body with{" "}
+          <code>contact_id</code> or a <code>phone</code>/<code>email</code>/
+          <code>instagram_id</code>/<code>telegram_id</code>.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
