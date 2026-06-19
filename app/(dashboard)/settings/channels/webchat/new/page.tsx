@@ -66,7 +66,7 @@ export default async function NewWebchatChannelPage() {
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "xyra-chat.vercel.app";
+  const host = h.get("host") ?? "app.xyrachat.com";
   const appOrigin = `${proto}://${host}`;
 
   return (

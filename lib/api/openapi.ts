@@ -15,7 +15,7 @@ export const OPENAPI_SPEC = {
     contact: { name: "Xyra Chat", url: "https://xyrachat.com" },
   },
   servers: [
-    { url: "https://xyra-chat.vercel.app/api/v1", description: "Production" },
+    { url: "https://app.xyrachat.com/api/v1", description: "Production" },
   ],
   components: {
     securitySchemes: {

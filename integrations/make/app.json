@@ -4,7 +4,7 @@
   "description": "Multi-platform customer messaging — WhatsApp, Instagram, Telegram, Email — with AI bots, broadcasts and automations.",
   "version": "1.0.0",
   "theme": "#9333EA",
-  "baseUrl": "https://xyra-chat.vercel.app/api/v1",
+  "baseUrl": "https://app.xyrachat.com/api/v1",
   "base": {
     "headers": {
       "Authorization": "Bearer {{connection.apiKey}}",

@@ -2,7 +2,7 @@
 // All four triggers follow the exact same pattern — only the event
 // type differs — so we centralise it here.
 
-const BASE_URL = "https://xyra-chat.vercel.app/api/v1";
+const BASE_URL = "https://app.xyrachat.com/api/v1";
 
 const subscribeHook = (eventType) => async (z, bundle) => {
   const data = {

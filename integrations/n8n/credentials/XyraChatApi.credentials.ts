@@ -10,7 +10,7 @@ import type {
 export class XyraChatApi implements ICredentialType {
   name = "xyraChatApi";
   displayName = "Xyra Chat API";
-  documentationUrl = "https://xyra-chat.vercel.app/docs/api/auth";
+  documentationUrl = "https://app.xyrachat.com/docs/api/auth";
 
   properties: INodeProperties[] = [
     {
@@ -21,13 +21,13 @@ export class XyraChatApi implements ICredentialType {
       default: "",
       required: true,
       description:
-        "Generate at https://xyra-chat.vercel.app/settings/api. Needs scopes appropriate for the operations you'll use.",
+        "Generate at https://app.xyrachat.com/settings/api. Needs scopes appropriate for the operations you'll use.",
     },
     {
       displayName: "Base URL",
       name: "baseUrl",
       type: "string",
-      default: "https://xyra-chat.vercel.app/api/v1",
+      default: "https://app.xyrachat.com/api/v1",
       description: "Override for self-hosted or staging deployments.",
     },
   ];

@@ -58,7 +58,7 @@ export default async function N8nDocsPage() {
 
       <DocSection title="Test connection">
         <Code language="bash">{`curl -H "Authorization: Bearer $YOUR_KEY" \\
-  https://xyra-chat.vercel.app/api/v1/me`}</Code>
+  https://app.xyrachat.com/api/v1/me`}</Code>
       </DocSection>
 
       <DocSection title="Recipes + npm page">

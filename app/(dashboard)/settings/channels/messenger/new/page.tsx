@@ -122,7 +122,7 @@ export default async function NewMessengerChannelPage() {
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "xyra-chat.vercel.app";
+  const host = h.get("host") ?? "app.xyrachat.com";
   const webhookUrl = `${proto}://${host}/api/webhooks/messenger`;
   const verifyToken = process.env.MESSENGER_WEBHOOK_VERIFY_TOKEN ?? "";
 

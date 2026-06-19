@@ -382,7 +382,7 @@ async function xyraRequest(
   options: IHttpRequestOptions,
 ): Promise<unknown> {
   const credentials = await this.getCredentials("xyraChatApi");
-  const baseUrl = (credentials.baseUrl as string) || "https://xyra-chat.vercel.app/api/v1";
+  const baseUrl = (credentials.baseUrl as string) || "https://app.xyrachat.com/api/v1";
   return this.helpers.requestWithAuthentication.call(this, "xyraChatApi", {
     ...options,
     baseURL: baseUrl,

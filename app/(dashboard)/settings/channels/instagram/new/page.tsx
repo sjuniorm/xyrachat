@@ -80,7 +80,7 @@ export default async function NewInstagramChannelPage() {
 
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "xyra-chat.vercel.app";
+  const host = h.get("host") ?? "app.xyrachat.com";
   const webhookUrl = `${proto}://${host}/api/webhooks/instagram`;
   const verifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ?? "";
   const oauthAvailable = Boolean(process.env.INSTAGRAM_APP_ID);

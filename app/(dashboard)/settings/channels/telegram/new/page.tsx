@@ -59,7 +59,7 @@ async function createTelegramChannelAction(
   // 3. Tell Telegram where to deliver updates.
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "xyra-chat.vercel.app";
+  const host = h.get("host") ?? "app.xyrachat.com";
   const webhookUrl = `${proto}://${host}/api/webhooks/telegram`;
 
   const setWh = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {

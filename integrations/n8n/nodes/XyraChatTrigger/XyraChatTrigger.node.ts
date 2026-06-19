@@ -71,7 +71,7 @@ export class XyraChatTrigger implements INodeType {
 
       async create(this: IHookFunctions): Promise<boolean> {
         const credentials = await this.getCredentials("xyraChatApi");
-        const baseUrl = (credentials.baseUrl as string) || "https://xyra-chat.vercel.app/api/v1";
+        const baseUrl = (credentials.baseUrl as string) || "https://app.xyrachat.com/api/v1";
         const webhookUrl = this.getNodeWebhookUrl("default") as string;
         const event = this.getNodeParameter("event") as string;
         const res = (await this.helpers.requestWithAuthentication.call(this, "xyraChatApi", {
@@ -93,7 +93,7 @@ export class XyraChatTrigger implements INodeType {
 
       async delete(this: IHookFunctions): Promise<boolean> {
         const credentials = await this.getCredentials("xyraChatApi");
-        const baseUrl = (credentials.baseUrl as string) || "https://xyra-chat.vercel.app/api/v1";
+        const baseUrl = (credentials.baseUrl as string) || "https://app.xyrachat.com/api/v1";
         const data = this.getWorkflowStaticData("node");
         const id = data.webhookId as string | undefined;
         if (!id) return true;

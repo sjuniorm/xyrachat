@@ -61,7 +61,7 @@ export default async function CookbookPage() {
           <li>Message body suggestion:</li>
         </ol>
         <Code>{`🔔 Bot handed off — reason: {{data.reason}}
-Open in Xyra: https://xyra-chat.vercel.app/inbox/{{data.conversation_id}}`}</Code>
+Open in Xyra: https://app.xyrachat.com/inbox/{{data.conversation_id}}`}</Code>
       </Recipe>
 
       <Recipe

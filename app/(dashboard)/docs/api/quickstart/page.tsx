@@ -29,7 +29,7 @@ export default async function QuickstartPage() {
 
       <DocSection n={2} title="Verify the key">
         <Code language="bash">{`curl -H "Authorization: Bearer xyra_live_..." \\
-  https://xyra-chat.vercel.app/api/v1/me`}</Code>
+  https://app.xyrachat.com/api/v1/me`}</Code>
         <p className="mt-2">
           Returns the key context, the org id, and its scopes:
         </p>
@@ -43,7 +43,7 @@ export default async function QuickstartPage() {
       </DocSection>
 
       <DocSection n={3} title="Send a WhatsApp message">
-        <Code language="bash">{`curl -X POST https://xyra-chat.vercel.app/api/v1/messages \\
+        <Code language="bash">{`curl -X POST https://app.xyrachat.com/api/v1/messages \\
   -H "Authorization: Bearer $KEY" \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: \$(uuidgen)" \\
@@ -63,7 +63,7 @@ export default async function QuickstartPage() {
           Get a POST to your URL whenever an event fires. <Link href="/docs/api/webhooks" className="underline">See the
           webhook docs</Link> for the full event catalog + HMAC verification code.
         </p>
-        <Code language="bash">{`curl -X POST https://xyra-chat.vercel.app/api/v1/webhooks/subscribe \\
+        <Code language="bash">{`curl -X POST https://app.xyrachat.com/api/v1/webhooks/subscribe \\
   -H "Authorization: Bearer $KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

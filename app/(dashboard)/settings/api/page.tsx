@@ -49,7 +49,7 @@ export default async function ApiSettingsPage() {
         <div className="rounded-lg border border-white/10 bg-card/40 p-4 text-xs text-white/60">
           <p className="font-medium text-white">Base URL</p>
           <code className="mt-1 block rounded bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white/90">
-            https://xyra-chat.vercel.app/api/v1
+            https://app.xyrachat.com/api/v1
           </code>
           <p className="mt-3 font-medium text-white">Auth</p>
           <code className="mt-1 block rounded bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white/90">
@@ -57,7 +57,7 @@ export default async function ApiSettingsPage() {
           </code>
           <p className="mt-3 font-medium text-white">Quick test</p>
           <code className="mt-1 block rounded bg-black/30 px-2 py-1.5 font-mono text-[11px] text-white/90">
-            curl -H "Authorization: Bearer $KEY" https://xyra-chat.vercel.app/api/v1/me
+            curl -H "Authorization: Bearer $KEY" https://app.xyrachat.com/api/v1/me
           </code>
         </div>
       </div>

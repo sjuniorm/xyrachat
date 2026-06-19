@@ -30,7 +30,7 @@ Xyra events and call any Xyra REST endpoint as an action.
 
 1. Sign in at https://developers.make.com → Apps → Create a new app.
 2. Set base configuration:
-   - **Base URL:** `https://xyra-chat.vercel.app/api/v1`
+   - **Base URL:** `https://app.xyrachat.com/api/v1`
    - **Theme color:** `#9333EA`
 3. Paste the `app.json` manifest contents into App Settings.
 4. For each module, paste the corresponding `.json` file into the
@@ -51,12 +51,12 @@ webhooks UI for this flow.
 ```bash
 # Verify your key works:
 curl -H "Authorization: Bearer $XYRA_KEY" \
-  https://xyra-chat.vercel.app/api/v1/me
+  https://app.xyrachat.com/api/v1/me
 
 # Subscribe a fake endpoint to confirm webhook delivery:
 curl -X POST -H "Authorization: Bearer $XYRA_KEY" \
   -H "Content-Type: application/json" \
   -H "X-Xyra-Source: make" \
-  https://xyra-chat.vercel.app/api/v1/webhooks/subscribe \
+  https://app.xyrachat.com/api/v1/webhooks/subscribe \
   -d '{"url":"https://webhook.site/<your-id>","events":["message.received"]}'
 ```

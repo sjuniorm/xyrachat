@@ -89,7 +89,7 @@ export default async function NewChannelPage() {
   // Build the absolute webhook URL the user pastes into Meta App Dashboard.
   const h = await headers();
   const proto = h.get("x-forwarded-proto") ?? "https";
-  const host = h.get("host") ?? "xyra-chat.vercel.app";
+  const host = h.get("host") ?? "app.xyrachat.com";
   const webhookUrl = `${proto}://${host}/api/webhooks/whatsapp`;
   const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? "";
 

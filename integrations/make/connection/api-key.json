@@ -8,7 +8,7 @@
       "label": "API key",
       "type": "password",
       "required": true,
-      "help": "Generate a key at https://xyra-chat.vercel.app/settings/api. Needs at minimum the `contacts:read` + `messages:write` scopes for typical scenarios. Webhook triggers also need `webhooks:write`."
+      "help": "Generate a key at https://app.xyrachat.com/settings/api. Needs at minimum the `contacts:read` + `messages:write` scopes for typical scenarios. Webhook triggers also need `webhooks:write`."
     }
   ]
 }

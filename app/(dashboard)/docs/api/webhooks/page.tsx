@@ -28,7 +28,7 @@ export default async function WebhooksDocsPage() {
       </DocSection>
 
       <DocSection title="Subscribing">
-        <Code language="bash">{`curl -X POST https://xyra-chat.vercel.app/api/v1/webhooks/subscribe \\
+        <Code language="bash">{`curl -X POST https://app.xyrachat.com/api/v1/webhooks/subscribe \\
   -H "Authorization: Bearer $KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

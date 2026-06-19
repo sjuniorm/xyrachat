@@ -41,14 +41,14 @@ export default async function IdempotencyDocsPage() {
 
       <DocSection title="Example">
         <Code language="bash">{`# First call — sends the message and caches the response.
-curl -X POST https://xyra-chat.vercel.app/api/v1/messages \\
+curl -X POST https://app.xyrachat.com/api/v1/messages \\
   -H "Authorization: Bearer $KEY" \\
   -H "Idempotency-Key: 4c1f8a4e-7c12-4d6f-9c91-a4b5e8e8b3a1" \\
   -H "Content-Type: application/json" \\
   -d '{"conversation_id":"conv_...","content":"Hi!"}'
 
 # Retry within 24h — returns the cached response, doesn't re-send.
-curl -X POST https://xyra-chat.vercel.app/api/v1/messages \\
+curl -X POST https://app.xyrachat.com/api/v1/messages \\
   -H "Authorization: Bearer $KEY" \\
   -H "Idempotency-Key: 4c1f8a4e-7c12-4d6f-9c91-a4b5e8e8b3a1" \\
   -H "Content-Type: application/json" \\
