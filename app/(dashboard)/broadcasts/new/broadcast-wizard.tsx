@@ -84,6 +84,15 @@ export function BroadcastWizard({
   const bodyVarCount = countVariables(bodyText);
   const headerVarCount = countVariables(headerText);
 
+  // Media-header templates (IMAGE/VIDEO/DOCUMENT) need a media URL supplied at
+  // send time — WhatsApp requires the header parameter or rejects the send.
+  const headerMediaFormat =
+    headerComp && "format" in headerComp &&
+    (headerComp.format === "IMAGE" || headerComp.format === "VIDEO" || headerComp.format === "DOCUMENT")
+      ? (headerComp.format as "IMAGE" | "VIDEO" | "DOCUMENT")
+      : null;
+  const [headerMediaUrl, setHeaderMediaUrl] = useState("");
+
   const [bodyMapping, setBodyMapping] = useState<MappingEntry[]>([]);
   const [headerMapping, setHeaderMapping] = useState<MappingEntry[]>([]);
 
@@ -161,6 +170,9 @@ export function BroadcastWizard({
       ) {
         return toast.error("Fill in all fixed variable values.");
       }
+      if (headerMediaFormat && !headerMediaUrl.trim()) {
+        return toast.error(`Add the ${headerMediaFormat.toLowerCase()} URL for the template header.`);
+      }
     }
     if (step === 2) {
       if (audienceMode === "tags" && selectedTags.length === 0) {
@@ -177,6 +189,12 @@ export function BroadcastWizard({
     const mapping: VariableMapping = {};
     if (bodyMapping.length > 0) mapping.body = bodyMapping;
     if (headerMapping.length > 0) mapping.header = headerMapping;
+    if (headerMediaFormat && headerMediaUrl.trim()) {
+      mapping.header_media = {
+        kind: headerMediaFormat.toLowerCase() as "image" | "video" | "document",
+        link: headerMediaUrl.trim(),
+      };
+    }
 
     startTransition(async () => {
       const res = await createBroadcast({
@@ -291,6 +309,26 @@ export function BroadcastWizard({
                 </p>
                 <p className="whitespace-pre-wrap text-xs text-white/80">
                   {previewBody || "(empty body)"}
+                </p>
+              </div>
+            )}
+
+            {headerMediaFormat && (
+              <div className="space-y-1.5">
+                <Label className="text-xs" htmlFor="header-media-url">
+                  {headerMediaFormat === "IMAGE" ? "Header image URL" : headerMediaFormat === "VIDEO" ? "Header video URL" : "Header document URL"}
+                </Label>
+                <Input
+                  id="header-media-url"
+                  type="url"
+                  placeholder="https://…"
+                  value={headerMediaUrl}
+                  onChange={(e) => setHeaderMediaUrl(e.target.value)}
+                />
+                <p className="text-[11px] text-white/50">
+                  This template has a {headerMediaFormat.toLowerCase()} header. Paste a public
+                  HTTPS URL to the {headerMediaFormat.toLowerCase()} to attach when sending. WhatsApp
+                  requires it.
                 </p>
               </div>
             )}

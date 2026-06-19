@@ -58,7 +58,7 @@ export default function PrivacyPage() {
       <h2>2. Data we process</h2>
       <ul>
         <li><strong>Account data</strong>: name, email, hashed password, role, organization, availability.</li>
-        <li><strong>Customer conversation data</strong> (on behalf of customers): message contents, contact names / phone numbers / emails / social handles, attachments, tags, notes, conversation metadata.</li>
+        <li><strong>Customer conversation data</strong> (on behalf of customers): message contents, contact names / phone numbers / emails / social handles (Instagram username, Messenger PSID) and profile pictures, attachments, tags, notes, conversation metadata, and opt-out status (when a contact replies STOP we flag them and stop messaging).</li>
         <li><strong>Channel credentials</strong>: access tokens for connected channels, encrypted at rest in Supabase Vault (only a vault reference lives in the database).</li>
         <li><strong>Billing data</strong>: plan, subscription status, and a Stripe customer reference. Card details are handled by Stripe — we never see or store them.</li>
         <li><strong>Usage analytics</strong>: feature events via PostHog (EU). We do <strong>not</strong> record sessions or capture message contents in analytics.</li>
