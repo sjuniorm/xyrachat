@@ -21,6 +21,9 @@ export type TriggerConfig = {
   // Match mode for keywords. "any" matches a word boundary anywhere in
   // the message; "exact" matches the whole message after trim/lowercase.
   match?: "any" | "exact";
+  // trigger_type 'webhook' — the shared secret an external system must send
+  // (header X-Xyra-Secret or ?secret=) to POST /api/automations/:id/trigger.
+  webhook_secret?: string;
 };
 
 // Leaf actions — the "do something" steps. These can appear at the top level

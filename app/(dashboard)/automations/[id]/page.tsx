@@ -10,6 +10,7 @@ import { FlowCanvas } from "@/components/automations/flow-canvas";
 import { ActiveSwitch } from "./active-switch";
 import { DeleteButton } from "./delete-button";
 import { TriggerLabel } from "../trigger-label";
+import { WebhookTriggerCard } from "./webhook-trigger-card";
 
 export default async function AutomationDetailPage({
   params,
@@ -107,6 +108,14 @@ export default async function AutomationDetailPage({
           <StatTile icon={CheckCircle2} label="Successes" value={automation.success_count} tone="ok" />
           <StatTile icon={XCircle} label="Failures" value={automation.failure_count} tone={automation.failure_count > 0 ? "warn" : "neutral"} />
         </div>
+
+        {/* External-webhook trigger: show the inbound URL + secret to wire up. */}
+        {automation.trigger_type === "webhook" && (
+          <WebhookTriggerCard
+            automationId={automation.id}
+            secret={(automation.trigger_config?.webhook_secret as string | undefined) ?? null}
+          />
+        )}
 
         {/* Flow visualization */}
         <Card className="mb-8 border-white/10 bg-card/60">

@@ -1,9 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { toast } from "sonner";
 import { updateContact } from "@/lib/contacts/actions";
-import { generateConversationSummary } from "@/lib/inbox/actions";
+import {
+  generateConversationSummary,
+  getOtherConversationsForContact,
+  type OtherConversation,
+} from "@/lib/inbox/actions";
 import {
   ChevronDown,
   ChevronRight,
@@ -30,7 +34,6 @@ import {
 } from "@/components/ui/sheet";
 import { ChannelIcon, channelLabel } from "@/components/ui/channel-icon";
 import type { Conversation, Contact } from "@/lib/mock-data";
-import { CONVERSATIONS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 const TAG_COLORS: Record<Contact["tags"][number]["color"], string> = {
@@ -112,9 +115,27 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
     .join("")
     .toUpperCase();
 
-  const otherConversations = CONVERSATIONS.filter(
-    (c) => c.contact.id === conversation.contact.id && c.id !== conversation.id,
-  );
+  // Real "previous conversations" with this contact, fetched on demand (was a
+  // mock-data filter that never matched real UUIDs → always empty + dead links).
+  const [otherConversations, setOtherConversations] = useState<OtherConversation[]>([]);
+  const [otherLoaded, setOtherLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setOtherLoaded(false);
+    getOtherConversationsForContact(conversation.contact.id, conversation.id)
+      .then((rows) => {
+        if (!cancelled) {
+          setOtherConversations(rows);
+          setOtherLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOtherLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversation.contact.id, conversation.id]);
 
   return (
     <div
@@ -326,7 +347,9 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
         </button>
         {prevOpen && (
           <div className="border-t border-white/5">
-            {otherConversations.length === 0 ? (
+            {!otherLoaded ? (
+              <p className="px-3 py-3 text-xs text-white/50">Loading…</p>
+            ) : otherConversations.length === 0 ? (
               <p className="px-3 py-3 text-xs text-white/50">
                 No other conversations with this contact.
               </p>
@@ -337,13 +360,15 @@ function ContactPanelBody({ conversation }: { conversation: Conversation }) {
                   href={`/inbox/${c.id}`}
                   className="flex items-start gap-2 border-b border-white/5 px-3 py-2 hover:bg-white/5"
                 >
-                  <ChannelIcon channel={c.channel} size="sm" />
+                  <ChannelIcon channel={c.channel as Conversation["channel"]} size="sm" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xs text-white/80">
-                      {c.last_message_preview}
+                      {c.last_message_preview ?? "—"}
                     </p>
                     <p className="text-[10px] text-white/50">
-                      {new Date(c.last_message_at).toLocaleDateString()}
+                      {c.last_message_at
+                        ? new Date(c.last_message_at).toLocaleDateString()
+                        : ""}
                     </p>
                   </div>
                 </a>

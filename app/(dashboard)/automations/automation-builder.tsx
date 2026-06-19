@@ -47,7 +47,7 @@ const TRIGGER_OPTIONS: Array<{
   { value: "tg_keyword", label: "Telegram keyword", blurb: "Fires on inbound Telegram messages containing your keywords.", icon: MessageSquare, needsKeywords: true },
   { value: "email_keyword", label: "Email keyword", blurb: "Fires on inbound emails — matches subject + body.", icon: Mail, needsKeywords: true },
   { value: "conversation_opened", label: "First message", blurb: "Fires once on the contact's first message in this channel.", icon: MessageCircle, needsKeywords: false },
-  { value: "webhook", label: "External webhook", blurb: "Fires when /api/automations/<id>/trigger is hit.", icon: Webhook, needsKeywords: false },
+  { value: "webhook", label: "External webhook", blurb: "Fires when an external system POSTs to this automation's trigger URL (shown after you save).", icon: Webhook, needsKeywords: false },
 ];
 
 const ACTION_OPTIONS: Array<{

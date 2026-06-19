@@ -46,6 +46,33 @@ async function authorizeConversation(
   return data?.org_id === orgId;
 }
 
+// Mutation-side counterpart to the read gate in lib/inbox/server.ts: when the
+// org has restrict_to_assigned ON, an `agent` may only mutate conversations
+// assigned to them or unassigned. Without this a restricted agent could craft a
+// direct POST to assign/close/snooze/delete conversations they can't even see.
+// Returns true when the caller is restricted (and `userId` should scope writes).
+async function agentRestricted(
+  auth: { role: string | null; orgId: string },
+): Promise<boolean> {
+  if (auth.role !== "agent") return false;
+  const perms = await getAgentPermissions(auth.orgId);
+  return perms.restrict_to_assigned;
+}
+
+// True when a restricted agent owns (or could see) this conversation.
+async function canRestrictedAgentTouch(
+  conversationId: string,
+  userId: string,
+): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("conversations")
+    .select("assigned_to")
+    .eq("id", conversationId)
+    .maybeSingle();
+  return !data?.assigned_to || data.assigned_to === userId;
+}
+
 // AI summary + suggested tags for a conversation (on-demand). Stores the result
 // on conversations.metadata so it persists + can be re-shown without re-spending.
 export async function generateConversationSummary(
@@ -116,6 +143,9 @@ export async function assignConversation(
   if (!(await authorizeConversation(conversationId, auth.orgId))) {
     return { ok: false, error: "Not your org's conversation." };
   }
+  if ((await agentRestricted(auth)) && !(await canRestrictedAgentTouch(conversationId, auth.userId))) {
+    return { ok: false, error: "You can only act on conversations assigned to you." };
+  }
 
   if (agentId) {
     const admin = createAdminClient();
@@ -168,11 +198,15 @@ export async function assignConversationsBulk(
     }
   }
 
-  const { error } = await admin
+  let q = admin
     .from("conversations")
     .update({ assigned_to: agentId })
     .in("id", ids)
     .eq("org_id", auth.orgId);
+  if (await agentRestricted(auth)) {
+    q = q.or(`assigned_to.eq.${auth.userId},assigned_to.is.null`);
+  }
+  const { error } = await q;
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/inbox");
@@ -196,6 +230,9 @@ export async function setConversationStatus(
   if (!auth.ok) return auth;
   if (!(await authorizeConversation(conversationId, auth.orgId))) {
     return { ok: false, error: "Not your org's conversation." };
+  }
+  if ((await agentRestricted(auth)) && !(await canRestrictedAgentTouch(conversationId, auth.userId))) {
+    return { ok: false, error: "You can only act on conversations assigned to you." };
   }
 
   const admin = createAdminClient();
@@ -262,6 +299,10 @@ export async function snoozeConversation(
     return { ok: false, error: "Not your org's conversation." };
   }
 
+  if ((await agentRestricted(auth)) && !(await canRestrictedAgentTouch(conversationId, auth.userId))) {
+    return { ok: false, error: "You can only act on conversations assigned to you." };
+  }
+
   const admin = createAdminClient();
   const { error } = await admin
     .from("conversations")
@@ -296,11 +337,15 @@ export async function setConversationsStatusBulk(
   const update: Record<string, unknown> = { status, snooze_until: null };
   if (status === "closed") update.assigned_to = null;
 
-  const { error } = await admin
+  let q = admin
     .from("conversations")
     .update(update)
     .in("id", ids)
     .eq("org_id", auth.orgId);
+  if (await agentRestricted(auth)) {
+    q = q.or(`assigned_to.eq.${auth.userId},assigned_to.is.null`);
+  }
+  const { error } = await q;
   if (error) return { ok: false, error: error.message };
 
   // Survey each newly-closed conversation (no-op unless the org enabled it).
@@ -333,11 +378,15 @@ export async function deleteConversationsBulk(
   }
 
   const admin = createAdminClient();
-  const { error } = await admin
+  let q = admin
     .from("conversations")
     .update({ deleted_at: new Date().toISOString() })
     .in("id", ids)
     .eq("org_id", auth.orgId);
+  if (await agentRestricted(auth)) {
+    q = q.or(`assigned_to.eq.${auth.userId},assigned_to.is.null`);
+  }
+  const { error } = await q;
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/inbox");
@@ -502,4 +551,84 @@ export async function updateEmailSignature(html: string): Promise<ActionResult> 
   if (error) return { ok: false, error: error.message };
   revalidatePath("/settings/inbox");
   return { ok: true };
+}
+
+export type OtherConversation = {
+  id: string;
+  channel: string;
+  last_message_preview: string | null;
+  last_message_at: string | null;
+};
+
+// The contact's OTHER conversations (across channels), for the contact panel's
+// "Previous conversations" list. RLS-scoped via the user client — a restricted
+// agent only sees ones assigned to them or unassigned, same as the inbox.
+// Replaces the old mock-data import that never matched real UUIDs.
+export async function getOtherConversationsForContact(
+  contactId: string,
+  excludeConversationId: string,
+): Promise<OtherConversation[]> {
+  if (!contactId) return [];
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  let q = supabase
+    .from("conversations")
+    .select("id, last_message_at, channel:channels!conversations_channel_id_fkey(type)")
+    .eq("contact_id", contactId)
+    .neq("id", excludeConversationId)
+    .is("deleted_at", null)
+    .order("last_message_at", { ascending: false })
+    .limit(10);
+  // Mirror the inbox read gate for restricted agents.
+  const restrict = await agentRestrictedForUser(user.id);
+  if (restrict) q = q.or(`assigned_to.eq.${user.id},assigned_to.is.null`);
+  const { data: convs } = await q;
+  const rows = (convs ?? []) as Array<{
+    id: string;
+    last_message_at: string | null;
+    channel: { type: string } | { type: string }[] | null;
+  }>;
+  if (rows.length === 0) return [];
+
+  // One query for the latest message per conversation (for the preview line).
+  const ids = rows.map((r) => r.id);
+  const { data: msgs } = await supabase
+    .from("messages")
+    .select("conversation_id, content, created_at")
+    .in("conversation_id", ids)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false });
+  const previewByConv = new Map<string, string>();
+  for (const m of (msgs ?? []) as Array<{ conversation_id: string; content: string | null }>) {
+    if (!previewByConv.has(m.conversation_id) && m.content) {
+      previewByConv.set(m.conversation_id, m.content);
+    }
+  }
+
+  return rows.map((r) => {
+    const ch = Array.isArray(r.channel) ? r.channel[0] : r.channel;
+    return {
+      id: r.id,
+      channel: ch?.type ?? "whatsapp",
+      last_message_preview: previewByConv.get(r.id) ?? null,
+      last_message_at: r.last_message_at,
+    };
+  });
+}
+
+// Lightweight restrict check by user id (the panel action already has the user).
+async function agentRestrictedForUser(userId: string): Promise<boolean> {
+  const admin = createAdminClient();
+  const { data: me } = await admin
+    .from("profiles")
+    .select("org_id, role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!me?.org_id || me.role !== "agent") return false;
+  const perms = await getAgentPermissions(me.org_id);
+  return perms.restrict_to_assigned;
 }

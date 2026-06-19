@@ -86,6 +86,15 @@ export async function createAutomation(payload: {
     if (err) return { ok: false, error: err };
   }
 
+  // For an external-webhook trigger, mint a per-automation secret so the
+  // /api/automations/:id/trigger endpoint has something to authenticate
+  // against. Without it the trigger would be unfireable (the bug this fixes).
+  const triggerConfig: TriggerConfig = { ...(payload.triggerConfig ?? {}) };
+  if (payload.triggerType === "webhook" && !triggerConfig.webhook_secret) {
+    const { randomBytes } = await import("crypto");
+    triggerConfig.webhook_secret = `xyra_at_${randomBytes(24).toString("hex")}`;
+  }
+
   const { data, error } = await admin
     .from("automations")
     .insert({
@@ -94,7 +103,7 @@ export async function createAutomation(payload: {
       name,
       description: payload.description ?? null,
       trigger_type: payload.triggerType,
-      trigger_config: payload.triggerConfig ?? {},
+      trigger_config: triggerConfig,
       actions: payload.actions,
       active: true,
     })

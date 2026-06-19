@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireApiKey, logApiRequest } from "@/lib/api/auth";
+import { requireApiKey, logApiRequest, enforceApiRateLimit } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeCursor, encodeCursor, parseLimit } from "@/lib/api/pagination";
-import { getCachedIdempotentResponse, storeIdempotentResponse } from "@/lib/api/idempotency";
-import { invalidRequest, rateLimited } from "@/lib/api/errors";
+import { reserveIdempotency, releaseIdempotency, storeIdempotentResponse } from "@/lib/api/idempotency";
+import { invalidRequest, rateLimited, conflict } from "@/lib/api/errors";
 import { rateLimit } from "@/lib/rate-limit";
 import { emit } from "@/lib/api/emit";
 
@@ -14,6 +14,10 @@ export async function GET(req: NextRequest) {
   const start = Date.now();
   const auth = await requireApiKey(req, "contacts:read");
   if (!auth.ok) return auth.response;
+  {
+    const limited = await enforceApiRateLimit(false, auth.ctx.apiKeyId);
+    if (limited) return limited;
+  }
   const url = new URL(req.url);
   const limit = parseLimit(url.searchParams.get("limit"));
   const cursorRaw = url.searchParams.get("cursor");
@@ -81,6 +85,12 @@ export async function POST(req: NextRequest) {
   const auth = await requireApiKey(req, "contacts:write");
   if (!auth.ok) return auth.response;
 
+  // Per-key write limit (defense-in-depth alongside the per-org bucket below).
+  {
+    const limited = await enforceApiRateLimit(true, auth.ctx.apiKeyId);
+    if (limited) return limited;
+  }
+
   // Rate limit per org — bulk contact-create abuse / write amplification.
   const rl = await rateLimit("api:contacts:create", auth.ctx.orgId, {
     limit: 300,
@@ -89,9 +99,10 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) return rateLimited(rl.retryAfter);
 
   const idempotencyKey = req.headers.get("idempotency-key");
-  const cached = await getCachedIdempotentResponse(auth.ctx.apiKeyId, idempotencyKey);
-  if (cached) {
-    return NextResponse.json(cached.body, { status: cached.status });
+  const reserve = await reserveIdempotency(auth.ctx.apiKeyId, idempotencyKey);
+  if (reserve.outcome === "duplicate") {
+    if (reserve.cached) return NextResponse.json(reserve.cached.body, { status: reserve.cached.status });
+    return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
   }
 
   let body: {
@@ -195,6 +206,8 @@ export async function POST(req: NextRequest) {
     .select("id, name, phone, email, instagram_id, telegram_id, tags, notes, opted_out, created_at")
     .single();
   if (error) {
+    // Don't poison the key — release the reservation so a retry can run.
+    void releaseIdempotency(auth.ctx.apiKeyId, idempotencyKey);
     return NextResponse.json(
       { error: { type: "internal", code: "db_error", message: error.message } },
       { status: 500 },

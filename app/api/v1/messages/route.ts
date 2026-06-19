@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireApiKey, logApiRequest } from "@/lib/api/auth";
+import { requireApiKey, logApiRequest, enforceApiRateLimit } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
-import { invalidRequest, notFound, unprocessable, rateLimited } from "@/lib/api/errors";
+import { invalidRequest, notFound, unprocessable, rateLimited, conflict } from "@/lib/api/errors";
 import { rateLimit } from "@/lib/rate-limit";
 import {
-  getCachedIdempotentResponse,
+  reserveIdempotency,
+  releaseIdempotency,
   storeIdempotentResponse,
 } from "@/lib/api/idempotency";
 import { emit } from "@/lib/api/emit";
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest) {
   const auth = await requireApiKey(req, "messages:write");
   if (!auth.ok) return auth.response;
 
+  // Per-key write limit (defense-in-depth alongside the per-org bucket below).
+  {
+    const limited = await enforceApiRateLimit(true, auth.ctx.apiKeyId);
+    if (limited) return limited;
+  }
+
   // Rate limit per org — prevents a leaked/abused key (or many keys) from
   // spamming the provider and racking up cost / a number ban.
   const rl = await rateLimit("api:messages:send", auth.ctx.orgId, {
@@ -46,8 +53,6 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) return rateLimited(rl.retryAfter);
 
   const idempotencyKey = req.headers.get("idempotency-key");
-  const cached = await getCachedIdempotentResponse(auth.ctx.apiKeyId, idempotencyKey);
-  if (cached) return NextResponse.json(cached.body, { status: cached.status });
 
   let body: SendBody;
   try {
@@ -121,6 +126,15 @@ export async function POST(req: NextRequest) {
     return unprocessable("channel_not_ready", "Channel token unreadable.", "conversation_id");
   }
 
+  // Atomically claim the idempotency key RIGHT BEFORE the (expensive, dup-prone)
+  // provider send — after all validation, so bad requests never reserve. A
+  // concurrent duplicate either gets the cached response or a 409 in-flight.
+  const reserve = await reserveIdempotency(auth.ctx.apiKeyId, idempotencyKey);
+  if (reserve.outcome === "duplicate") {
+    if (reserve.cached) return NextResponse.json(reserve.cached.body, { status: reserve.cached.status });
+    return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
+  }
+
   const result = await sendViaProvider({
     channel,
     contact,
@@ -131,6 +145,7 @@ export async function POST(req: NextRequest) {
     media: body.media,
   });
   if (!result.ok) {
+    void releaseIdempotency(auth.ctx.apiKeyId, idempotencyKey);
     return unprocessable(result.code, result.error);
   }
 

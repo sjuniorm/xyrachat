@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireApiKey, logApiRequest } from "@/lib/api/auth";
+import { requireApiKey, logApiRequest, enforceApiRateLimit } from "@/lib/api/auth";
 
 // GET /api/v1/me — whoami. The first call every integration makes to
 // verify the API key works + see what it can do.
@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
     });
     return auth.response;
   }
+  const limited = await enforceApiRateLimit(false, auth.ctx.apiKeyId);
+  if (limited) return limited;
   const body = {
     object: "api_key",
     id: auth.ctx.apiKeyId,

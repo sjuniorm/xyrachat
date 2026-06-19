@@ -4,7 +4,24 @@ import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashApiKey } from "./keys";
 import { hasScope, type Scope } from "./scopes";
-import { forbidden, unauthorized } from "./errors";
+import { forbidden, unauthorized, rateLimited } from "./errors";
+import { rateLimit } from "@/lib/rate-limit";
+
+// Per-key sliding-window limits — same numbers apiHandler() uses. Exposed as a
+// helper for the Session-1 routes that call requireApiKey directly (they don't
+// go through apiHandler). Returns a 429 Response when over, else null.
+const API_READ_LIMIT = 600;
+const API_WRITE_LIMIT = 120;
+export async function enforceApiRateLimit(
+  isWrite: boolean,
+  apiKeyId: string,
+): Promise<Response | null> {
+  const rl = await rateLimit(isWrite ? "api:write" : "api:read", apiKeyId, {
+    limit: isWrite ? API_WRITE_LIMIT : API_READ_LIMIT,
+    windowSec: 60,
+  });
+  return rl.ok ? null : rateLimited(rl.retryAfter);
+}
 
 export type ApiKeyContext = {
   apiKeyId: string;

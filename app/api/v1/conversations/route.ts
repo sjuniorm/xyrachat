@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireApiKey, logApiRequest } from "@/lib/api/auth";
+import { requireApiKey, logApiRequest, enforceApiRateLimit } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeCursor, encodeCursor, parseLimit } from "@/lib/api/pagination";
 import { invalidRequest } from "@/lib/api/errors";
@@ -11,6 +11,10 @@ export async function GET(req: NextRequest) {
   const start = Date.now();
   const auth = await requireApiKey(req, "conversations:read");
   if (!auth.ok) return auth.response;
+  {
+    const limited = await enforceApiRateLimit(false, auth.ctx.apiKeyId);
+    if (limited) return limited;
+  }
 
   const url = new URL(req.url);
   const limit = parseLimit(url.searchParams.get("limit"));

@@ -49,6 +49,9 @@ export function forbidden(code: string, message: string) {
 export function notFound(message = "Resource not found.") {
   return apiError({ type: "not_found", code: "not_found", message });
 }
+export function conflict(code: string, message: string) {
+  return apiError({ type: "conflict", code, message });
+}
 export function unprocessable(code: string, message: string, param?: string) {
   return apiError({ type: "unprocessable", code, message, param });
 }

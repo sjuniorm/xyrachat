@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireApiKey, logApiRequest } from "@/lib/api/auth";
+import { requireApiKey, logApiRequest, enforceApiRateLimit } from "@/lib/api/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notFound } from "@/lib/api/errors";
 
@@ -14,6 +14,10 @@ export async function DELETE(
   const start = Date.now();
   const auth = await requireApiKey(req, "webhooks:write");
   if (!auth.ok) return auth.response;
+  {
+    const limited = await enforceApiRateLimit(true, auth.ctx.apiKeyId);
+    if (limited) return limited;
+  }
 
   const { id } = await params;
   const admin = createAdminClient();
