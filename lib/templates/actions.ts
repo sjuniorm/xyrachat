@@ -427,6 +427,16 @@ function injectExamples(
         example: { header_text: samples },
       };
     }
+    // Media header (IMAGE/VIDEO/DOCUMENT) → Meta requires example.header_handle
+    // (a sample uploaded via the Resumable Upload API) or it rejects the template.
+    if (c.type === "HEADER" && (c.format === "IMAGE" || c.format === "VIDEO" || c.format === "DOCUMENT")) {
+      const handle = examples.header_handle ?? [];
+      if (handle.length === 0) return c;
+      return {
+        ...c,
+        example: { header_handle: handle },
+      };
+    }
     return c;
   });
 }

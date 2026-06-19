@@ -143,6 +143,32 @@ export function TemplateBuilder({
   const [headerExamples, setHeaderExamples] = useState<string[]>(
     edit?.exampleValues?.header ?? [],
   );
+  // Uploaded media-header sample → Meta upload handle (example.header_handle).
+  const [headerHandle, setHeaderHandle] = useState<string | null>(
+    edit?.exampleValues?.header_handle?.[0] ?? null,
+  );
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+
+  async function uploadHeaderMedia(file: File) {
+    setUploadingHeader(true);
+    setHeaderHandle(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/channels/whatsapp/template-media", { method: "POST", body: fd });
+      const j = (await res.json().catch(() => null)) as { handle?: string; error?: string } | null;
+      if (!res.ok || !j?.handle) {
+        toast.error(j?.error ?? "Couldn't upload the sample file.");
+        return;
+      }
+      setHeaderHandle(j.handle);
+      toast.success("Sample uploaded.");
+    } catch {
+      toast.error("Upload failed.");
+    } finally {
+      setUploadingHeader(false);
+    }
+  }
   const [bodyExamples, setBodyExamples] = useState<string[]>(
     edit?.exampleValues?.body ?? ["Junior", "your order"],
   );
@@ -211,9 +237,15 @@ export function TemplateBuilder({
       return;
     }
 
+    if (header.kind === "media" && !headerHandle) {
+      toast.error("Upload a sample file for the media header so Meta can review it.");
+      return;
+    }
+
     const exampleValues = {
       ...(fixedHeaderExamples.length > 0 ? { header: fixedHeaderExamples } : {}),
       ...(fixedBodyExamples.length > 0 ? { body: fixedBodyExamples } : {}),
+      ...(header.kind === "media" && headerHandle ? { header_handle: [headerHandle] } : {}),
     };
 
     startTransition(async () => {
@@ -415,11 +447,26 @@ export function TemplateBuilder({
                   </button>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] text-white/40">
-                Sample media upload is deferred — Meta may auto-approve for IMAGE
-                without a sample, but VIDEO/DOCUMENT often need one. If
-                rejected, add the sample handle in a follow-up.
-              </p>
+              <div className="mt-3 space-y-1.5">
+                <label className="text-xs text-white/70">Sample file (for Meta review)</label>
+                <input
+                  type="file"
+                  accept={header.format === "IMAGE" ? "image/jpeg,image/png" : header.format === "VIDEO" ? "video/mp4" : "application/pdf"}
+                  disabled={uploadingHeader}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void uploadHeaderMedia(f);
+                  }}
+                  className="block w-full text-xs text-white/70 file:mr-3 file:rounded-md file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+                />
+                <p className="text-[10px] text-white/40">
+                  {uploadingHeader
+                    ? "Uploading…"
+                    : headerHandle
+                      ? "✓ Sample uploaded — Meta will use it to review this media header."
+                      : "Required. JPEG/PNG for image, MP4 for video, PDF for document. Uploaded to Meta; only the review handle is stored."}
+                </p>
+              </div>
             </CardContent>
           )}
         </Card>
