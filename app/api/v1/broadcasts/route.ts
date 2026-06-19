@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decodeCursor, encodeCursor, parseLimit } from "@/lib/api/pagination";
 import { invalidRequest, unprocessable } from "@/lib/api/errors";
 import { shapeBroadcast } from "@/lib/api/shapes";
-import { reserveIdempotency, storeIdempotentResponse } from "@/lib/api/idempotency";
+import { reserveIdempotency, releaseIdempotency, storeIdempotentResponse } from "@/lib/api/idempotency";
 import { assertCanCreateBroadcast } from "@/lib/billing/gates";
 import { conflict } from "@/lib/api/errors";
 
@@ -54,16 +54,6 @@ export const POST = apiHandler({
   scopes: ["broadcasts:write"],
   handler: async (req, ctx) => {
     const idempotencyKey = req.headers.get("idempotency-key");
-    const reserve = await reserveIdempotency(ctx.apiKeyId, idempotencyKey);
-    if (reserve.outcome === "duplicate") {
-      if (reserve.cached) {
-        return new Response(JSON.stringify(reserve.cached.body), {
-          status: reserve.cached.status,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
-    }
     let body: {
       name?: string;
       channel_id?: string;
@@ -113,6 +103,19 @@ export const POST = apiHandler({
         "template_id",
       );
     }
+    // Reserve the idempotency key AFTER all validation/gates (so a rejected
+    // request never leaves a pending placeholder that 409s the retry) and just
+    // before the insert.
+    const reserve = await reserveIdempotency(ctx.apiKeyId, idempotencyKey);
+    if (reserve.outcome === "duplicate") {
+      if (reserve.cached) {
+        return new Response(JSON.stringify(reserve.cached.body), {
+          status: reserve.cached.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
+    }
     const status = body.scheduled_at ? "scheduled" : "draft";
     const { data, error } = await admin
       .from("broadcasts")
@@ -130,6 +133,7 @@ export const POST = apiHandler({
       .select(BC_COLS)
       .single();
     if (error) {
+      void releaseIdempotency(ctx.apiKeyId, idempotencyKey);
       return new Response(JSON.stringify({ error: { type: "internal", code: "db_error", message: error.message } }), {
         status: 500,
         headers: { "Content-Type": "application/json" },

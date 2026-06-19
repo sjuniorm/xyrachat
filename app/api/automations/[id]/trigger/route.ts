@@ -12,7 +12,8 @@ export const runtime = "nodejs";
 // The inbound endpoint for the "External webhook" automation trigger. An
 // external system (a form, a no-code tool, a backend) POSTs here to fire the
 // automation. Auth is a per-automation shared secret (generated at creation,
-// shown on the automation page) sent as `X-Xyra-Secret` or `?secret=`.
+// shown on the automation page) sent as the `X-Xyra-Secret` header OR a
+// `secret` field in the JSON body — never in the URL (query strings leak to logs).
 //
 // Body identifies the contact to run the flow for — either an existing
 // `contact_id`, or contact fields to find-or-create:

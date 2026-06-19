@@ -99,11 +99,6 @@ export async function POST(req: NextRequest) {
   if (!rl.ok) return rateLimited(rl.retryAfter);
 
   const idempotencyKey = req.headers.get("idempotency-key");
-  const reserve = await reserveIdempotency(auth.ctx.apiKeyId, idempotencyKey);
-  if (reserve.outcome === "duplicate") {
-    if (reserve.cached) return NextResponse.json(reserve.cached.body, { status: reserve.cached.status });
-    return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
-  }
 
   let body: {
     name?: string;
@@ -124,6 +119,14 @@ export async function POST(req: NextRequest) {
       "missing_identifier",
       "Provide at least one of: phone, email, instagram_id, telegram_id.",
     );
+  }
+
+  // Reserve the idempotency key AFTER validation (so a bad request never leaves
+  // a pending placeholder that 409s the corrected retry) and before any write.
+  const reserve = await reserveIdempotency(auth.ctx.apiKeyId, idempotencyKey);
+  if (reserve.outcome === "duplicate") {
+    if (reserve.cached) return NextResponse.json(reserve.cached.body, { status: reserve.cached.status });
+    return conflict("request_in_flight", "A request with this Idempotency-Key is already being processed.");
   }
 
   const admin = createAdminClient();
