@@ -23,8 +23,10 @@ After 044: it reuses the existing `app_config.cron_secret` + `http` extension
 ## 1) 🧑 Meta App Review (LONGEST POLE — start first)
 Goal: take Instagram + WhatsApp out of dev-mode so real customers work.
 1. **Business verification** at business.facebook.com → Security Center: legal
-   entity **Mll Nexus Group SL**, business docs (registration / utility bill),
-   business email on the domain, website **xyrachat.com** live w/ privacy+terms+gdpr.
+   entity **Mll Nexus Group SL** — **CIF B88931977** (received 2026-06-19),
+   business docs (registration / utility bill), business email on the domain,
+   website **xyrachat.com** live w/ privacy+terms+gdpr. ✅ The CIF was the gate;
+   verification can start now.
 2. **App Review → Permissions**: request
    `instagram_business_manage_messages` (+ `instagram_business_basic`),
    `whatsapp_business_messaging`, `whatsapp_business_management`,
@@ -56,8 +58,9 @@ inbox until this is done.
 4. Test: trigger /forgot-password → confirm the branded reset email arrives.
 
 ## 3) 🧑 Stripe go-live  ← FULL REFERENCE (prices confirmed 2026-06-16)
-> Deferred until the SL (Mll Nexus Group SL) clears — LIVE mode needs account
-> activation (business + bank). Sandbox/test mode works now without the SL.
+> ✅ UNBLOCKED 2026-06-19: SL **Mll Nexus Group SL** has its **CIF B88931977**.
+> Activate LIVE mode now (Stripe → Activate account: business details + CIF +
+> bank IBAN). Sandbox/test mode also works without it.
 > Test↔live are isolated: each product has a **"Copy to live mode"** button that
 > brings the product + its prices over, but the copied live prices get NEW
 > `price_…` ids → re-grab + swap the env VALUES (names below are stable). Keys +
