@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { createClient } from "@/lib/supabase/server";
 import { getTeamSnapshot } from "@/lib/team/server";
 import {
   cancelInvite,
@@ -22,6 +23,7 @@ import { InviteDialog } from "./invite-dialog";
 import { ConfirmAction } from "./confirm-action";
 import { ChangeRoleMenu } from "./change-role-menu";
 import { SupportAccessCard } from "./support-access-card";
+import { DeleteWorkspace } from "./delete-workspace";
 import { AgentPermissionsCard } from "./agent-permissions-card";
 
 const ROLE_BADGE: Record<string, string> = {
@@ -46,6 +48,18 @@ export default async function TeamPage() {
   const canManage = me.role === "owner" || me.role === "admin";
   const supportGrant = canManage ? await getActiveSupportGrant(orgId) : null;
   const agentPerms = canManage ? await getAgentPermissions(orgId) : null;
+
+  // Owner-only danger zone needs the workspace name for the type-to-confirm.
+  let workspaceName = "this workspace";
+  if (me.role === "owner") {
+    const supabase = await createClient();
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .maybeSingle();
+    if (org?.name) workspaceName = org.name;
+  }
 
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
@@ -228,6 +242,7 @@ export default async function TeamPage() {
 
         {canManage && agentPerms && <AgentPermissionsCard initial={agentPerms} />}
         {canManage && <SupportAccessCard grant={supportGrant} />}
+        {me.role === "owner" && <DeleteWorkspace workspaceName={workspaceName} />}
       </div>
     </div>
   );
