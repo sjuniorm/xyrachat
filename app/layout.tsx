@@ -44,7 +44,7 @@ export default async function RootLayout({
       className={`${inter.variable} ${geistMono.variable} h-full overflow-x-hidden antialiased`}
     >
       <body className="min-h-full flex flex-col overflow-x-hidden bg-background text-foreground">
-        <PostHogProvider>
+        <PostHogProvider consentRequired={showConsent}>
           {children}
           <Toaster
             richColors

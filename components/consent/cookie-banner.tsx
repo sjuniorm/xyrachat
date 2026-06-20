@@ -19,6 +19,8 @@ export function CookieBanner() {
 
   function decide(value: "accepted" | "rejected") {
     window.localStorage.setItem(STORAGE_KEY, value);
+    // Tell the PostHog provider it may load now (EEA visitors are gated on this).
+    if (value === "accepted") window.dispatchEvent(new Event("xyra:consent-accepted"));
     setVisible(false);
   }
 
