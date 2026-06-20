@@ -1,0 +1,124 @@
+# Xyra Chat — MASTER launch checklist (nothing skipped)
+
+> Single source of truth for everything left before public launch. Per Junior:
+> **do it all — nothing gets cut.** 🧑 = operator/dashboard · 🤖 = code · 🧑🤖 = both.
+> Compiled from the 5-agent scan (104 findings) + this session's work. Last
+> updated 2026-06-20. Check items off here as they're done.
+
+---
+
+## ✅ Already done this session (for reference)
+- [x] 🤖 Full launch audit — 23 findings fixed + adversarially verified + build green
+- [x] 🤖 GDPR cookie-consent gate (EEA gets no PostHog until Accept)
+- [x] 🤖 GDPR delete cascade complete (migration 064) + `/api/gdpr/delete` cascades + **Delete-workspace** button on /settings/team
+- [x] 🤖 CI gate (`.github/workflows/ci.yml` — typecheck + lint + build)
+- [x] 🤖 Domain code prep — `NEXT_PUBLIC_APP_URL` wired; display/Tauri/mobile URLs → app.xyrachat.com
+- [x] 🧑 `app.xyrachat.com` live on Vercel (SSL valid, /api/health db:up)
+- [x] 🧑 Migration 063 applied · email templates pasted
+- [x] 🤖 Docs: Meta App Review pack · marketing prompt · Supabase email templates · this checklist
+
+---
+
+## 🚨 Phase 1 — Blocking (no public launch without these)
+
+### Meta (longest pole — start first)
+- [ ] 🧑 Business Verification — Mll Nexus Group SL / CIF B88931977 (upload docs Monday, confirm code). Gates all App Review.
+- [ ] 🧑 App Review "Xyra Chat": `whatsapp_business_messaging`, `whatsapp_business_management`, `pages_messaging` (+`pages_manage_metadata` if prompted) — screencast each round-trip. (_docs/meta-app-review-submission.md)
+- [ ] 🧑 App Review "Xyra Chat-IG": `instagram_business_manage_messages` + `instagram_business_basic` — screencast connect→DM→reply.
+- [ ] 🧑 App settings on BOTH apps: Privacy/Terms/Data-Deletion URLs + icon + category; flip to **Live** before submit.
+
+### Marketing + legal
+- [ ] 🧑 Marketing site updated (existing repo) + live at **xyrachat.com** (required for Meta verification + CTAs). (_docs/marketing-website-prompt.md — update prompt)
+- [ ] 🧑 Counsel review /privacy + /terms → remove the "draft" amber banners (app/privacy/page.tsx, app/terms/page.tsx).
+- [ ] 🧑 Publish a signable **DPA + versioned subprocessor list** (GDPR Art. 28).
+
+### Stripe
+- [ ] 🧑 Live activation (business details + CIF + IBAN).
+- [ ] 🧑 Create 5 packs + 6 add-ons (live mode) → set all 16 `STRIPE_PRICE_*` + `sk_live`/`pk_live` in Vercel.
+- [ ] 🧑 Live webhook → `/api/webhooks/stripe` (9 events) → `STRIPE_WEBHOOK_SECRET`.
+- [ ] 🧑 Test add-on purchase flow (test card 4242 → confirm seat/limit rises) in test, then live.
+- [ ] 🧑 Set `XYRA_OPERATOR_ORG_ID` in Vercel (consoles fail closed without it).
+- [ ] 🧑 Run entitlements backfill (/settings/admin/entitlements → backfill → Trial).
+
+### Database / Supabase
+- [ ] 🧑 Apply migration **064** (GDPR cascade). Verify 054–063 all applied to prod.
+- [ ] 🧑 Enable **PITR / automated backups** + do one test restore.
+- [ ] 🧑 Verify **pg_cron + `http` ext + `app_config.cron_secret`** — webhook-retry, retention-purge, automation-runner, sequences, trial-reminders, snooze-wake all fire via pg_cron. Confirm each job scheduled + last run succeeded.
+- [ ] 🧑 Auth: enable **"Confirm email"**, Site URL = app.xyrachat.com, redirect URLs include app.xyrachat.com.
+
+### Domain switch (after app.xyrachat.com — mostly done; finish the dashboards)
+- [ ] 🧑 Vercel env: `NEXT_PUBLIC_APP_URL=https://app.xyrachat.com` + Stripe checkout URLs → redeploy.
+- [ ] 🧑 Supabase Auth Site URL + redirect URLs.
+- [ ] 🧑 Resend inbound webhook URL → app.xyrachat.com.
+- [ ] 🧑 Meta webhook callback + OAuth redirect URIs → app.xyrachat.com (when channels connected).
+- [ ] 🧑 Smoke-test login + a channel inbound + password reset on the new domain.
+
+### Security
+- [ ] 🧑 Set **Upstash Redis** env (`UPSTASH_REDIS_REST_URL`/`_TOKEN`) — rate limits + flood guard + webchat abuse defense FAIL OPEN until set.
+- [ ] 🧑 Supabase Auth: **leaked-password protection** (HIBP) ON, min length 8+, **CAPTCHA** (Cloudflare Turnstile) on signup/login/recovery.
+- [ ] 🧑 Supabase security notifications ON (password/email changed, sign-in linked/removed, MFA added/removed).
+- [ ] 🧑🤖 Run the **§15 live security probe** against staging — green (needs Upstash + 2 seeded test orgs). Final go/no-go. (tests/security/probe.ts)
+
+### Staging + monitoring
+- [ ] 🧑 Stand up **staging** (separate Supabase EU project, migrations 001→064, Vercel Preview env + TEST Stripe) — needed to run the probe + test migrations. (_docs/staging-setup.md)
+- [ ] 🧑 Create **Sentry** project → `NEXT_PUBLIC_SENTRY_DSN` (+ `SENTRY_AUTH_TOKEN`/ORG/PROJECT).
+- [ ] 🧑 **Uptime monitor** on /api/health (Uptime Robot / Better Stack) + alerting; one for the marketing site too.
+- [ ] 🧑 Verify PostHog prod env (EU) + core events fire.
+
+### Email (channel)
+- [ ] 🧑 Resend **Pro** + `mail.xyrachat.com` domain + MX → Resend; set `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `INBOUND_EMAIL_DOMAIN`; verify SPF/DKIM/DMARC green. (saved as the launch reminder)
+- [ ] 🧑 Brand the 5 Supabase auth email templates — ✅ pasted; just confirm via /forgot-password test.
+
+### Meta one-click connect (env, after approval)
+- [ ] 🧑 Set `NEXT_PUBLIC_META_APP_ID`, `NEXT_PUBLIC_WHATSAPP_ES_CONFIG_ID`, `NEXT_PUBLIC_MESSENGER_OAUTH_CONFIG_ID`, `INSTAGRAM_APP_ID`/`SECRET`, `META_APP_ID`. (Manual entry is the fallback; IG webhook HMAC needs INSTAGRAM_APP_SECRET.)
+- [ ] 🧑🤖 Verify WA Embedded Signup + Messenger FB-Login OAuth round-trips against live Meta (built, untested).
+
+---
+
+## 🔭 Phase 2 — Junior wants these too (build before/around launch, not deferred)
+
+### Features (🤖 code)
+- [ ] 🤖 **Media outbound on all channels** — IG / Telegram / Messenger / Email send-media (composer hard-blocks non-WA today) + real WhatsApp media upload flow.
+- [ ] 🤖 Inbound media URL resolution (currently stores provider media_id).
+- [ ] 🤖 Mobile: send photos/files (ChatDetail attach is a stub) + biometric login.
+- [ ] 🤖 Per-agent unread counts + saved-replies CRUD polish.
+- [ ] 🤖 IG/Messenger multi-Page chooser (auto-picks pages[0] today).
+- [ ] 🤖 IG new-follower automation poller (Meta doesn't push these; needs a cron worker).
+- [ ] 🤖 Pipedrive + Salesforce CRM connectors (only HubSpot wired).
+- [ ] 🤖 "Social Lite" €19 IG-automations-only tier (bundle def + inbox feature-gate).
+- [ ] 🤖 Voice / PBX / SIP add-on (announced, `available:false`).
+- [ ] 🤖 Support "reply-as-support" write path / impersonation (read-only consent layer shipped; needs adversarial review first). (_docs/support-access-design.md)
+- [ ] 🤖 Flip CSP Report-Only → enforced after /api/security/csp-report shows 0 violations (needs Sentry live).
+
+### Testing / quality (🤖 code)
+- [ ] 🤖 Authenticated + multi-tenant E2E specs (login→inbox→send, bot reply, tenant isolation).
+- [ ] 🤖 CI gate ✅ done — gate Dependabot auto-merge on it.
+
+### Ops / external (🧑)
+- [ ] 🧑 Mobile: `eas init` (push needs projectId) → App Store + Google Play submission.
+- [ ] 🧑 Tauri desktop: signer generate → pubkey in tauri.conf.json → signing GitHub secrets → Apple notarization + Windows cert.
+- [ ] 🧑 Submit Make / Zapier / n8n connector listings.
+- [ ] 🧑 Google Calendar OAuth verification (sensitive scopes + demo video); set `GOOGLE_CLIENT_ID`/`SECRET`. (Outlook done — remember to rotate `MICROSOFT_CLIENT_SECRET` before expiry.)
+- [ ] 🧑 HubSpot public app (developers.hubspot.com) → `HUBSPOT_CLIENT_ID`/`SECRET` + redirect.
+- [ ] 🧑 Help center / KB — seed the in-app help-widget bot knowledge before onboarding non-technical users.
+- [ ] 🧑 Canny roadmap board env (`NEXT_PUBLIC_CANNY_*`) for /roadmap.
+- [ ] 🧑 Public changelog surface (in-app toast wired at 1.15; consider xyrachat.com/changelog).
+- [ ] 🧑 Optional in-app config envs: `SUPPORT_FEEDBACK_EMAIL`, `SUPPORT_BOT_ID`, `NEXT_PUBLIC_SUPPORT_BOOKING_URL`.
+- [ ] 🧑 (Optional) Hetzner VPS for self-hosted n8n — NOT required (connectors hit the hosted API). Only if you want internal n8n workflows.
+
+### Housekeeping (🤖 code)
+- [ ] 🤖 Reconcile CLAUDE.md stale "Starter/Growth/Pro/Enterprise" pricing text → Solo/Core/Edge/Prime/Infinite.
+- [ ] 🤖 Delete stale "resolve to a real URL in Week 4" comment in app/api/webhooks/whatsapp/route.ts.
+- [ ] 🤖 (Consider) add `deleted_at` + cascade for the 9 analytics/audit tables without it (bot_outcomes, opt_out_log, api_request_log, support logs, etc.) for fuller GDPR erasure — currently retained.
+
+---
+
+## 🎯 Critical path (gates everything; do in this order)
+1. Meta Business Verification (Monday).
+2. Marketing site live at xyrachat.com + counsel sign-off.
+3. Finish domain switch (env + Supabase URLs).
+4. Stripe live + `XYRA_OPERATOR_ORG_ID` + backfill.
+5. Apply migration 064 + verify PITR + pg_cron.
+6. Set Upstash env.
+7. Stand up staging → run §15 probe → green.
+8. Submit both Meta App Reviews → then work Phase 2 in parallel.
