@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:3000",
-    "frontendDist": "https://xyra-chat.vercel.app"
+    "frontendDist": "https://app.xyrachat.com"
   },
   "app": {
     "withGlobalTauri": true,

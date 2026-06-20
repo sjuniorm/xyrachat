@@ -11,7 +11,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://wfsnnmzzxpgmqlvjwytj.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Aq0XXtf3OmmgQBAWtPWZLg_MCSBZvGX",
-        "EXPO_PUBLIC_API_BASE_URL": "https://xyra-chat.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://app.xyrachat.com"
       }
     },
     "preview": {
@@ -20,7 +20,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://wfsnnmzzxpgmqlvjwytj.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Aq0XXtf3OmmgQBAWtPWZLg_MCSBZvGX",
-        "EXPO_PUBLIC_API_BASE_URL": "https://xyra-chat.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://app.xyrachat.com"
       }
     },
     "production": {
@@ -29,7 +29,7 @@
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://wfsnnmzzxpgmqlvjwytj.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Aq0XXtf3OmmgQBAWtPWZLg_MCSBZvGX",
-        "EXPO_PUBLIC_API_BASE_URL": "https://xyra-chat.vercel.app"
+        "EXPO_PUBLIC_API_BASE_URL": "https://app.xyrachat.com"
       }
     }
   },

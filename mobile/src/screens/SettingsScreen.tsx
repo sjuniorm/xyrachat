@@ -21,7 +21,7 @@ import { registerForPushNotifications } from "../lib/push";
 import type { Availability } from "../types";
 
 const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://xyra-chat.vercel.app";
+  process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://app.xyrachat.com";
 const SUPPORT_EMAIL = "support@xyrachat.com";
 
 const AVAILABILITY: { key: Availability; label: string; color: string }[] = [
