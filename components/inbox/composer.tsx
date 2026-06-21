@@ -265,7 +265,7 @@ export function Composer({
   // Channels with outbound media wired (provider takes the raw bytes). IG /
   // Messenger / Webchat need a public media URL (Meta/visitor must fetch it) —
   // that's a separate increment, so they're still gated below.
-  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram"]);
+  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram", "email"]);
 
   // Attach + send a file. The composer's current text rides along as the caption.
   function onAttachClick() {
