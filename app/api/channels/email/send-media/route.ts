@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit } from "@/lib/rate-limit";
+import { rejectOversizeUpload } from "@/lib/channels/upload-limits";
 import { sanitizeEmailHtml } from "@/lib/security/sanitize";
 import type { ChannelMetadata } from "@/lib/db-types";
 
@@ -39,6 +40,10 @@ export async function POST(req: Request) {
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
     );
   }
+
+  // DoS guard: reject an oversized body by Content-Length before buffering it.
+  const tooLarge = rejectOversizeUpload(req);
+  if (tooLarge) return tooLarge;
 
   let form: FormData;
   try {

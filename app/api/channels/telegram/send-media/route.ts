@@ -4,6 +4,7 @@ import { getRouteUser } from "@/lib/supabase/route-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { rateLimit } from "@/lib/rate-limit";
+import { rejectOversizeUpload } from "@/lib/channels/upload-limits";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,10 @@ export async function POST(req: Request) {
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
     );
   }
+
+  // DoS guard: reject an oversized body by Content-Length before buffering it.
+  const tooLarge = rejectOversizeUpload(req);
+  if (tooLarge) return tooLarge;
 
   let form: FormData;
   try {
