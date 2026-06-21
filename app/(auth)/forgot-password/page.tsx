@@ -15,7 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
-import { Turnstile, isCaptchaEnabled } from "@/components/auth/turnstile";
+import { Turnstile } from "@/components/auth/turnstile";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -27,10 +27,8 @@ export default function ForgotPasswordPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (pending) return; // no double-submit (would reuse the captcha token)
-    if (isCaptchaEnabled() && !captchaToken) {
-      toast.error("Please complete the verification.");
-      return;
-    }
+    // Supabase is the source of truth for whether CAPTCHA is required — don't
+    // hard-block here (avoids a false block when enforcement is off).
     setPending(true);
     const supabase = createClient();
     const redirectTo = `${window.location.origin}/reset-password`;

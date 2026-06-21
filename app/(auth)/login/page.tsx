@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
 import { identify } from "@/lib/analytics";
-import { Turnstile, isCaptchaEnabled } from "@/components/auth/turnstile";
+import { Turnstile } from "@/components/auth/turnstile";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,10 +24,9 @@ export default function LoginPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (pending) return; // no double-submit (would reuse the captcha token)
-    if (isCaptchaEnabled() && !captchaToken) {
-      toast.error("Please complete the verification.");
-      return;
-    }
+    // Don't hard-block on a missing token — Supabase is the source of truth for
+    // whether CAPTCHA is required. (If enforcement is OFF, login works with no
+    // token; if ON, Supabase rejects a missing/invalid token and we surface it.)
     setPending(true);
     const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({
