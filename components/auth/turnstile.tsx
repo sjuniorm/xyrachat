@@ -42,6 +42,10 @@ export function Turnstile({ onToken }: { onToken: (token: string | null) => void
       widgetIdRef.current = window.turnstile.render(containerRef.current, {
         sitekey: SITE_KEY,
         theme: "dark",
+        // Auto-refresh a token that expires before submit (Turnstile tokens are
+        // valid ~5 min + single-use) — avoids the "timeout-or-duplicate" reject.
+        "refresh-expired": "auto",
+        "retry": "auto",
         callback: (token: string) => onToken(token),
         "error-callback": () => onToken(null),
         "expired-callback": () => onToken(null),

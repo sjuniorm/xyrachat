@@ -26,6 +26,7 @@ export default function ForgotPasswordPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (pending) return; // no double-submit (would reuse the captcha token)
     if (isCaptchaEnabled() && !captchaToken) {
       toast.error("Please complete the verification.");
       return;
