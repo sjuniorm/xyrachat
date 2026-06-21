@@ -2,13 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
-// Vercel Cron sets this header to a long-lived secret you also stash in
-// CRON_SECRET. If you trigger from your VPS / Supabase pg_cron + http
-// extension, send the same `Authorization: Bearer ${CRON_SECRET}` header.
+// Triggered by Supabase pg_cron (migration 065) every 5 min via the `http`
+// extension, which sends `Authorization: Bearer ${CRON_SECRET}`. pg_cron is
+// used instead of Vercel Cron because the Hobby tier blocks sub-daily Vercel
+// crons (same reason as webhook-retry / sequences). Works on any Vercel plan.
 //
 // Endpoint is idempotent — running it twice for the same scheduled time
-// is safe because /api/broadcasts/send refuses to send a broadcast that's
-// already in `sending` or `done`.
+// is safe because the send path uses a single-winner atomic claim.
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!secret) {
@@ -67,4 +67,9 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, launched, reaped });
+}
+
+// pg_cron's http extension issues a POST — same auth + logic as GET.
+export async function POST(req: NextRequest) {
+  return GET(req);
 }
