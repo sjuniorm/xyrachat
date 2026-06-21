@@ -262,10 +262,9 @@ export function Composer({
     });
   }
 
-  // Channels with outbound media wired (provider takes the raw bytes). IG /
-  // Messenger / Webchat need a public media URL (Meta/visitor must fetch it) —
-  // that's a separate increment, so they're still gated below.
-  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram", "email"]);
+  // Channels with outbound media wired. Webchat still needs a visitor-readable
+  // (signed) media URL in the poll, so it's gated until that lands.
+  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram", "email", "instagram", "facebook"]);
 
   // Attach + send a file. The composer's current text rides along as the caption.
   function onAttachClick() {

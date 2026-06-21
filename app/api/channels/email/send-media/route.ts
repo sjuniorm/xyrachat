@@ -123,7 +123,14 @@ export async function POST(req: Request) {
     const raw = (org?.email_signature ?? "").trim();
     if (raw) signatureHtml = sanitizeEmailHtml(raw);
   }
-  const bodyHtml = caption ? textToHtml(caption) : `<div>${file.name ? `Attachment: ${file.name}` : "See attachment."}</div>`;
+  const safeName = (file.name ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  const bodyHtml = caption
+    ? textToHtml(caption)
+    : `<div>${safeName ? `Attachment: ${safeName}` : "See attachment."}</div>`;
   const finalHtml = signatureHtml ? `${bodyHtml}<br><br>${signatureHtml}` : bodyHtml;
 
   const inboundDomain = process.env.INBOUND_EMAIL_DOMAIN ?? "mail.xyrachat.com";
