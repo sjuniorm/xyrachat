@@ -15,20 +15,27 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
+import { Turnstile, isCaptchaEnabled } from "@/components/auth/turnstile";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (isCaptchaEnabled() && !captchaToken) {
+      toast.error("Please complete the verification.");
+      return;
+    }
     setPending(true);
     const supabase = createClient();
     const redirectTo = `${window.location.origin}/reset-password`;
     const { error } = await supabase.auth.resetPasswordForEmail(
       email.trim(),
-      { redirectTo },
+      { redirectTo, captchaToken: captchaToken ?? undefined },
     );
     setPending(false);
     if (error) {
@@ -37,6 +44,8 @@ export default function ForgotPasswordPage() {
       // but still flip to the "check your inbox" state to keep the UX
       // consistent (and not reveal account existence).
       toast.error(error.message);
+      setCaptchaToken(null);
+      setCaptchaKey((k) => k + 1);
     }
     setSent(true);
   }
@@ -85,6 +94,7 @@ export default function ForgotPasswordPage() {
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
+          <Turnstile key={captchaKey} onToken={setCaptchaToken} />
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
           <Button

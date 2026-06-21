@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck · Lint · Build
+    name: Typecheck · Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,14 +30,6 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Build
-        run: npm run build
-        env:
-          # Dummy values so the production build compiles without real secrets.
-          # The app reads Supabase/AI/etc. lazily at request time, so these are
-          # only needed to satisfy module-load + avoid "missing env" build errors.
-          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: ci-dummy-service-role-key
-          NEXT_PUBLIC_POSTHOG_HOST: https://eu.i.posthog.com
-          NEXT_PUBLIC_APP_URL: https://app.xyrachat.com
+  # NOTE: the production build is intentionally NOT duplicated here — Vercel
+  # builds the app on every push/PR (preview + production deploys), so that is
+  # the build gate. This job stays fast + deterministic (no app env needed).

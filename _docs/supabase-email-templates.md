@@ -213,3 +213,137 @@ follows your **Site URL** (set it to https://app.xyrachat.com) + the code's redi
    the link should log you into `/reset-password`.
 3. (Optional, better deliverability) Authentication → Emails → SMTP → point at your
    Resend SMTP creds so auth emails send from your domain (avoids spam at scale).
+
+---
+
+# Security notification templates (the "Notify users when…" toggles)
+
+Informational alerts — no action button. Paste each where Supabase shows its
+editor for that security event. They don't rely on template variables, so they
+render correctly regardless of which variables the event exposes.
+
+## Password changed
+**Subject:** `Your Xyra Chat password was changed`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">Your password was changed</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">The password on your Xyra Chat account was just changed. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, reset your password immediately at <a href="https://app.xyrachat.com/forgot-password" style="color:#D882FF;">app.xyrachat.com/forgot-password</a> and contact support@xyrachat.com.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```
+
+## Email address changed
+**Subject:** `Your Xyra Chat email address was changed`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">Your email address was changed</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">The email address on your Xyra Chat account was just changed. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, contact <a href="mailto:support@xyrachat.com" style="color:#D882FF;">support@xyrachat.com</a> immediately.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```
+
+## Sign-in method linked
+**Subject:** `A new sign-in method was added to your Xyra Chat account`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">A new sign-in method was added</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">A new way to sign in (e.g. a social login) was linked to your Xyra Chat account. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, reset your password at <a href="https://app.xyrachat.com/forgot-password" style="color:#D882FF;">app.xyrachat.com/forgot-password</a> and contact support@xyrachat.com.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```
+
+## Sign-in method removed
+**Subject:** `A sign-in method was removed from your Xyra Chat account`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">A sign-in method was removed</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">A sign-in method was removed from your Xyra Chat account. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, reset your password at <a href="https://app.xyrachat.com/forgot-password" style="color:#D882FF;">app.xyrachat.com/forgot-password</a> and contact support@xyrachat.com.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```
+
+## MFA method added
+**Subject:** `Two-factor authentication was enabled on your Xyra Chat account`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">Two-factor authentication enabled</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">2FA was added to your Xyra Chat account — nice, your account is more secure now. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, reset your password at <a href="https://app.xyrachat.com/forgot-password" style="color:#D882FF;">app.xyrachat.com/forgot-password</a> and contact support@xyrachat.com.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```
+
+## MFA method removed
+**Subject:** `Two-factor authentication was removed from your Xyra Chat account`
+```html
+<div style="margin:0;padding:0;background:#0B0418;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B0418;padding:32px 0;"><tr><td align="center">
+    <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#1F1033;border:1px solid rgba(255,255,255,0.08);border-radius:16px;overflow:hidden;font-family:Inter,Arial,Helvetica,sans-serif;">
+      <tr><td style="padding:28px 32px 8px;text-align:center;">
+        <img src="https://app.xyrachat.com/brand/logo-mark.png" width="44" height="44" alt="Xyra Chat" style="border-radius:10px;display:inline-block;">
+        <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:10px;">Xyra Chat</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 0;text-align:center;">
+        <h1 style="color:#ffffff;font-size:22px;font-weight:700;margin:16px 0 8px;">Two-factor authentication removed</h1>
+        <p style="color:#C9C2D6;font-size:15px;line-height:1.6;margin:0 0 20px;">2FA was removed from your Xyra Chat account. If this was you, no action is needed.</p>
+        <p style="color:#8A8398;font-size:13px;line-height:1.6;margin:0 0 8px;">If this <strong>wasn't</strong> you, reset your password at <a href="https://app.xyrachat.com/forgot-password" style="color:#D882FF;">app.xyrachat.com/forgot-password</a> and contact support@xyrachat.com immediately.</p>
+      </td></tr>
+      <tr><td style="padding:16px 32px 28px;border-top:1px solid rgba(255,255,255,0.06);"><p style="color:#6F6880;font-size:11px;margin:16px 0 0;text-align:center;">Mll Nexus Group SL · Xyra Chat</p></td></tr>
+    </table>
+  </td></tr></table>
+</div>
+```

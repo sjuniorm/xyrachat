@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
 import { identify } from "@/lib/analytics";
+import { Turnstile, isCaptchaEnabled } from "@/components/auth/turnstile";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,18 +18,28 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (isCaptchaEnabled() && !captchaToken) {
+      toast.error("Please complete the verification.");
+      return;
+    }
     setPending(true);
     const supabase = createClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
+      options: { captchaToken: captchaToken ?? undefined },
     });
     setPending(false);
     if (error) {
       toast.error(error.message);
+      // Token is single-use — remount for a fresh one before the next try.
+      setCaptchaToken(null);
+      setCaptchaKey((k) => k + 1);
       return;
     }
     if (data.user) {
@@ -95,6 +106,7 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </div>
+          <Turnstile key={captchaKey} onToken={setCaptchaToken} />
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
           <Button
