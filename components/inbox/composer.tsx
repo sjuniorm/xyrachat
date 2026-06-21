@@ -262,19 +262,22 @@ export function Composer({
     });
   }
 
-  // Attach + send a file. WhatsApp only for now (Meta media upload); other
-  // providers' media outbound is separate work. The composer's current text
-  // rides along as the caption.
+  // Channels with outbound media wired (provider takes the raw bytes). IG /
+  // Messenger / Webchat need a public media URL (Meta/visitor must fetch it) —
+  // that's a separate increment, so they're still gated below.
+  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram"]);
+
+  // Attach + send a file. The composer's current text rides along as the caption.
   function onAttachClick() {
     // Internal notes are org-only — they must NEVER reach the customer. The
-    // media path sends to the customer over WhatsApp, so block it (and the
-    // typed note that would ride along as a caption) while the toggle is on.
+    // media path sends to the customer, so block it (and the typed note that
+    // would ride along as a caption) while the toggle is on.
     if (internal) {
       toast.message("Turn off “Internal note” to send a file to the customer.");
       return;
     }
-    if (conversation.channel !== "whatsapp") {
-      toast.message("File sending is on WhatsApp for now — more channels soon.");
+    if (!MEDIA_CHANNELS.has(conversation.channel)) {
+      toast.message("File sending isn't available on this channel yet — coming soon.");
       return;
     }
     fileRef.current?.click();
@@ -299,7 +302,7 @@ export function Composer({
       fd.set("conversationId", conversation.id);
       fd.set("file", file);
       if (text.trim()) fd.set("caption", text.trim());
-      const res = await fetch("/api/channels/whatsapp/send-media", {
+      const res = await fetch(`/api/channels/${conversation.channel}/send-media`, {
         method: "POST",
         body: fd,
       });
