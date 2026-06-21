@@ -283,8 +283,8 @@ function extractContent(msg: WaInboundMessage): {
     case "text":
       return { content: msg.text?.body ?? null, media_url: null, media_type: null };
     case "image":
-      // media URL fetching deferred (requires Graph media-lookup call). Store
-      // the media id for now; we resolve to a real URL in Week 4.
+      // Store the WA media id; it's resolved to a real URL on demand by the
+      // /api/media proxy (auth + org-ownership checked) when the inbox renders it.
       return {
         content: msg.image?.caption ?? null,
         media_url: msg.image?.id ?? null,

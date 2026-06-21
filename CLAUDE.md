@@ -1751,14 +1751,17 @@ auto-mode, each item built→`npm run build`→commit→push.
   manual entry stays the fallback, so the untested-against-real-Meta code can't
   break prod. Code→token exchanges POST creds in the form body (not URL query).
   Activates once Meta approves + the config IDs are set in Vercel.
-- **Pricing finalized** — `lib/billing/bundles.ts` now has 4 paid tiers:
-  Starter €39 (2ch/2seats/1 bot/300k AI, no broadcasts) · **Growth €99**
-  (5ch/5seats/2 bots/1M AI/broadcasts, "Most popular") · Pro €199 (unlimited
-  ch/15 seats/5 bots/full API+voice) · Enterprise from €399 (custom). Stripe
-  price lookup is dynamic (`STRIPE_PRICE_<BUNDLE>_<INTERVAL>`), so the new tier
-  just needs the env vars (added to `.env.example`; runbook §3 updated, annual =
-  2 months free). **Social Lite €19** (IG-automations-only) is still TODO —
-  Meta-gated, needs an inbox feature-gate.
+- **Pricing finalized (UPDATED 2026-06)** — `lib/billing/bundles.ts` ships 5 paid
+  tiers + Trial: **Solo €29** (Instagram-only: auto-DMs + comment/DM keyword
+  replies) · **Core €49** (1ch/1seat/1 bot/automations) · **Edge €99** "Most
+  popular" (6ch/5seats/3 bots/API/automations) · **Prime €199** (10ch/10seats/3
+  bots/integrations/broadcasts/API) · **Infinite €399** (unlimited + white-label +
+  priority). Annual = 2 months free. Add-ons: extra user €10 · channel €15 ·
+  chatbot €25 · +500k AI €19 · integrations €29 · broadcasts €29. Stripe price
+  lookup is dynamic (`STRIPE_PRICE_<BUNDLE>_<INTERVAL>`). (The earlier
+  Starter/Growth/Pro/Enterprise line was a superseded proposal — code is
+  Solo/Core/Edge/Prime/Infinite.) **Social Lite €19** (IG-automations-only) still
+  TODO — Meta-gated, needs an inbox feature-gate.
 - **Bot reply 👍/👎 feedback** — migration **052** `bot_reply_feedback`
   (`lib/bots/feedback.ts` `rateBotReply`). Thumbs on bot-reply bubbles only
   (`is_bot_reply` from adapt), my rating hydrated via
