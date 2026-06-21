@@ -48,9 +48,9 @@ export function DocSection({
 }
 
 export function Code({
-  language: _language,
   children,
 }: {
+  // `language` is accepted for call-site readability but not used in rendering.
   language?: string;
   children: string;
 }) {

@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { SCOPES } from "@/lib/api/scopes";
 import { createApiKey, revokeApiKey, deleteApiKey } from "@/lib/api/key-actions";
 
 type KeyRow = {

@@ -18,6 +18,13 @@ const eslintConfig = defineConfig([
     // The Tauri desktop shell (Rust + its own config).
     "src-tauri/**",
   ]),
+  {
+    rules: {
+      // Stylistic-only + high-friction for a copy-heavy product (trips on every
+      // apostrophe like "you're"). Quotes/apostrophes in JSX text render fine.
+      "react/no-unescaped-entities": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

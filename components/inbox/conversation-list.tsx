@@ -34,7 +34,6 @@ import type {
   ConversationFilter,
 } from "@/lib/mock-data";
 import type { TeamMember } from "@/lib/team/server";
-import { cn } from "@/lib/utils";
 
 const TABS: { value: ConversationFilter; label: string }[] = [
   { value: "all", label: "All" },

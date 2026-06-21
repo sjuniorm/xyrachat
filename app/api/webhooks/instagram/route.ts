@@ -209,14 +209,6 @@ type IgCommentChange = {
   };
 };
 
-type IgMentionChange = {
-  field: "mentions";
-  value: {
-    media_id?: string;
-    comment_id?: string;
-  };
-};
-
 async function handleChange(
   channel: IgChannel,
   change: { field: string; value: unknown },

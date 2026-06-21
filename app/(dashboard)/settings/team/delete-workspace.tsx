@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +19,6 @@ import { createClient } from "@/lib/supabase/client";
 // org-scoped table and starts the 30-day retention purge, then hard-deletes the
 // owner's auth account. Requires typing the workspace name to confirm.
 export function DeleteWorkspace({ workspaceName }: { workspaceName: string }) {
-  const router = useRouter();
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const armed = confirm.trim() === workspaceName.trim() && workspaceName.trim().length > 0;

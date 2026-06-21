@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
-  Plus, Trash2, Save, AlertCircle,
+  Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
 } from "lucide-react";
@@ -833,9 +834,9 @@ function LeafFields({
           {sequences.length === 0 ? (
             <p className="text-[11px] text-amber-200/80">
               No sequences yet —{" "}
-              <a href="/automations/sequences" className="underline">
+              <Link href="/automations/sequences" className="underline">
                 create one
-              </a>{" "}
+              </Link>{" "}
               first, then pick it here.
             </p>
           ) : (
