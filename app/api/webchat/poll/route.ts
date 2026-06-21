@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 
   let q = admin
     .from("messages")
-    .select("id, content, created_at, sender_type")
+    .select("id, content, created_at, sender_type, media_url, media_type")
     .eq("conversation_id", conv.id)
     .eq("direction", "outbound")
     // CRITICAL: never return internal staff notes to the visitor. Notes are
@@ -72,15 +72,30 @@ export async function GET(req: Request) {
   if (since) q = q.gt("created_at", since);
 
   const { data: msgs } = await q;
-  return NextResponse.json(
-    {
-      messages: (msgs ?? []).map((m) => ({
+
+  // Media is stored as a private proxy path (/api/media/chat-media/<path>) the
+  // public visitor can't reach. Mint a short-lived SIGNED URL per media message
+  // so the widget can render it. Signed fresh on each poll (URLs expire).
+  const PREFIX = "/api/media/chat-media/";
+  const rows = msgs ?? [];
+  const signed = await Promise.all(
+    rows.map(async (m) => {
+      let mediaUrl: string | null = null;
+      if (m.media_url && m.media_url.startsWith(PREFIX)) {
+        const path = m.media_url.slice(PREFIX.length);
+        const { data: s } = await admin.storage.from("chat-media").createSignedUrl(path, 600);
+        mediaUrl = s?.signedUrl ?? null;
+      }
+      return {
         id: m.id,
         content: m.content,
         created_at: m.created_at,
         sender_type: m.sender_type, // 'bot' → widget shows 👍/👎
-      })),
-    },
-    { headers: WEBCHAT_CORS },
+        media_url: mediaUrl,
+        media_type: m.media_type ?? null,
+      };
+    }),
   );
+
+  return NextResponse.json({ messages: signed }, { headers: WEBCHAT_CORS });
 }

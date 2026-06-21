@@ -262,9 +262,8 @@ export function Composer({
     });
   }
 
-  // Channels with outbound media wired. Webchat still needs a visitor-readable
-  // (signed) media URL in the poll, so it's gated until that lands.
-  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram", "email", "instagram", "facebook"]);
+  // All channels now support outbound media.
+  const MEDIA_CHANNELS = new Set(["whatsapp", "telegram", "email", "instagram", "facebook", "webchat"]);
 
   // Attach + send a file. The composer's current text rides along as the caption.
   function onAttachClick() {

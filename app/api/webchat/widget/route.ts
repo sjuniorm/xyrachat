@@ -76,13 +76,23 @@ const WIDGET = String.raw`(function(){
     root.getElementById('xform').onsubmit = onSend;
   }
 
-  function addMsg(text, dir, id, canRate){
+  function addMsg(text, dir, id, canRate, mediaUrl, mediaType){
     if (id){ if (seen[id]) return; seen[id]=1; }
     var m = root.getElementById('xmsgs');
     if (!m) return;
     var b = document.createElement('div');
     b.className = 'b ' + (dir==='out'?'in':'out'); // visitor's own = 'out' visual; agent = 'in'
-    b.textContent = text;
+    if (mediaUrl){
+      var el;
+      if (mediaType==='image'){ el=document.createElement('img'); el.src=mediaUrl; el.style.maxWidth='100%'; el.style.borderRadius='8px'; el.style.display='block'; }
+      else if (mediaType==='video'){ el=document.createElement('video'); el.src=mediaUrl; el.controls=true; el.style.maxWidth='100%'; }
+      else if (mediaType==='audio'){ el=document.createElement('audio'); el.src=mediaUrl; el.controls=true; }
+      else { el=document.createElement('a'); el.href=mediaUrl; el.target='_blank'; el.rel='noopener noreferrer'; el.textContent='📎 ' + (text || 'Download'); }
+      b.appendChild(el);
+      if (text && mediaType!=='document'){ var cap=document.createElement('div'); cap.textContent=text; cap.style.marginTop='6px'; b.appendChild(cap); }
+    } else {
+      b.textContent = text;
+    }
     m.appendChild(b);
     if (canRate && id){
       var fb = document.createElement('div'); fb.className = 'fb';
@@ -143,7 +153,7 @@ const WIDGET = String.raw`(function(){
         if (!j || !j.messages) return;
         for (var i=0;i<j.messages.length;i++){
           var msg = j.messages[i];
-          addMsg(msg.content, 'agent', msg.id, msg.sender_type==='bot');
+          addMsg(msg.content, 'agent', msg.id, msg.sender_type==='bot', msg.media_url, msg.media_type);
           if (msg.created_at > since) since = msg.created_at;
         }
       }).catch(function(){});
