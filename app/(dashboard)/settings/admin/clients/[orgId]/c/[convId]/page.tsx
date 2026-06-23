@@ -1,19 +1,26 @@
 import Link from "next/link";
 import { ArrowLeft, ShieldAlert } from "lucide-react";
 import { getClientConversationMessages } from "@/lib/support/view";
+import { getActiveSupportGrant } from "@/lib/support/access";
+import { SupportNoteForm } from "./support-note-form";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-// Read-only support view of a single client conversation. Gated + audited inside
-// getClientConversationMessages (operator + active grant). No composer — read only.
+// Support view of a single client conversation. Gated + audited inside
+// getClientConversationMessages (operator + active grant). Read-only unless the
+// client granted read_reply scope, in which case support can post internal notes.
 export default async function SupportConversationPage({
   params,
 }: {
   params: Promise<{ orgId: string; convId: string }>;
 }) {
   const { orgId, convId } = await params;
-  const res = await getClientConversationMessages(orgId, convId);
+  const [res, grant] = await Promise.all([
+    getClientConversationMessages(orgId, convId),
+    getActiveSupportGrant(orgId),
+  ]);
+  const canReply = grant?.scope === "read_reply";
 
   if (!res.ok) {
     return (
@@ -40,7 +47,8 @@ export default async function SupportConversationPage({
           <p className="mt-1 inline-flex items-center gap-2 text-xs text-white/50">
             <span className="capitalize">{res.channelType ?? "—"}</span>
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-200">
-              <ShieldAlert className="size-2.5" /> Support read-only view · logged
+              <ShieldAlert className="size-2.5" />
+              {canReply ? "Support view · can post internal notes · logged" : "Support read-only view · logged"}
             </span>
           </p>
         </header>
@@ -81,6 +89,8 @@ export default async function SupportConversationPage({
             );
           })}
         </div>
+
+        {canReply && <SupportNoteForm orgId={orgId} convId={convId} />}
       </div>
     </div>
   );
