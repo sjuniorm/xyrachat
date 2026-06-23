@@ -15,9 +15,9 @@ const SUBSCRIBED_FIELDS = "messages,messaging_postbacks,message_deliveries,messa
 // subscribe to our webhook, create the channel).
 //
 // ⚠️ DEV-MODE TEST REQUIRED: built to spec, not yet verified against a live Meta
-// app. Multi-page picker is deferred (auto-picks the first Page) — same as the
-// IG auto-pick-first behavior; noted in the response so the UI can hint.
-type Body = { code?: string; name?: string };
+// app. When the account has multiple Pages we return the list so the user picks
+// (no auto-pick); the client re-runs FB.login and posts back the chosen pageId.
+type Body = { code?: string; name?: string; pageId?: string };
 
 export async function POST(req: Request) {
   const appId = process.env.META_APP_ID;
@@ -96,7 +96,27 @@ export async function POST(req: Request) {
       { status: 422 },
     );
   }
-  const page = pages[0]; // multi-page picker deferred
+  // Page selection: honor an explicit choice; auto-use the only Page; otherwise
+  // return the list so the user picks (don't silently connect the wrong Page).
+  let page: { id: string; name: string; access_token: string } | undefined;
+  if (body.pageId) {
+    page = pages.find((p) => p.id === body.pageId);
+    if (!page) {
+      return NextResponse.json(
+        { error: "That Page wasn't found on your account." },
+        { status: 422 },
+      );
+    }
+  } else if (pages.length === 1) {
+    page = pages[0];
+  } else {
+    // No tokens in this response — just id + name for the chooser.
+    return NextResponse.json({
+      ok: false,
+      needsChoice: true,
+      pages: pages.map((p) => ({ id: p.id, name: p.name })),
+    });
+  }
 
   // 3. Subscribe the Page to our app's webhook (also validates the page token).
   const subRes = await fetch(
@@ -138,5 +158,5 @@ export async function POST(req: Request) {
   });
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, pageName: page.name, otherPages: Math.max(0, pages.length - 1) });
+  return NextResponse.json({ ok: true, pageName: page.name });
 }
