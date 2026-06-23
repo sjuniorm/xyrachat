@@ -951,6 +951,9 @@ export async function sendOutbound(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const admin = createAdminClient();
@@ -988,6 +991,9 @@ async function sendEmail(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
@@ -1057,7 +1063,7 @@ async function sendEmail(
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     email_message_id: outboundMessageId,
     metadata: {
@@ -1090,13 +1096,16 @@ async function sendWebchat(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   await admin.from("messages").insert({
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     metadata: args.botMetadata,
   });
@@ -1119,6 +1128,9 @@ async function sendTelegram(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const [{ data: channel }, { data: contact }] = await Promise.all([
@@ -1151,7 +1163,7 @@ async function sendTelegram(
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     telegram_message_id: tgKey,
     metadata: args.botMetadata,
@@ -1170,6 +1182,9 @@ async function sendWhatsApp(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const [{ data: channel }, { data: contact }] = await Promise.all([
@@ -1214,7 +1229,7 @@ async function sendWhatsApp(
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     wa_message_id: waId,
     metadata: args.botMetadata,
@@ -1233,6 +1248,9 @@ async function sendInstagram(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const [{ data: channel }, { data: contact }] = await Promise.all([
@@ -1276,7 +1294,7 @@ async function sendInstagram(
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     ig_message_id: json?.message_id ?? null,
     metadata: args.botMetadata,
@@ -1295,6 +1313,9 @@ async function sendMessenger(
     botMetadata: Record<string, unknown>;
     channelId: string;
     contactId: string;
+    // Outbound rows default to sender_type 'bot'; a support customer-reply
+    // passes 'agent' so it pauses the bot + isn't treated as a bot reply.
+    senderType?: "agent" | "bot";
   },
 ): Promise<void> {
   const [{ data: channel }, { data: contact }] = await Promise.all([
@@ -1332,7 +1353,7 @@ async function sendMessenger(
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
-    sender_type: "bot",
+    sender_type: args.senderType ?? "bot",
     status: "sent",
     messenger_message_id: json?.message_id ?? null,
     metadata: args.botMetadata,
