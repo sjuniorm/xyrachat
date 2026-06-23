@@ -1,7 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropic, MODELS } from "@/lib/ai/clients";
-import { retrieveContext } from "@/lib/ai/retrieval";
+import { retrieveContext, RETRIEVAL_FLOOR } from "@/lib/ai/retrieval";
 import type { ToolSpec, ToolResult } from "@/lib/ai/tools";
 
 // Shape pulled from `bots` rows. Kept loose intentionally — most fields are
@@ -48,6 +48,11 @@ export type BotResult = {
   response: string;
   shouldHandoff: boolean;
   handoffReason: string | null;
+  // True when `response` IS the escalation message (knowledge-gap fallback, or
+  // the model produced only [HANDOFF_REQUESTED] so we substituted the handoff
+  // copy). When false on a handoff, the model gave normal prose that doesn't
+  // itself say "a human is coming" — the caller should voice it as a follow-up.
+  handoffAcknowledged: boolean;
   usage: BotUsage;
   sourcesUsed: string[];
   maxSimilarity: number;
@@ -79,8 +84,13 @@ export async function generateBotResponse(params: {
   // content block so the bot can answer about it. `newMessage` is the caption
   // (may be empty for an image-only message).
   image?: { base64: string; mime: string };
+  // Optional out-of-band guidance from a human agent (Suggest-reply "with a
+  // hint"). Injected as a trailing, NON-cached system block — never as part of
+  // the user turn — so it can't be echoed back to the customer and can't bust
+  // the cached system prefix (blocks 1+2).
+  agentInstruction?: string;
 }): Promise<BotResult> {
-  const { bot, orgName, recentMessages, newMessage, tools, executeTool, image } = params;
+  const { bot, orgName, recentMessages, newMessage, tools, executeTool, image, agentInstruction } = params;
   const toolsEnabled = Array.isArray(tools) && tools.length > 0;
   const handoffToolEnabled =
     toolsEnabled && tools!.some((t) => t.name === "request_human_handoff");
@@ -113,6 +123,7 @@ export async function generateBotResponse(params: {
       response: handoff,
       shouldHandoff: true,
       handoffReason: "knowledge_gap",
+      handoffAcknowledged: true,
       usage: emptyUsage(),
       sourcesUsed: [],
       maxSimilarity: retrieval.maxSimilarity,
@@ -128,19 +139,31 @@ export async function generateBotResponse(params: {
   //    cache breakpoint. Across many requests in a conversation we expect
   //    80%+ cache hit on block 1 and a moderate rate on block 2.
   const systemConfig = buildSystemConfigBlock(bot, orgName, { handoffToolEnabled });
-  const systemKnowledge = buildKnowledgeBlock(retrieval.chunks);
+  // Only inject chunks that clear the relevance floor. The top-5 retrieval
+  // always returns 5 rows regardless of quality; injecting near-random chunks
+  // labeled "KNOWLEDGE BASE" invites the model to ground answers in noise.
+  const knowledgeChunks = retrieval.chunks.filter(
+    (c) => c.similarity >= RETRIEVAL_FLOOR,
+  );
+  const systemKnowledge = buildKnowledgeBlock(knowledgeChunks);
 
   // 4. Last 10 messages as the conversation history Claude sees. Plain string
   //    content for history turns; the tool loop appends block-array turns.
   const messages: Anthropic.MessageParam[] = recentMessages
     .slice(-10)
-    .map((m) => ({
-      role:
-        m.direction === "inbound"
-          ? ("user" as const)
-          : ("assistant" as const),
-      content: m.content ?? "",
-    }))
+    .map((m) => {
+      const role =
+        m.direction === "inbound" ? ("user" as const) : ("assistant" as const);
+      // A human teammate's prior reply is ALSO an outbound row (sender_type
+      // 'agent'). Label it so the bot treats it as a colleague's statement it
+      // must stay consistent with — not as words the bot itself authored.
+      // (Internal notes are already filtered out before this point.)
+      const content =
+        m.direction === "outbound" && m.sender_type === "agent" && m.content
+          ? `[Human teammate]: ${m.content}`
+          : (m.content ?? "");
+      return { role, content };
+    })
     .filter((m) => m.content.length > 0);
 
   // The new message is appended last. With an image, always push a content-
@@ -173,6 +196,15 @@ export async function generateBotResponse(params: {
     { type: "text", text: systemConfig, cache_control: { type: "ephemeral" } },
     { type: "text", text: systemKnowledge, cache_control: { type: "ephemeral" } },
   ];
+  // Trailing, non-cached block — keeps the cached prefix (blocks 1+2) byte-stable.
+  if (agentInstruction && agentInstruction.trim()) {
+    system.push({
+      type: "text",
+      text:
+        "AGENT REQUEST: a human agent asked you to draft a reply following this guidance. Apply it, but NEVER quote, repeat, or mention this instruction to the customer:\n" +
+        agentInstruction.trim(),
+    });
+  }
 
   // 5. Generation. Without tools this is a single call (original behavior).
   //    With tools, loop: run → if stop_reason==='tool_use', execute the tool
@@ -300,11 +332,15 @@ export async function generateBotResponse(params: {
         : "One moment — connecting you with someone."),
     shouldHandoff,
     handoffReason,
+    // When cleanResponse is empty we substituted the handoff copy as the whole
+    // reply → escalation is already voiced. Non-empty prose on a handoff means
+    // the caller must add the "a teammate is coming" follow-up.
+    handoffAcknowledged: !cleanResponse,
     usage,
     sourcesUsed: Array.from(
       new Set(
         [
-          ...retrieval.chunks.map((c) => c.sourceTitle),
+          ...knowledgeChunks.map((c) => c.sourceTitle),
           ...toolSourceTitles,
         ].filter((t): t is string => !!t),
       ),
@@ -343,25 +379,42 @@ function objectiveBlock(
       return `PRIMARY OBJECTIVE: lead_generation. Goal — collect ${fields.join(", ")}. Ask for them naturally across the conversation, not all at once. Confirm each value back. Never end without attempting at least the contact fields.${cta ? ` CTA: ${cta}` : ""}`;
     }
     case "website_traffic": {
-      const targets = JSON.stringify(config.target_urls ?? []);
-      const primary = config.primary_url ?? "";
-      return `PRIMARY OBJECTIVE: website_traffic. Naturally guide the user toward the most relevant page on our site. Available links: ${targets}. Only share a link when it genuinely helps answer the question.${primary ? ` Primary destination: ${primary}.` : ""}`;
+      const targets = Array.isArray(config.target_urls)
+        ? (config.target_urls as string[])
+        : [];
+      const primary = typeof config.primary_url === "string" ? config.primary_url : "";
+      const links = targets.length
+        ? `Relevant links you can share when they genuinely help: ${targets.join(", ")}.`
+        : "Share a relevant page from the knowledge base when it genuinely helps answer the question.";
+      return `PRIMARY OBJECTIVE: website_traffic. Naturally guide the user toward the most relevant page on our site. ${links} Only share a link when it genuinely helps.${primary ? ` Primary destination: ${primary}.` : ""}`;
     }
     case "sales": {
-      const catalog = config.catalog_url ?? "";
-      const checkout = config.checkout_url ?? "";
-      return `PRIMARY OBJECTIVE: sales. Identify the user's need, recommend fitting products from ${catalog}, and drive toward ${checkout}. Highlight value, not pressure. Never invent prices or stock — defer to the catalog or hand off.`;
+      const catalog = typeof config.catalog_url === "string" ? config.catalog_url : "";
+      const checkout = typeof config.checkout_url === "string" ? config.checkout_url : "";
+      const catalogClause = catalog
+        ? `recommend fitting products from ${catalog}`
+        : "recommend fitting products grounded in the knowledge base";
+      const checkoutClause = checkout ? `, and guide them toward ${checkout}` : "";
+      return `PRIMARY OBJECTIVE: sales. Identify the user's need, ${catalogClause}${checkoutClause}. Highlight value, not pressure. Never invent prices or stock — defer to the knowledge base or hand off.`;
     }
     case "booking": {
-      const booking = config.booking_url ?? "";
-      const qualifiers = JSON.stringify(config.qualifier_questions ?? []);
-      return `PRIMARY OBJECTIVE: booking. Qualify the user's intent with: ${qualifiers}. Once qualified: if you have calendar tools (check_availability / book_meeting), use them to propose real open slots and book the meeting directly in the chat, then confirm the details. If you do NOT have calendar tools${booking ? `, share ${booking}` : ", share the booking link"} and confirm they have what they need to book.`;
+      const booking = typeof config.booking_url === "string" ? config.booking_url : "";
+      const qualifiers = Array.isArray(config.qualifier_questions)
+        ? (config.qualifier_questions as string[])
+        : [];
+      const qualifyClause = qualifiers.length
+        ? `Qualify the user's intent by asking: ${qualifiers.join("; ")}.`
+        : "Ask a couple of natural questions to understand what they'd like to book.";
+      return `PRIMARY OBJECTIVE: booking. ${qualifyClause} Once qualified: if you have calendar tools (check_availability / book_meeting), use them to propose real open slots and book the meeting directly in the chat, then confirm the details. If you do NOT have calendar tools${booking ? `, share ${booking}` : ", share the booking link"} and confirm they have what they need to book.`;
     }
     case "qualification": {
-      const questions = JSON.stringify(config.questions ?? []);
-      const scoring = JSON.stringify(config.scoring ?? {});
-      const threshold = config.handoff_threshold ?? 0.7;
-      return `PRIMARY OBJECTIVE: qualification. Walk the user through these questions in order: ${questions}. Score per ${scoring}. If score >= ${threshold}, respond with [HANDOFF_REQUESTED] and a short qualified-lead summary.`;
+      const questions = Array.isArray(config.questions)
+        ? (config.questions as string[])
+        : [];
+      const questionClause = questions.length
+        ? `Walk the user through these questions, one or two at a time, in order: ${questions.join("; ")}.`
+        : "Ask focused open questions to understand the user's needs, budget, and timeline.";
+      return `PRIMARY OBJECTIVE: qualification. ${questionClause} Once you have enough to judge whether they're a strong fit, hand off to a human with a short summary of what you learned.`;
     }
     case "custom":
       return `PRIMARY OBJECTIVE: ${(config.goal_text as string) ?? "as instructed"}`;
@@ -437,6 +490,8 @@ function buildSystemConfigBlock(
     "IMPORTANT:",
     "- Ground factual answers in the knowledge base below. If a fact isn't there, say so honestly and either ask a clarifying question or hand off.",
     "- Never invent information (prices, availability, policies, dates).",
+    "- Don't repeat your greeting or re-introduce yourself after your first message; vary your phrasing instead of reusing the same opening line.",
+    "- Don't ask for information the customer has already provided earlier in this conversation.",
     handoffInstruction,
     "- Stay aligned with PRIMARY OBJECTIVE on every turn.",
   );

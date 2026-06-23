@@ -342,6 +342,11 @@ export function Composer({
 
   async function suggestReply() {
     if (pending || !hasBotAssigned) return;
+    // Suggest-reply drafts a CUSTOMER reply — meaningless in internal-note mode.
+    if (internal) {
+      toast.message("Turn off “Internal note” to draft a customer reply.");
+      return;
+    }
     const prev = text;
     setPending(true);
     try {
@@ -351,12 +356,26 @@ export function Composer({
         body: JSON.stringify({ conversation_id: conversation.id }),
       });
       const data = await res.json();
-      if (!data?.text) throw new Error("no text");
+      // No grounded answer (knowledge gap) → the bot would just escalate. Don't
+      // paste the canned "let me get a teammate" line into the agent's draft.
+      if (res.ok && data?.no_grounded_answer) {
+        toast.message(
+          "No grounded answer in the knowledge base — reply manually or hand off to keep it accurate.",
+        );
+        return;
+      }
+      if (!res.ok || !data?.text) {
+        // Surface the real reason (no bot assigned, quota, key, 502) instead of
+        // a generic failure.
+        const reason =
+          data?.message || data?.error || `Suggest reply failed (${res.status})`;
+        throw new Error(reason);
+      }
       setText(data.text);
       requestAnimationFrame(() => taRef.current?.focus());
       if (prev) showUndoToast(prev);
-    } catch {
-      toast.error("Suggest reply failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Suggest reply failed");
     } finally {
       setPending(false);
     }

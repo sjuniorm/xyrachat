@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 //   WhatsApp  → a Meta media_id (2-step Graph resolve, Bearer on both calls)
 //   Telegram  → a file_id (getFile → /file/bot<token>/<path>)
 //   Instagram → an already-fetchable signed CDN url (1-step)
+//   Messenger → same as Instagram: a Meta CDN url (lookaside.fbsbx.com / fbcdn)
 //
 // SECURITY: downloads only ever hit known Meta / Telegram hosts; we never
 // fetch an arbitrary stored URL, never put a token in a query string, never
@@ -189,7 +190,11 @@ export async function fetchProviderMedia(
     return { bytes, mime: mimeFromPath(filePath) ?? "application/octet-stream" };
   }
 
-  if (channelType === "instagram") {
+  // Instagram + Messenger (facebook) both deliver media as an already-fetchable
+  // Meta CDN URL (lookaside.fbsbx.com / *.fbcdn.net / *.cdninstagram.com), all
+  // covered by META_CDN. Same 1-step fetch, falling back to the page/IG token
+  // on a 401/403.
+  if (channelType === "instagram" || channelType === "facebook") {
     if (!hostAllowed(mediaRef, META_CDN)) return null;
     let res = await safeMediaFetch(mediaRef, META_CDN);
     if (res && (res.status === 401 || res.status === 403)) {

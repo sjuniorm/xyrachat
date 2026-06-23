@@ -93,6 +93,24 @@ export function adaptMessage(row: MessageRow): UiMessage {
       ]
     : undefined;
 
+  // Auto-translation (lib/ai/auto-translate) persists to metadata.auto_translation
+  // as { source, target, text }, but the bubble's show-original toggle reads
+  // metadata.translation as { source_lang, target_lang, translated_text }. Map
+  // it here so auto-translated inbound actually renders the translation on load
+  // (a manual translate still overrides this in client state via onTranslated).
+  const autoT = row.metadata?.auto_translation;
+  const derivedTranslation =
+    autoT && autoT.text
+      ? {
+          source_lang: autoT.source,
+          target_lang: autoT.target,
+          translated_text: autoT.text,
+        }
+      : undefined;
+  const uiMetadata = derivedTranslation
+    ? { ...row.metadata, translation: derivedTranslation }
+    : row.metadata;
+
   return {
     id: row.id,
     conversation_id: row.conversation_id,
@@ -110,7 +128,7 @@ export function adaptMessage(row: MessageRow): UiMessage {
     // A genuine AI bot reply (not an automation send) — the inbox shows a
     // 👍/👎 quality control on these. bot_feedback is layered on in the thread.
     is_bot_reply: row.sender_type === "bot" && !row.metadata?.automation,
-    metadata: row.metadata,
+    metadata: uiMetadata,
   };
 }
 

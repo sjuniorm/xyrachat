@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { CalendarClock, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { languageLabel } from "@/lib/i18n/languages";
 
 const SUPPORT_BOOKING_URL = process.env.NEXT_PUBLIC_SUPPORT_BOOKING_URL;
 import { VoiceNoteTranscript } from "@/components/inbox/voice-note-transcript";
@@ -120,12 +121,21 @@ export function MessageBubble({
         body: JSON.stringify({ message_id: message.id }),
       });
       const data = await res.json();
-      if (data?.translation) {
-        onTranslated(message.id, data.translation);
-        setShowOriginal(false);
+      if (!res.ok || !data?.translation) {
+        // The endpoint returns actionable bodies (402 quota, 502 API error) —
+        // surface them instead of silently doing nothing.
+        const reason =
+          data?.message ||
+          data?.error ||
+          (res.status === 402
+            ? "AI tokens exhausted for this month."
+            : `Translation failed (${res.status})`);
+        throw new Error(reason);
       }
-    } catch {
-      toast.error("Could not translate");
+      onTranslated(message.id, data.translation);
+      setShowOriginal(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not translate");
     } finally {
       setTranslating(false);
     }
@@ -309,7 +319,12 @@ export function MessageBubble({
                 {translation && !showOriginal && (
                   <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/60">
                     <Languages className="size-3" />
-                    <span>translated from {translation.source_lang}</span>
+                    <span>
+                      translated from{" "}
+                      {translation.source_lang && translation.source_lang !== "und"
+                        ? languageLabel(translation.source_lang)
+                        : "the original"}
+                    </span>
                     <button
                       type="button"
                       onClick={(e) => {

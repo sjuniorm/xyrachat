@@ -83,14 +83,24 @@ export async function POST(req: Request) {
 
   // Last 10 messages, oldest → newest. The most recent inbound is what
   // we're suggesting a reply TO.
+  // Exclude internal notes (private agent rows stored as outbound/agent) so they
+  // never enter the model's context, and soft-deleted rows. Matches the bot-gate
+  // + webchat-poll history contract.
   const { data: msgs } = await admin
     .from("messages")
     .select("direction, content, sender_type, created_at")
     .eq("conversation_id", conversationId)
+    .eq("is_internal_note", false)
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(10);
   const ordered = ((msgs ?? []) as ConversationMessage[]).slice().reverse();
+  // The inbound we're replying to is the most recent inbound in the window.
   const lastInbound = [...ordered].reverse().find((m) => m.direction === "inbound");
+  // History passed to the model EXCLUDES that inbound — generateBotResponse
+  // appends it as the final user turn itself (its tail-dedup only compares the
+  // last history row, so leaving the inbound in could double-append it).
+  const historyForModel = ordered.filter((m) => m !== lastInbound);
   if (!lastInbound?.content) {
     return NextResponse.json(
       { error: "No inbound message to reply to" },
@@ -130,11 +140,9 @@ export async function POST(req: Request) {
     const result = await generateBotResponse({
       bot: bot as BotRow,
       orgName: org?.name ?? "the team",
-      recentMessages: ordered,
-      newMessage:
-        body.extra_instruction
-          ? `${lastInbound.content}\n\n[Agent note for you: ${body.extra_instruction}]`
-          : lastInbound.content,
+      recentMessages: historyForModel,
+      newMessage: lastInbound.content,
+      agentInstruction: body.extra_instruction || undefined,
     });
 
     await consumeAiTokens(
@@ -142,9 +150,17 @@ export async function POST(req: Request) {
       result.usage.input_tokens + result.usage.output_tokens,
     );
 
+    // On a knowledge-gap handoff the bot's "response" is just the canned
+    // "let me get a teammate" line — useless as a draft and misleading if it
+    // lands in the agent's composer. Return empty text + a flag so the client
+    // shows a "no grounded answer — reply manually or escalate" hint instead.
+    const noGroundedAnswer =
+      result.shouldHandoff && result.handoffReason === "knowledge_gap";
+
     return NextResponse.json({
-      text: result.response,
-      suggestion: result.response,
+      text: noGroundedAnswer ? "" : result.response,
+      suggestion: noGroundedAnswer ? "" : result.response,
+      no_grounded_answer: noGroundedAnswer,
       should_handoff: result.shouldHandoff,
       handoff_reason: result.handoffReason,
       sources_used: result.sourcesUsed,

@@ -22,14 +22,20 @@ export async function buildConversationSummary(
 ): Promise<ConversationSummary | null> {
   if (!isAnthropicConfigured()) return null;
 
-  const transcript = messages
+  const full = messages
     .filter((m) => m.content?.trim())
     .map((m) => {
       const who = m.direction === "inbound" ? "Customer" : m.sender_type === "bot" ? "Bot" : "Agent";
       return `${who}: ${m.content!.trim()}`;
     })
-    .join("\n")
-    .slice(0, 12000); // cap the prompt; recent context dominates anyway
+    .join("\n");
+  // Cap the prompt by keeping the MOST RECENT context (the tail), not the
+  // opening — recent messages dominate a summary. Trim to a clean line boundary
+  // so we don't begin mid-line.
+  const transcript =
+    full.length > 12000
+      ? full.slice(full.length - 12000).replace(/^[^\n]*\n/, "")
+      : full;
 
   if (!transcript) return null;
 

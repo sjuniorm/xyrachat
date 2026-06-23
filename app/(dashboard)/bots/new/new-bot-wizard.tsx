@@ -31,7 +31,10 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "You're a customer support assistant. Be helpful, accurate, and concise. If you can't resolve a question, hand off to a human teammate.",
-      greeting: "Hi! I'm here to help — what can I do for you today?",
+      // Empty by default: a separate canned greeting + the AI reply reads as a
+      // robotic two-message burst. Left blank, the bot greets AND answers in one
+      // natural reply. Operators can still set a verbatim greeting if they want.
+      greeting: "",
       triggers: ["speak to human", "agent", "complaint", "urgent", "refund"],
     },
   },
@@ -43,7 +46,7 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "You're the friendly first contact for our team. Understand what the visitor needs and naturally collect their contact details across the conversation.",
-      greeting: "Hey there! Quick question — what brought you to us today?",
+      greeting: "",
       triggers: ["speak to human", "sales", "pricing"],
     },
   },
@@ -55,7 +58,7 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "Help visitors find the right page on our site. Only share links when they genuinely help answer the question.",
-      greeting: "Hi! Looking for something specific? I can point you to the right page.",
+      greeting: "",
       triggers: ["speak to human"],
     },
   },
@@ -67,7 +70,7 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "You're a friendly sales assistant. Understand what the customer needs, recommend fitting products, and guide them to checkout. Never invent prices or stock — defer to the catalog or hand off.",
-      greeting: "Hey! Looking for something in particular? Happy to help you find the right product.",
+      greeting: "",
       triggers: ["speak to human", "complaint", "refund"],
     },
   },
@@ -79,7 +82,7 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "Help visitors book a meeting. Qualify briefly, then — if a calendar is connected — offer real open times and book the meeting directly in the chat. Otherwise share the booking link.",
-      greeting: "Hi! Want to book a time? Tell me what you're looking for and I'll find a slot that works.",
+      greeting: "",
       triggers: ["speak to human"],
     },
   },
@@ -91,7 +94,7 @@ const OBJECTIVES = [
     defaults: {
       instructions:
         "Run new leads through our qualification questions in order. Score the answers. Hand off to sales when the score is high.",
-      greeting: "Hi! A few quick questions so I can route you to the right person.",
+      greeting: "",
       triggers: ["speak to human", "sales"],
     },
   },
@@ -394,8 +397,12 @@ function Step2(props: {
             rows={2}
             value={greeting}
             onChange={(e) => setGreeting(e.target.value)}
-            placeholder="The very first message sent to a new contact. Leave blank to skip."
+            placeholder="Leave blank (recommended) and the bot greets naturally inside its first reply. Set a value only if you want an exact greeting sent as a separate message."
           />
+          <p className="text-xs text-muted-foreground">
+            Recommended: leave blank so the bot greets and answers in one natural
+            message instead of sending a canned line first.
+          </p>
         </div>
 
         <div className="space-y-2">

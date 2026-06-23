@@ -10,6 +10,13 @@ export type RetrievalResult = {
   embeddingTokens: number;
 };
 
+// Absolute relevance floor. Chunks below this are noise (cosine sim is so low
+// the chunk is effectively unrelated) and must NOT be injected into the prompt
+// as "knowledge" — doing so invites the model to ground a confident answer in
+// irrelevant text. Decoupled from the per-bot knowledge_threshold (which gates
+// answer-vs-handoff); this is a hard "is this chunk even on-topic" gate.
+export const RETRIEVAL_FLOOR = 0.35;
+
 // Embed the query and run match_embeddings (server-side cosine search).
 // Returns both the chunks AND the max similarity so the caller can apply
 // bot.knowledge_threshold and decide whether to answer or hand off.

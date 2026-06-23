@@ -312,11 +312,30 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       within = true;
     }
     if (!within) {
-      if (bot.off_hours_message) {
-        // Send the configured off-hours auto-reply as the bot.
+      // Always acknowledge (never dead silence) — fall back to a sane default
+      // when the operator left off_hours_message empty.
+      const offHoursContent = bot.off_hours_message || DEFAULT_OFF_HOURS_MESSAGE;
+      // WhatsApp free-form text is only deliverable inside the 24h window — this
+      // gate runs BEFORE Gate 5, so guard it here (an undeliverable send would
+      // just error at Meta).
+      const waOpen =
+        input.channel.type !== "whatsapp" ||
+        (conv.last_inbound_at
+          ? Date.now() - new Date(conv.last_inbound_at).getTime() <
+            24 * 60 * 60 * 1000
+          : false);
+      // At most one off-hours reply per ~12h so a midnight burst of messages
+      // doesn't trigger N identical "we're closed" auto-replies.
+      const recentlyAcked = await botFlagExists(
+        admin,
+        input.conversationId,
+        "off_hours",
+        12 * 60 * 60 * 1000,
+      );
+      if (waOpen && !recentlyAcked) {
         await sendOutbound(input.channel.type, {
           conversationId: input.conversationId,
-          content: bot.off_hours_message,
+          content: offHoursContent,
           botMetadata: { off_hours: true },
           channelId: input.channel.id,
           contactId: input.contactId,
@@ -327,7 +346,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
         return { skipped: false, sent: true, handoff: false };
       }
       await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
-        reason: "off_hours_silent",
+        reason: recentlyAcked ? "off_hours_deduped" : "off_hours_undeliverable",
       });
       return { skipped: true, reason: "off_hours" };
     }
@@ -394,6 +413,18 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
         reason: "voice_transcription_failed",
       });
+      // Don't drop a voice note silently — ask the customer to type it.
+      await degradeGracefully({
+        admin,
+        input,
+        bot: bot as BotRow,
+        reason: "voice_transcription_failed",
+        content: DEFAULT_MEDIA_UNREADABLE_MESSAGE,
+        flag: "media_unreadable_ack",
+        escalate: false,
+        clearBotOnly: false,
+        canSendToCustomer: true,
+      });
       return { skipped: true, reason: "voice_transcription_failed" };
     }
     // Persist atomically (server-side JSONB merge + idempotent). The RPC
@@ -425,6 +456,22 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   }
 
   if (!queryText && !inboundImage) {
+    // The customer sent something we can't read (image fetch failed, or a
+    // video/sticker/document we don't process). Acknowledge instead of going
+    // silent so they know it arrived and how to proceed.
+    if (input.newMessage.media_type) {
+      await degradeGracefully({
+        admin,
+        input,
+        bot: bot as BotRow,
+        reason: "media_unreadable",
+        content: DEFAULT_MEDIA_UNREADABLE_MESSAGE,
+        flag: "media_unreadable_ack",
+        escalate: false,
+        clearBotOnly: false,
+        canSendToCustomer: true,
+      });
+    }
     return { skipped: true, reason: "no_text_to_respond_to" };
   }
 
@@ -440,12 +487,41 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       tokens_used: quota.tokens_used_this_month,
       limit: quota.monthly_ai_tokens_limit,
     });
+    // Budget is transient (resets monthly) — acknowledge + surface to a human,
+    // but keep bot_only so the bot resumes automatically once the cap clears.
+    // Static copy (no AI call) so we don't re-spend against the exhausted budget.
+    await degradeGracefully({
+      admin,
+      input,
+      bot: bot as BotRow,
+      reason: "token_budget_exhausted",
+      content: botHandoffCopy(bot as BotRow),
+      // Transient (resets monthly) → keep bot_only so the bot auto-resumes when
+      // the budget clears; its own flag so it doesn't block other failures.
+      flag: "ack_budget",
+      escalate: true,
+      clearBotOnly: false,
+      canSendToCustomer: true,
+    });
     return { skipped: true, reason: "token_budget_exhausted" };
   }
 
   if (!isAnthropicConfigured()) {
     await logOutcome(bot.id, input.conversationId, input.contactId, "fallback_no_knowledge", {
       reason: "anthropic_not_configured",
+    });
+    await degradeGracefully({
+      admin,
+      input,
+      bot: bot as BotRow,
+      reason: "anthropic_not_configured",
+      content: botHandoffCopy(bot as BotRow),
+      // A missing API key is NOT transient (won't self-resolve per-conversation,
+      // needs operator action) → hand the funnel to a human, own flag.
+      flag: "ack_config",
+      escalate: true,
+      clearBotOnly: true,
+      canSendToCustomer: true,
     });
     return { skipped: true, reason: "anthropic_not_configured" };
   }
@@ -490,6 +566,11 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       .from("messages")
       .select("direction, content, sender_type, created_at")
       .eq("conversation_id", input.conversationId)
+      // Never feed private agent notes to the model (they're outbound/agent
+      // rows that would otherwise look like the bot's own prior turns), and
+      // skip soft-deleted rows. Matches Gate 2 + the webchat-poll contract.
+      .eq("is_internal_note", false)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(10),
     admin
@@ -511,6 +592,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     botId: bot.id,
     conversationId: input.conversationId,
     contactId: input.contactId,
+    knowledgeThreshold: (bot as BotRow).knowledge_threshold,
   };
 
   let result;
@@ -534,6 +616,22 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
       reason: "generate_threw",
       error: err instanceof Error ? err.message : String(err),
     });
+    // Never greet-then-ghost. Acknowledge + escalate to a human. (Gate 5 already
+    // confirmed the WA 24h window is open this turn, so the send is deliverable.)
+    await degradeGracefully({
+      admin,
+      input,
+      bot: bot as BotRow,
+      reason: "generate_threw",
+      content: botHandoffCopy(bot as BotRow),
+      // Distinct flag per failure class so a prior transient ack (e.g. budget)
+      // can't suppress this hard-failure escalation. Hard failure → hand to a
+      // human (clearBotOnly) so the customer isn't stuck on a failing bot.
+      flag: "ack_generate",
+      escalate: true,
+      clearBotOnly: true,
+      canSendToCustomer: true,
+    });
     return { skipped: true, reason: "generate_threw" };
   }
 
@@ -550,7 +648,14 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   // refuse mid-call.
   await consumeAiTokens(
     input.channel.org_id,
-    result.usage.input_tokens + result.usage.output_tokens + result.embeddingTokens,
+    result.usage.input_tokens +
+      result.usage.output_tokens +
+      // Cached prompt tokens are real consumed tokens — charge them (raw volume,
+      // not Anthropic's dollar multipliers) or the budget structurally
+      // undercounts every cache-hit reply.
+      result.usage.cache_read_input_tokens +
+      result.usage.cache_creation_input_tokens +
+      result.embeddingTokens,
   );
 
   // Log structured tool outcomes (e.g. capture_lead → 'lead_captured'). The
@@ -593,6 +698,25 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
   });
 
   if (result.shouldHandoff) {
+    // If the model's reply was normal prose that didn't itself promise a human
+    // (keyword/tool trigger), voice the handoff so the customer isn't left
+    // thinking they were ignored. handoffAcknowledged is true when result.response
+    // already IS the escalation copy (knowledge-gap / legacy token) — skip then
+    // to avoid double-messaging.
+    if (!result.handoffAcknowledged) {
+      const handoffMsg =
+        typeof bot.behavior_rules?.handoff_message === "string" &&
+        (bot.behavior_rules.handoff_message as string).trim()
+          ? (bot.behavior_rules.handoff_message as string)
+          : "Let me get a teammate to help — one moment.";
+      await sendOutbound(input.channel.type, {
+        conversationId: input.conversationId,
+        content: handoffMsg,
+        botMetadata: { bot_id: bot.id, handoff_ack: true },
+        channelId: input.channel.id,
+        contactId: input.contactId,
+      });
+    }
     // Hand off to a human: open the conversation AND drop bot_only. Without
     // clearing bot_only the bot would just re-acquire the chat on the next
     // inbound (Gate 2 + the assigned check are bypassed in bot_only), so the
@@ -652,6 +776,114 @@ async function logOutcome(
     });
   } catch (err) {
     console.warn("[bot-gate] logOutcome failed", err);
+  }
+}
+
+// =====================================================================
+// Graceful degradation. The worst outcome for a bot-centric product is to
+// greet a customer (or have replied fluently yesterday) and then go SILENT
+// when generation can't run — an outage, exhausted budget, missing key, or
+// unreadable media. Instead we send ONE human acknowledgement per conversation
+// and, for hard failures, flag the chat for a human. Best-effort: never throws.
+// =====================================================================
+const DEFAULT_OFF_HOURS_MESSAGE =
+  "Thanks for reaching out! We're currently closed, but we've received your message and will reply during business hours.";
+const DEFAULT_MEDIA_UNREADABLE_MESSAGE =
+  "Thanks! I can see you sent an attachment, but I couldn't open it on my end — could you describe it in a message or send it again?";
+
+function botHandoffCopy(bot: BotRow): string {
+  const m = bot.behavior_rules?.handoff_message;
+  return typeof m === "string" && m.trim()
+    ? m
+    : "Thanks for your message! I'm having trouble responding automatically right now — a team member will get back to you shortly.";
+}
+
+// True if a bot message stamped metadata[flag]='true' already exists on the
+// conversation (mirrors the greeting dedup guard). When `sinceMs` is set, only
+// counts recent ones so a recurring condition (e.g. off-hours over several
+// nights) can re-acknowledge after the window passes.
+async function botFlagExists(
+  admin: ReturnType<typeof createAdminClient>,
+  conversationId: string,
+  flag: string,
+  sinceMs?: number,
+): Promise<boolean> {
+  let q = admin
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("conversation_id", conversationId)
+    .eq("sender_type", "bot")
+    .filter(`metadata->>${flag}`, "eq", "true");
+  if (sinceMs) {
+    q = q.gte("created_at", new Date(Date.now() - sinceMs).toISOString());
+  }
+  const { count } = await q;
+  return (count ?? 0) > 0;
+}
+
+// Send a one-time graceful acknowledgement and (optionally) escalate to a human.
+// `canSendToCustomer` is false on undeliverable channels (WhatsApp outside the
+// 24h window) — we still escalate so an agent is alerted even when we can't
+// message the customer. `clearBotOnly` permanently hands a bot_only funnel to a
+// human (hard failures only; transient budget/quota keeps bot_only so the bot
+// resumes when the condition clears).
+async function degradeGracefully(opts: {
+  admin: ReturnType<typeof createAdminClient>;
+  input: BotGateInput;
+  bot: BotRow;
+  reason: string;
+  content: string;
+  flag: string;
+  escalate: boolean;
+  clearBotOnly: boolean;
+  canSendToCustomer: boolean;
+  dedupeSinceMs?: number;
+}): Promise<void> {
+  const { admin, input, bot } = opts;
+  try {
+    // Once we've acknowledged this condition on this conversation, don't repeat
+    // the ack OR re-escalate on subsequent inbounds — otherwise a persistent
+    // condition (e.g. exhausted budget across many messages) would spam the
+    // customer and flood handoff emits. (The bot gate only runs on a fresh
+    // inbound, so the WA 24h window is effectively always open here; canSend is
+    // the guard for the rare stale case.)
+    if (await botFlagExists(admin, input.conversationId, opts.flag, opts.dedupeSinceMs)) {
+      return;
+    }
+    if (opts.canSendToCustomer) {
+      await sendOutbound(input.channel.type, {
+        conversationId: input.conversationId,
+        content: opts.content,
+        botMetadata: { [opts.flag]: true, degraded_reason: opts.reason, bot_id: bot.id },
+        channelId: input.channel.id,
+        contactId: input.contactId,
+      });
+    }
+    if (opts.escalate) {
+      await admin
+        .from("conversations")
+        .update(
+          opts.clearBotOnly
+            ? { status: "open", bot_only: false }
+            : { status: "open" },
+        )
+        .eq("id", input.conversationId);
+      await logOutcome(bot.id, input.conversationId, input.contactId, "handoff", {
+        reason: opts.reason,
+      });
+      void emit({
+        type: "bot.handoff",
+        orgId: input.channel.org_id,
+        data: {
+          bot_id: bot.id,
+          conversation_id: input.conversationId,
+          contact_id: input.contactId,
+          reason: opts.reason,
+        },
+      });
+    }
+  } catch (err) {
+    console.error("[bot-gate] degradeGracefully failed", { reason: opts.reason, err });
   }
 }
 

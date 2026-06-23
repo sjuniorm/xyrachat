@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { retrieveContext } from "@/lib/ai/retrieval";
+import { retrieveContext, RETRIEVAL_FLOOR } from "@/lib/ai/retrieval";
 import { orgCalendarFreeBusy, orgCalendarCreateEvent } from "@/lib/calendar/connections";
 import { syncContactToCrm } from "@/lib/crm/connections";
 
@@ -49,6 +49,10 @@ export type ToolExecContext = {
   botId: string;
   conversationId: string;
   contactId: string;
+  // The bot's knowledge_threshold — search_knowledge filters its hits to this
+  // so the operator's relevance bar is honored on the agentic path too (it
+  // bypasses the default knowledge-gap gate). Optional for back-compat.
+  knowledgeThreshold?: number;
 };
 
 export type ToolResult = {
@@ -339,17 +343,27 @@ async function searchKnowledge(input: unknown, ctx: ToolExecContext): Promise<To
   // botId is server-trusted; retrieveContext scopes results to this bot's
   // embeddings via match_embeddings(bot_id_param).
   const res = await retrieveContext(query, ctx.botId, 5);
-  if (res.chunks.length === 0) {
-    return { content: "No matching information found in the knowledge base." };
+  // Honor the operator's relevance bar (default to the absolute floor). Without
+  // this the tool returns the raw top-5 regardless of similarity, so the model
+  // grounds answers in noise — the exact hallucination the threshold prevents
+  // on the non-tool path.
+  const bar = Math.max(ctx.knowledgeThreshold ?? 0, RETRIEVAL_FLOOR);
+  const hits = res.chunks.filter((c) => c.similarity >= bar);
+  if (hits.length === 0) {
+    return {
+      content:
+        "No matching information found in the knowledge base. Do not guess — ask a clarifying question or hand off to a human.",
+      embeddingTokens: res.embeddingTokens,
+    };
   }
-  const body = res.chunks
+  const body = hits
     .map(
       (c, i) =>
         `[${i + 1}${c.sourceTitle ? " — " + c.sourceTitle : ""}] ${c.text}`,
     )
     .join("\n\n");
   const titles = Array.from(
-    new Set(res.chunks.map((c) => c.sourceTitle).filter((t): t is string => !!t)),
+    new Set(hits.map((c) => c.sourceTitle).filter((t): t is string => !!t)),
   );
   return {
     content: "Knowledge base results:\n" + body,
