@@ -184,3 +184,41 @@
 7. While pending, only added testers can use the live channels — Telegram + Email
    + Webchat work for everyone immediately (no Meta review), so onboard early
    customers on those.
+
+---
+
+## 8) Pre-submit CODE verification (done — all flows wired)
+
+A per-flow trace of each reviewer script against the actual code (4-agent pass).
+**Result: every demo step is wired end-to-end — no code gaps, no broken paths.**
+
+| Permission | Flow | Verdict |
+|---|---|---|
+| `whatsapp_business_messaging` | connect → realtime inbound → reply → STOP/START | ✅ ready |
+| `whatsapp_business_management` | build+submit template → Meta POST → sync status | ✅ ready |
+| `pages_messaging` (Messenger) | connect Page + subscribe → inbound → reply | ✅ ready |
+| `instagram_business_manage_messages` (+ `_basic`) | connect → DM → reply → story/reaction | ✅ ready* |
+
+\* IG is code-ready; its only caveats are **operator env/dashboard config** (not
+code). Set these in the review environment BEFORE submitting or the reviewer hits
+a dead end:
+
+**Per-flow operator preconditions (the reviewer env MUST have these):**
+- **WhatsApp:** `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (GET handshake 500s if unset) +
+  `META_APP_SECRET` (POST 401s if unset). WABA added to the app; migrations
+  003 + 006 + 018 applied. (STOP arrives as a fresh inbound → opens the 24h
+  window, so the auto-confirmation text is deliverable.)
+- **WhatsApp templates:** the demo WA channel needs `wa_business_account_id` +
+  a Vault token, else `createTemplate` errors before reaching Meta.
+- **Messenger:** `MESSENGER_WEBHOOK_VERIFY_TOKEN` + `META_APP_SECRET`; Page
+  subscribed to the app (the connect action does this).
+- **Instagram:** `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` (GET 500s if unset) +
+  `INSTAGRAM_APP_SECRET` (POST 401s if unset; falls back to `META_APP_SECRET`).
+  **`INSTAGRAM_APP_ID` must be set for the "Continue with Instagram" button to
+  render** — otherwise only manual entry shows, so either set it OR script the
+  manual-connect path in the screencast. App subscribed to `messages` +
+  `message_reactions` webhook fields.
+
+Minor non-blocking note (template sync): "Sync from Meta" only UPDATEs local
+rows matched by (channel_id, name, language); a template that exists on Meta but
+not locally is skipped (no insert). Doesn't affect the scripted create→sync demo.
