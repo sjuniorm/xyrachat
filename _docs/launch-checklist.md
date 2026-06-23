@@ -78,8 +78,8 @@
 ## 🔭 Phase 2 — Junior wants these too (build before/around launch, not deferred)
 
 ### Features (🤖 code)
-- [ ] 🤖 **Media outbound on all channels** — IG / Telegram / Messenger / Email send-media (composer hard-blocks non-WA today) + real WhatsApp media upload flow.
-- [ ] 🤖 Inbound media URL resolution (currently stores provider media_id).
+- [x] 🤖 **Media outbound on all channels** — WhatsApp / Telegram / Email / Instagram / Messenger / Webchat `send-media` routes shipped + composer wired (`MEDIA_CHANNELS`), with size/mime/magic-byte validation + a private `chat-media` bucket. (Mobile send is still a stub — see mobile-submission-checklist.md.)
+- [x] 🤖 Inbound media URL resolution — stored provider media_id is resolved on demand via the auth'd `/api/media` proxy (org-ownership checked) when the inbox renders it.
 - [ ] 🤖 Mobile: send photos/files (ChatDetail attach is a stub) + biometric login.
 - [ ] 🤖 Per-agent unread counts + saved-replies CRUD polish.
 - [ ] 🤖 IG/Messenger multi-Page chooser (auto-picks pages[0] today).
