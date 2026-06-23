@@ -1,7 +1,9 @@
 import "server-only";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAgentPermissions } from "@/lib/team/permissions";
+import { isInboxEnabled } from "@/lib/billing/entitlements";
 import type {
   ConversationRow,
   ContactRow,
@@ -9,6 +11,28 @@ import type {
   ChannelRow,
   ConversationWithRelations,
 } from "@/lib/db-types";
+
+/**
+ * Route guard for the unified inbox. Social Lite (automations-only) has no
+ * manual inbox — redirect those orgs away so the page can't be reached by URL.
+ * Fail-safe: only an explicit feature:inbox=false (Social Lite) blocks; every
+ * other plan + un-provisioned orgs pass through.
+ */
+export async function requireInboxAccess(): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profile?.org_id && !(await isInboxEnabled(profile.org_id))) {
+    redirect("/automations");
+  }
+}
 
 /**
  * Lazy snooze-wake — flips any `status='snoozed'` conversation whose

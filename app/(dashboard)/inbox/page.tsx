@@ -1,6 +1,8 @@
 import { Inbox } from "lucide-react";
+import { requireInboxAccess } from "@/lib/inbox/server";
 
-export default function InboxIndexPage() {
+export default async function InboxIndexPage() {
+  await requireInboxAccess();
   return (
     <div
       className="flex flex-1 items-center justify-center px-8 text-center"

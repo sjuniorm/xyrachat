@@ -6,6 +6,7 @@ import {
   getMessagesForConversation,
   getMyBotFeedbackForConversation,
   resolveServingBot,
+  requireInboxAccess,
 } from "@/lib/inbox/server";
 import { adaptConversation } from "@/lib/inbox/adapt";
 import { getOrgMembers } from "@/lib/team/server";
@@ -17,6 +18,7 @@ export default async function InboxConversationPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  await requireInboxAccess();
   const supabase = await createClient();
   const {
     data: { user },

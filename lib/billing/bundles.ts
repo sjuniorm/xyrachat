@@ -21,7 +21,14 @@
 
 import type { FeatureKey } from "./entitlements";
 
-export type BundleId = "trial" | "solo" | "core" | "edge" | "prime" | "infinite";
+export type BundleId =
+  | "trial"
+  | "social_lite"
+  | "solo"
+  | "core"
+  | "edge"
+  | "prime"
+  | "infinite";
 
 export type Bundle = {
   id: BundleId;
@@ -88,6 +95,51 @@ export const BUNDLES: Record<BundleId, Bundle> = {
       "feature:whitelabel": "false",
       "feature:priority_support": "false",
       "feature:custom_integrations": "false",
+    },
+  },
+
+  // Social Lite — €19. Instagram automations ONLY (auto-DMs, comment/DM keyword
+  // replies). The wedge below Solo: NO unified inbox (feature:inbox=false → pure
+  // set-and-forget, can't manually reply), no AI chatbot, IG channel only.
+  // Upgrading to any other pack restores the inbox (the gate is fail-safe + the
+  // webhook clears prior bundle rows on plan change).
+  social_lite: {
+    id: "social_lite",
+    name: "Social Lite",
+    monthlyPriceEur: 19,
+    trialDays: 0,
+    description: "€19/mo. Instagram automations only — auto-DMs + comment/DM keyword replies. No manual inbox.",
+    addonsAllowed: false,
+    entitlementSource: "bundle:social_lite",
+    entitlements: {
+      "channels:max": "1",
+      "channels:instagram": "true",
+      "channels:whatsapp": "false",
+      "channels:telegram": "false",
+      "channels:email": "false",
+      "channels:facebook": "false",
+      "channels:webchat": "false",
+      "team_members:max": "1",
+      "bots:max": "0", // automations only, no AI chatbot
+      "bots:knowledge_sources_max": "0",
+      "bots:voice_transcription": "false",
+      "ai_tokens:monthly": "30000", // ASSUMED — automations use little; tune freely
+      "feature:broadcasts": "false",
+      "broadcasts:monthly": "0",
+      "broadcasts:wa_conversations_included": "0",
+      "feature:automations": "true",
+      "automations:max": "5", // ASSUMED ("limited")
+      "api:read": "false",
+      "api:write": "false",
+      "api:requests_per_min": "0",
+      "api:webhook_deliveries_monthly": "0",
+      "integration:make": "false",
+      "integration:zapier": "false",
+      "integration:n8n": "false",
+      "feature:whitelabel": "false",
+      "feature:priority_support": "false",
+      "feature:custom_integrations": "false",
+      "feature:inbox": "false", // THE differentiator — no manual inbox
     },
   },
 
@@ -293,4 +345,4 @@ export function getBundle(id: BundleId): Bundle {
 }
 
 // Paid packs in display order (excludes the free Trial). Drives the billing UI.
-export const PAID_BUNDLE_IDS: BundleId[] = ["solo", "core", "edge", "prime", "infinite"];
+export const PAID_BUNDLE_IDS: BundleId[] = ["social_lite", "solo", "core", "edge", "prime", "infinite"];

@@ -428,9 +428,12 @@ export function AutomationBuilder({
           {triggerType === "ig_new_follower" && (
             <p className="flex items-start gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] text-amber-200/80">
               <AlertCircle className="mt-px size-3 shrink-0" />
-              Meta's Camera Graph API doesn't push follower events in
-              real time. This trigger needs a polling worker which lands
-              with the cron infrastructure later.
+              Instagram&apos;s API only exposes a follower <em>count</em>, never
+              who follows you — so no tool can detect or message a specific new
+              follower (anything claiming to is scraping, which risks your
+              account). Use <strong>First message</strong> instead: it fires the
+              moment a new person DMs you, which is when you can actually reach
+              them.
             </p>
           )}
 

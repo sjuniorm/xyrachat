@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isOperatorProfile } from "@/lib/admin/operator";
+import { isInboxEnabled } from "@/lib/billing/entitlements";
 import { SidebarContent } from "@/components/app/sidebar-content";
 import { MobileHeader } from "@/components/app/mobile-header";
 import { BillingBanner } from "@/components/app/billing-banner";
@@ -27,6 +28,9 @@ export default async function DashboardLayout({
   if (!profile?.org_id) redirect("/onboarding");
 
   const isOperator = isOperatorProfile(profile.role, profile.org_id);
+  // Social Lite (automations-only) hides the unified inbox. Fail-safe: enabled
+  // for every other plan + un-provisioned orgs.
+  const inboxEnabled = await isInboxEnabled(profile.org_id);
   const userProps = {
     fullName: profile.full_name ?? null,
     email: profile.email ?? user.email ?? null,
@@ -37,6 +41,7 @@ export default async function DashboardLayout({
       | "offline"
       | null) ?? "online",
     isOperator,
+    inboxEnabled,
   };
 
   return (

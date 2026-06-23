@@ -59,7 +59,11 @@ export type FeatureKey =
   // White-label / enterprise
   | "feature:whitelabel"
   | "feature:priority_support"
-  | "feature:custom_integrations";
+  | "feature:custom_integrations"
+  // Unified inbox access. Default-ON; only the Social Lite tier sets this
+  // 'false' (automations-only, no manual inbox). Gated fail-SAFE — see
+  // isInboxEnabled (a missing key shows the inbox so no current org loses it).
+  | "feature:inbox";
 
 // In-request cache so a single API request hitting checkEntitlement()
 // multiple times for the same key doesn't issue N DB queries. Lives
@@ -181,6 +185,18 @@ export async function hasFeature(
   if (!(await isProvisioned(orgId))) return true; // fail-open
   const v = await getEntitlement(orgId, feature);
   return v === "true";
+}
+
+// Fail-SAFE inbox gate. The unified inbox is hidden ONLY when a provisioned org
+// has an EXPLICIT feature:inbox=false (the Social Lite tier). A missing key
+// (e.g. a paying org not yet re-provisioned with the new key) OR an
+// un-provisioned org shows the inbox — so no current customer can lose access.
+// Deliberately NOT hasFeature(), whose default-false would hide it from anyone
+// missing the row.
+export async function isInboxEnabled(orgId: string): Promise<boolean> {
+  if (!(await isProvisioned(orgId))) return true; // fail-open
+  const v = await getEntitlement(orgId, "feature:inbox");
+  return v !== "false";
 }
 
 // Numeric limit — returns the max from all active rows. -1 sentinel

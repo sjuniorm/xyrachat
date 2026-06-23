@@ -21,12 +21,14 @@ export function MobileHeader({
   avatarUrl,
   availability,
   isOperator = false,
+  inboxEnabled = true,
 }: {
   fullName: string | null;
   email: string | null;
   avatarUrl: string | null;
   availability?: Availability;
   isOperator?: boolean;
+  inboxEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -64,6 +66,7 @@ export function MobileHeader({
               avatarUrl={avatarUrl}
               availability={availability}
               isOperator={isOperator}
+              inboxEnabled={inboxEnabled}
             />
           </div>
         </SheetContent>

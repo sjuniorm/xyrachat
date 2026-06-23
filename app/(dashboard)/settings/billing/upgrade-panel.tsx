@@ -29,9 +29,13 @@ const PLAN_DISPLAY: Record<
   Exclude<BundleId, "trial">,
   { blurb: string; highlights: string[] }
 > = {
+  social_lite: {
+    blurb: "Instagram automations only.",
+    highlights: ["Instagram only", "Auto-DMs + comment/DM replies", "No manual inbox", "Set-and-forget"],
+  },
   solo: {
     blurb: "Instagram automation, solo.",
-    highlights: ["Instagram only", "Auto-DMs + comment replies", "1 user", "Limited automations"],
+    highlights: ["Instagram only", "Auto-DMs + comment replies", "Manual inbox", "1 user"],
   },
   core: {
     blurb: "One channel, done right.",

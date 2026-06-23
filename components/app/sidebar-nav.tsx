@@ -43,11 +43,19 @@ const ITEMS: NavItem[] = [
 
 const SEEN_KEY = "xyra:changelog:lastSeen";
 
-export function SidebarNav({ isOperator = false }: { isOperator?: boolean }) {
+export function SidebarNav({
+  isOperator = false,
+  inboxEnabled = true,
+}: {
+  isOperator?: boolean;
+  inboxEnabled?: boolean;
+}) {
   const pathname = usePathname();
+  // Social Lite (automations-only) has no manual inbox — drop the link.
+  const baseItems = inboxEnabled ? ITEMS : ITEMS.filter((i) => i.href !== "/inbox");
   const items = isOperator
-    ? [...ITEMS, { href: "/settings/admin", label: "Operator", icon: ShieldCheck }]
-    : ITEMS;
+    ? [...baseItems, { href: "/settings/admin", label: "Operator", icon: ShieldCheck }]
+    : baseItems;
   // Unseen-release dot on "What's new". Defaults false so SSR + first client
   // render match (localStorage isn't available on the server); the effect
   // reconciles after mount. Viewing /changelog marks the latest version seen.

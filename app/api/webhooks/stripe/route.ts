@@ -149,6 +149,12 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   await syncSubscriptionRow(orgId, subscription, resolvedBundleId);
+  // Clear any prior bundle rows (e.g. lingering Trial entitlements) so the new
+  // pack is the only bundle source — otherwise the Trial's permissive channel
+  // flags (all channels = true) would survive into a restrictive paid plan via
+  // most-permissive resolution. (Add-ons + per-org overrides use non-bundle:%
+  // sources and survive.)
+  await clearAllBundleEntitlements(orgId);
   await provisionBundle({
     orgId,
     bundleId: resolvedBundleId,
@@ -277,8 +283,14 @@ async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
   await syncSubscriptionRow(orgId, subscription, bundleId);
-  // Re-provision entitlements every time — handles plan upgrades AND
-  // downgrades (the RPC wipes old `bundle:*` rows for that source).
+  // Re-provision entitlements every time — handles plan upgrades AND downgrades.
+  // The provision RPC only wipes rows for the NEW bundle's own source, so on a
+  // plan CHANGE the prior bundle's rows would otherwise linger (most-permissive
+  // resolution → the org keeps the old plan's higher limits, and a downgrade to
+  // Social Lite wouldn't actually drop the inbox). Clear ALL bundle rows first
+  // so the new pack is the only bundle source. (Per-org overrides + add-ons use
+  // non-`bundle:%` sources and survive; add-ons are recomputed just below.)
+  await clearAllBundleEntitlements(orgId);
   await provisionBundle({
     orgId,
     bundleId,
