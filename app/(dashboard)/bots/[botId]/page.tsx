@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Tabs,
@@ -90,6 +90,17 @@ export default async function BotDetailPage({
   const feedback = tally(feedbackRows);
   const customerFeedback = tally(visitorFeedbackRows);
 
+  // Hallucination guardrail: a live, channel-assigned bot with zero successfully
+  // embedded knowledge will answer from the model's general training, not the
+  // operator's content — exactly the "confidently wrong about your prices/policy"
+  // risk. Warn loudly so it's never shipped silently.
+  const hasKnowledge = (sources ?? []).some((s) => s.embedding_status === "done");
+  const activeAssignmentCount = (assignments ?? []).filter((a) => a.active).length;
+  const liveButUngrounded = bot.active && activeAssignmentCount > 0 && !hasKnowledge;
+  const sourcesStillProcessing = (sources ?? []).some(
+    (s) => s.embedding_status === "pending" || s.embedding_status === "running",
+  );
+
   return (
     <div className="flex-1 overflow-y-auto px-6 py-10 lg:px-10">
       <div className="mx-auto max-w-5xl">
@@ -119,6 +130,20 @@ export default async function BotDetailPage({
             {bot.active ? "Active" : "Paused"}
           </Badge>
         </header>
+
+        {liveButUngrounded && (
+          <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-medium">This bot is live but has no knowledge yet.</p>
+              <p className="mt-0.5 text-amber-200/80">
+                {sourcesStillProcessing
+                  ? "Its sources are still being processed. Until at least one finishes, it answers from general AI — not your content — so it may state prices, policies, or facts that aren't yours."
+                  : "It will answer from general AI, not your content, so it can confidently invent prices, policies, or facts. Add a knowledge source in the Knowledge tab below to keep answers accurate."}
+              </p>
+            </div>
+          </div>
+        )}
 
         <Tabs defaultValue="overview">
           <TabsList className="grid w-full grid-cols-5 bg-white/5">

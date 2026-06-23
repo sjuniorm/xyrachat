@@ -99,8 +99,22 @@ export async function generateBotResponse(params: {
 
   // 1. Retrieve relevant knowledge. Skip when there's no query text (e.g. an
   //    image-only inbound) — embedding an empty string 400s the OpenAI API.
-  const retrieval = newMessage.trim()
-    ? await retrieveContext(newMessage, bot.id, 5)
+  //    For SHORT follow-ups ("what about the blue one?") embedding just the
+  //    fragment retrieves the wrong chunks, so prepend the customer's previous
+  //    turn for context. Long messages are self-contained — don't dilute them.
+  const newTrim = newMessage.trim();
+  let retrievalQuery = newTrim;
+  if (newTrim && newTrim.split(/\s+/).filter(Boolean).length <= 6) {
+    const priorInbound = recentMessages
+      .filter(
+        (m) => m.direction === "inbound" && m.content?.trim() && m.content.trim() !== newTrim,
+      )
+      .map((m) => m.content!.trim());
+    const last = priorInbound[priorInbound.length - 1];
+    if (last) retrievalQuery = `${last}\n${newTrim}`;
+  }
+  const retrieval = newTrim
+    ? await retrieveContext(retrievalQuery, bot.id, 5)
     : { chunks: [], maxSimilarity: 0, embeddingTokens: 0 };
 
   // 2. Knowledge-gap handoff. If the bot HAS knowledge but none of it

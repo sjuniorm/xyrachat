@@ -121,10 +121,19 @@ export async function aiAssist(params: {
 /** Generate a from-scratch suggested reply grounded in the channel's bot. */
 export async function aiSuggestReply(
   conversationId: string,
-): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; text: string; noGroundedAnswer: boolean }
+  | { ok: false; error: string }
+> {
   const res = await authedPost("/api/ai/suggest-reply", {
     conversation_id: conversationId,
   });
   if (!res.ok) return res;
-  return { ok: true, text: (res.json.text as string) ?? "" };
+  // The server returns no_grounded_answer=true on a knowledge gap with empty
+  // text — don't paste the canned handoff line / clear the composer.
+  return {
+    ok: true,
+    text: (res.json.text as string) ?? "",
+    noGroundedAnswer: res.json.no_grounded_answer === true,
+  };
 }

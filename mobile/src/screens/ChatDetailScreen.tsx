@@ -162,8 +162,18 @@ export function ChatDetailScreen({ route, navigation }: Props) {
     setAiBusy(true);
     const result = await aiSuggestReply(conversationId);
     setAiBusy(false);
-    if (result.ok) setText(result.text);
-    else Alert.alert("Suggest reply", result.error);
+    if (!result.ok) {
+      Alert.alert("Suggest reply", result.error);
+      return;
+    }
+    if (result.noGroundedAnswer || !result.text.trim()) {
+      Alert.alert(
+        "Suggest reply",
+        "No grounded answer in the knowledge base — reply manually or hand off to keep it accurate.",
+      );
+      return;
+    }
+    setText(result.text);
   };
 
   const assignToMe = async () => {

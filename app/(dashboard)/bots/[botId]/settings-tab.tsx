@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { deleteBot, updateBot } from "@/lib/bots/actions";
+import { TOP_LANGUAGES, languageLabel } from "@/lib/i18n/languages";
 import { BusinessHoursEditor } from "@/components/bots/business-hours-editor";
 import {
   DAY_KEYS,
@@ -259,12 +260,24 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="language">Language</Label>
-            <Input
+            <select
               id="language"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-              placeholder="ISO code (e.g. en)"
-            />
+              className="h-9 w-full rounded-md border border-white/10 bg-white/5 px-2 text-sm text-white"
+            >
+              {/* Preserve a non-standard stored value as a selectable option. */}
+              {language && !TOP_LANGUAGES.some((l) => l.code === language) && (
+                <option value={language} className="bg-card">
+                  {languageLabel(language)}
+                </option>
+              )}
+              {TOP_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code} className="bg-card">
+                  {l.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="emoji">Emoji usage</Label>

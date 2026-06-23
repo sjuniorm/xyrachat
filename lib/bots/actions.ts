@@ -158,6 +158,26 @@ export async function updateBot(
   if ("business_hours" in filtered) {
     filtered.business_hours = sanitizeBusinessHours(filtered.business_hours);
   }
+  // Validate enum/range columns so a crafted patch can't store a value the
+  // prompt builder / gate doesn't understand (objective drives the system
+  // prompt; threshold gates answer-vs-handoff).
+  const VALID_OBJECTIVES = new Set([
+    "support", "lead_generation", "website_traffic", "sales", "booking", "qualification", "custom",
+  ]);
+  if ("objective" in filtered && !VALID_OBJECTIVES.has(filtered.objective as string)) {
+    return { ok: false, error: "Invalid objective." };
+  }
+  const VALID_TONES = new Set(["friendly", "professional", "formal", "casual", "playful"]);
+  if ("tone" in filtered && !VALID_TONES.has(filtered.tone as string)) {
+    return { ok: false, error: "Invalid tone." };
+  }
+  if ("knowledge_threshold" in filtered) {
+    const t = Number(filtered.knowledge_threshold);
+    if (!Number.isFinite(t) || t < 0 || t > 1) {
+      return { ok: false, error: "Knowledge threshold must be between 0 and 1." };
+    }
+    filtered.knowledge_threshold = t;
+  }
 
   const { error } = await admin.from("bots").update(filtered).eq("id", botId);
   if (error) return { ok: false, error: error.message };

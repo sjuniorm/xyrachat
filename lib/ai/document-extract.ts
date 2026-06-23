@@ -19,6 +19,7 @@ export const ACCEPTED_DOC_MIMES = [
 // store / embed gigabytes.
 const MAX_TEXT_CHARS = 1_000_000; // ~250k tokens; well past any real KB doc
 const MAX_PDF_PAGES = 1000;
+const MAX_DOCX_BYTES = 8 * 1024 * 1024; // bound DOCX decompression input
 
 function extOf(filename: string): string {
   return filename.toLowerCase().split(".").pop() ?? "";
@@ -60,6 +61,12 @@ export async function extractDocumentText(
     mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     ext === "docx"
   ) {
+    // DOCX is a zip — a small upload can decompress to a very large in-memory
+    // string (no per-page bound like PDF). Cap the input explicitly so a
+    // high-ratio file can't balloon memory before cap() trims the output.
+    if (buf.byteLength > MAX_DOCX_BYTES) {
+      throw new Error("DOCX too large — export to PDF or split it first.");
+    }
     const { value } = await mammoth.extractRawText({ buffer: Buffer.from(buf) });
     return cap(value.trim());
   }

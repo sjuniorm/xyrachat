@@ -27,6 +27,15 @@ export function chunkText(text: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  // Trailing OVERLAP_CHARS of a chunk, snapped to a word boundary so the overlap
+  // never starts mid-word (which degrades the embedding).
+  const overlapOf = (s: string): string => {
+    let tail = s.slice(-OVERLAP_CHARS);
+    const sp = tail.indexOf(" ");
+    if (sp > 0 && sp < tail.length - 1) tail = tail.slice(sp + 1);
+    return tail.trim();
+  };
+
   const chunks: string[] = [];
   let current = "";
   for (const sentence of sentences) {
@@ -35,13 +44,18 @@ export function chunkText(text: string): string[] {
       continue;
     }
     if (current) chunks.push(current);
-    // Seed the next chunk with the tail of the previous one for overlap.
-    const tail = current.slice(-OVERLAP_CHARS);
+    // Seed the next chunk with a word-aligned tail of the previous one.
+    const tail = overlapOf(current);
     current = tail ? `${tail} ${sentence}` : sentence;
-    // A single sentence longer than CHUNK_CHARS — hard-split on length.
+    // A single sentence longer than CHUNK_CHARS — split on whitespace, not
+    // mid-word (hard cut only when there's no nearby space, e.g. one
+    // pathologically long token).
     while (current.length > CHUNK_CHARS) {
-      chunks.push(current.slice(0, CHUNK_CHARS));
-      current = current.slice(CHUNK_CHARS - OVERLAP_CHARS);
+      let cut = current.lastIndexOf(" ", CHUNK_CHARS);
+      if (cut <= CHUNK_CHARS * 0.5) cut = CHUNK_CHARS;
+      chunks.push(current.slice(0, cut).trim());
+      const carry = overlapOf(current.slice(0, cut));
+      current = `${carry} ${current.slice(cut).trim()}`.trim();
     }
   }
   if (current) chunks.push(current);
