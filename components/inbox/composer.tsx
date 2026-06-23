@@ -230,7 +230,13 @@ export function Composer({
         }),
       });
       const data = await res.json();
-      if (!data?.text) throw new Error("no text");
+      if (!res.ok || !data?.text) {
+        // Surface the real reason (quota, key, model, rate-limit) instead of a
+        // generic failure — makes prod issues self-diagnosing.
+        const reason =
+          data?.message || data?.error || `AI rewrite failed (${res.status})`;
+        throw new Error(reason);
+      }
       setText(data.text);
       requestAnimationFrame(() => {
         taRef.current?.focus();
@@ -238,8 +244,8 @@ export function Composer({
         taRef.current?.setSelectionRange(len, len);
       });
       showUndoToast(prev);
-    } catch {
-      toast.error("AI rewrite failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI rewrite failed");
     } finally {
       setPending(false);
     }

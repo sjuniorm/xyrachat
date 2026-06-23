@@ -180,13 +180,20 @@ export async function POST(req: Request) {
     inputTokens = completion.usage.input_tokens;
     outputTokens = completion.usage.output_tokens;
   } catch (err) {
-    return NextResponse.json(
-      {
-        error:
-          err instanceof Error ? err.message : "Anthropic call failed",
-      },
-      { status: 502 },
+    // Surface the real Anthropic failure so it's diagnosable from Vercel logs
+    // (the response body alone isn't logged). Anthropic SDK errors carry a
+    // numeric `status`: 401 = bad/revoked key, 400 "credit balance too low" =
+    // no credits, 404 = unknown model, 429 = rate-limited.
+    const status =
+      typeof (err as { status?: unknown })?.status === "number"
+        ? (err as { status: number }).status
+        : undefined;
+    const message =
+      err instanceof Error ? err.message : "Anthropic call failed";
+    console.error(
+      `[ai/message-assist] anthropic call failed (status=${status ?? "?"}, model=${MODELS.rewrite}): ${message}`,
     );
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 
   // Charge the org's monthly budget for the tokens we just spent.
