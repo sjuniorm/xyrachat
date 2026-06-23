@@ -57,7 +57,7 @@
 - [ ] 🧑 Set **Upstash Redis** env (`UPSTASH_REDIS_REST_URL`/`_TOKEN`) — rate limits + flood guard + webchat abuse defense FAIL OPEN until set.
 - [ ] 🧑 Supabase Auth: **leaked-password protection** (HIBP) ON, min length 8+, **CAPTCHA** (Cloudflare Turnstile) on signup/login/recovery.
 - [ ] 🧑 Supabase security notifications ON (password/email changed, sign-in linked/removed, MFA added/removed).
-- [ ] 🧑🤖 Run the **§15 live security probe** against staging — green (needs Upstash + 2 seeded test orgs). Final go/no-go. (tests/security/probe.ts)
+- [~] 🧑🤖 **§15 live security probe** — the **unauthenticated suite passed 11/11 against app.xyrachat.com** (anon API/webhook/billing/channel access all rejected, no 500s, bad webhook sigs rejected). Still TODO: the cross-tenant / rate-limit / API-key / SSRF checks — set `PROBE_A_JWT`/`PROBE_B_JWT`/`PROBE_A_CONV`/`PROBE_A_APIKEY`/`PROBE_RO_APIKEY` from 2 test orgs (+ Upstash on) and re-run for the final go/no-go. (tests/security/probe.ts)
 
 ### Staging + monitoring
 - [ ] 🧑 Stand up **staging** (separate Supabase EU project, migrations 001→064, Vercel Preview env + TEST Stripe) — needed to run the probe + test migrations. (_docs/staging-setup.md)
@@ -80,15 +80,15 @@
 ### Features (🤖 code)
 - [x] 🤖 **Media outbound on all channels** — WhatsApp / Telegram / Email / Instagram / Messenger / Webchat `send-media` routes shipped + composer wired (`MEDIA_CHANNELS`), with size/mime/magic-byte validation + a private `chat-media` bucket. (Mobile send is still a stub — see mobile-submission-checklist.md.)
 - [x] 🤖 Inbound media URL resolution — stored provider media_id is resolved on demand via the auth'd `/api/media` proxy (org-ownership checked) when the inbox renders it.
-- [ ] 🤖 Mobile: send photos/files (ChatDetail attach is a stub) + biometric login.
-- [ ] 🤖 Per-agent unread counts + saved-replies CRUD polish.
-- [ ] 🤖 IG/Messenger multi-Page chooser (auto-picks pages[0] today).
-- [ ] 🤖 IG new-follower automation poller (Meta doesn't push these; needs a cron worker).
-- [ ] 🤖 Pipedrive + Salesforce CRM connectors (only HubSpot wired).
-- [ ] 🤖 "Social Lite" €19 IG-automations-only tier (bundle def + inbox feature-gate).
+- [ ] 🤖 Mobile: send photos/files (ChatDetail attach is a stub) + biometric login. (Needs a dev build to test — see mobile-submission-checklist.md.)
+- [x] 🤖 Per-agent unread counts (migration 032 `conversation_reads`) + saved-replies CRUD (`lib/saved-replies/`) — already shipped; checklist was stale.
+- [x] 🤖 Messenger multi-Page chooser — `/api/auth/messenger/oauth` returns the Page list on multi-Page accounts; the connect button shows a chooser (re-login + pageId). No more silent `pages[0]`. (d953e92)
+- [x] 🤖 IG new-follower trigger — **not possible on Meta's API** (no follower list/ID); the builder now explains why + points to the "First message" trigger. (e7802f1)
+- [x] 🤖 Pipedrive + Salesforce CRM connectors — shipped on the CrmClient abstraction. **Operator: set `PIPEDRIVE_CLIENT_ID/SECRET` + `SALESFORCE_CLIENT_ID/SECRET`, register the `/api/auth/{pipedrive,salesforce}/callback` redirects, then test (untested against live providers).** (22df441, 72817d0)
+- [x] 🤖 "Social Lite" €19 IG-automations-only tier — bundle + fail-safe inbox gate (sidebar + both inbox routes) + plan-change provisioning fix. **Operator: add `STRIPE_PRICE_SOCIAL_LITE_MONTHLY/YEARLY`.** (7175dd8, a52db37)
 - [ ] 🤖 Voice / PBX / SIP add-on (announced, `available:false`).
-- [ ] 🤖 Support "reply-as-support" write path / impersonation (read-only consent layer shipped; needs adversarial review first). (_docs/support-access-design.md)
-- [ ] 🤖 Flip CSP Report-Only → enforced after /api/security/csp-report shows 0 violations (needs Sentry live).
+- [x] 🤖 Support "reply-as-support" write path — bounded internal-note action (operator + active grant + read_reply scope + tenant guard + audit; never customer-facing; NOT impersonation). Customer-facing send still deferred. (4cb739c)
+- [ ] 🤖 Flip CSP Report-Only → enforced after /api/security/csp-report shows 0 violations (🧑 needs Sentry live).
 
 ### Testing / quality (🤖 code)
 - [ ] 🤖 Authenticated + multi-tenant E2E specs (login→inbox→send, bot reply, tenant isolation).
@@ -100,7 +100,7 @@
 - [ ] 🧑 Submit Make / Zapier / n8n connector listings.
 - [ ] 🧑 Google Calendar OAuth verification (sensitive scopes + demo video); set `GOOGLE_CLIENT_ID`/`SECRET`. (Outlook done — remember to rotate `MICROSOFT_CLIENT_SECRET` before expiry.)
 - [ ] 🧑 HubSpot public app (developers.hubspot.com) → `HUBSPOT_CLIENT_ID`/`SECRET` + redirect.
-- [ ] 🧑 Help center / KB — seed the in-app help-widget bot knowledge before onboarding non-technical users.
+- [ ] 🧑 Help center / KB — **content written** (`_docs/help-center-content.md`); seed it into the help bot's Knowledge + set `SUPPORT_BOT_ID` before onboarding non-technical users.
 - [ ] 🧑 Canny roadmap board env (`NEXT_PUBLIC_CANNY_*`) for /roadmap.
 - [ ] 🧑 Public changelog surface (in-app toast wired at 1.15; consider xyrachat.com/changelog).
 - [ ] 🧑 Optional in-app config envs: `SUPPORT_FEEDBACK_EMAIL`, `SUPPORT_BOT_ID`, `NEXT_PUBLIC_SUPPORT_BOOKING_URL`.
