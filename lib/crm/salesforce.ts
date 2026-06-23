@@ -130,10 +130,20 @@ export const salesforceClient: CrmClient = {
     };
     const fields = toFields(input);
 
-    // Best-effort dedupe: SOQL by email, then PATCH; else create.
-    if (input.email) {
+    // Best-effort dedupe: SOQL by email, then PATCH; else create. SOQL can't be
+    // parameterized in a raw query, so only run the dedupe for a clean,
+    // normal-looking email (no quotes / backslashes / angle brackets / control
+    // chars) — a malformed/hostile value skips the query and falls through to
+    // create (which sends the value as a JSON field, not SOQL). Escape
+    // backslash THEN quote as a second layer of defense.
+    const cleanEmail =
+      input.email && /^[^\s'"\\<>()]+@[^\s'"\\<>()]+\.[^\s'"\\<>()]+$/.test(input.email)
+        ? input.email
+        : null;
+    if (cleanEmail) {
       try {
-        const soql = `SELECT Id FROM Contact WHERE Email = '${input.email.replace(/'/g, "\\'")}' LIMIT 1`;
+        const esc = cleanEmail.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        const soql = `SELECT Id FROM Contact WHERE Email = '${esc}' LIMIT 1`;
         const qRes = await fetch(`${base}/query?q=${encodeURIComponent(soql)}`, { headers });
         const qj = (await qRes.json().catch(() => null)) as
           | { records?: Array<{ Id?: string }> }
