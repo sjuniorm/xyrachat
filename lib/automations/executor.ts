@@ -51,6 +51,10 @@ type ActionCtx = {
   // idempotent across reclaim/retry: each send is stamped sched_step =
   // `${scheduledActionId}:${stepIndex}` and skipped if one already exists.
   scheduledActionId?: string;
+  // Lazily initialized per run: tracks whether the one-allowed Instagram
+  // private-reply-to-comment is still available (consumed by the first IG send
+  // on an ig_comment_keyword trigger). Not a private field — mutated in place.
+  commentReply?: { available: boolean };
 };
 
 // Per-contact-per-automation cap on outstanding (pending/processing) scheduled
@@ -70,6 +74,26 @@ function computeStatus(
   if (!firstFailure) return "success";
   // All steps failed → failed; otherwise a partial success (log shows detail).
   return steps.every((s) => !s.ok) ? "failed" : "success";
+}
+
+// Returns the IG comment_id to use as a private-reply recipient for THIS send,
+// or undefined. Consumes the one-allowed private reply: only the first IG send
+// of an initial (non-resumed) ig_comment_keyword run gets it. Lazily inits the
+// per-run flag on ctx so it's tracked across the action loop + branches.
+function consumeCommentReply(ctx: ActionCtx, channelType: string): string | undefined {
+  if (ctx.commentReply === undefined) {
+    ctx.commentReply = {
+      available:
+        !ctx.scheduledActionId &&
+        channelType === "instagram" &&
+        ctx.automation.trigger_type === "ig_comment_keyword" &&
+        typeof ctx.triggerData?.comment_id === "string" &&
+        (ctx.triggerData.comment_id as string).length > 0,
+    };
+  }
+  if (channelType !== "instagram" || !ctx.commentReply.available) return undefined;
+  ctx.commentReply.available = false;
+  return ctx.triggerData?.comment_id as string;
 }
 
 // Executes a single LEAF action (the "do something" steps). Shared by the
@@ -102,11 +126,17 @@ async function execLeafAction(
         if (already) return { ok: true, conversationId: convId };
       }
       const rendered = renderTemplate(action.text, contact, ctx.triggerData as Record<string, string | null | undefined>);
+      // IG comment trigger: the FIRST DM must be a private reply to the comment
+      // (recipient: comment_id). A fresh commenter has no open 24h window, so a
+      // normal RESPONSE send silently never arrives. One private reply is allowed
+      // per comment — consume it for the first IG send only.
+      const commentId = consumeCommentReply(ctx, channel.type);
       const send = await sendChannelMessage({
         channel,
         recipient: pickRecipient(channel.type, contact),
         content: rendered,
         conversationId: convId,
+        commentId,
         // Tag the send so the inbox can annotate "Automated · <name>".
         extraMetadata: {
           ...(stampKey ? { sched_step: stampKey } : {}),
@@ -490,6 +520,20 @@ async function runActionList(
         continue;
       }
 
+      if (action.type === "send_buttons") {
+        if (!conversationId) {
+          conversationId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+        }
+        const r = await execSendButtons(admin, action, ctx, conversationId);
+        conversationId = r.conversationId;
+        steps.push({ type: action.type, ok: r.ok, error: r.error });
+        if (!r.ok) firstFailure ??= r.error ?? "send_buttons failed";
+        // Terminal for the inline chain: each button's `then` runs when the
+        // user TAPS it (via the webhook), not now. Stop so subsequent inline
+        // actions don't fire before the user responds.
+        return { steps, firstFailure, conversationId, scheduled: false };
+      }
+
       // Leaf action.
       const stampKey = ctx.scheduledActionId ? `${ctx.scheduledActionId}:${i}` : null;
       const r = await execLeafAction(admin, action, ctx, conversationId, stampKey);
@@ -508,6 +552,128 @@ async function runActionList(
   }
 
   return { steps, firstFailure, conversationId, scheduled: false };
+}
+
+// Sends an Instagram opt-in message with quick-reply buttons. Each button's
+// `then` actions run later, when the user taps it (handled by runButtonTap from
+// the webhook). On a comment trigger, the prompt goes out as a private reply.
+async function execSendButtons(
+  admin: ReturnType<typeof createAdminClient>,
+  action: Extract<Action, { type: "send_buttons" }>,
+  ctx: ActionCtx,
+  conversationId: string | null,
+): Promise<{ ok: boolean; error?: string; conversationId: string | null }> {
+  const { automation, contact, channel } = ctx;
+  let convId = conversationId;
+  if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+  if (!convId) return { ok: false, error: "No conversation", conversationId: convId };
+  if (channel.type !== "instagram") {
+    return { ok: false, error: "Buttons are only supported on Instagram channels", conversationId: convId };
+  }
+  const buttons = (action.buttons ?? []).slice(0, 3); // ≤3 for UX (Meta allows 13)
+  if (buttons.length === 0) {
+    return { ok: false, error: "No buttons configured", conversationId: convId };
+  }
+  const td = ctx.triggerData as Record<string, string | null | undefined>;
+  const text = renderTemplate(action.text, contact, td);
+  const quickReplies = buttons.map((b) => ({
+    title: renderTemplate(b.title, contact, td),
+    // payload references the button by its STABLE id — position-independent, so
+    // a resumed/post-wait run or a later edit can't misroute the tap.
+    payload: `xyra_btn:${automation.id}:${b.id}`,
+  }));
+  const commentId = consumeCommentReply(ctx, channel.type);
+  const send = await sendChannelMessage({
+    channel,
+    recipient: pickRecipient(channel.type, contact),
+    content: text,
+    conversationId: convId,
+    commentId,
+    quickReplies,
+    extraMetadata: {
+      automation_meta: { name: automation.name, trigger_type: automation.trigger_type },
+      button_prompt: true,
+    },
+  });
+  return send.ok
+    ? { ok: true, conversationId: convId }
+    : { ok: false, error: send.error ?? "send failed", conversationId: convId };
+}
+
+// Called from the IG webhook when a user TAPS a quick-reply opt-in button. Runs
+// that button's `then` actions — the tap just opened the 24h messaging window,
+// so the follow-up sends (e.g. the link) go out as normal RESPONSE messages.
+// Tenant-guarded (channel + contact must belong to the automation's org).
+// Best-effort; never throws.
+export async function runButtonTap(input: {
+  automationId: string;
+  buttonId: string;
+  contactId: string;
+  channelId: string;
+  conversationId: string | null;
+}): Promise<void> {
+  const admin = createAdminClient();
+  try {
+    const { data: automationRow } = await admin
+      .from("automations")
+      .select("*")
+      .eq("id", input.automationId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!automationRow || !automationRow.active) return;
+    const automation = automationRow as AutomationRow;
+    // Resolve the button by its STABLE id across all send_buttons actions —
+    // never by position (which shifts after an edit or on a resumed run).
+    let button: { id: string; title: string; then: LeafAction[] } | undefined;
+    for (const a of automation.actions ?? []) {
+      if (a.type === "send_buttons") {
+        const found = a.buttons?.find((b) => b.id === input.buttonId);
+        if (found) {
+          button = found;
+          break;
+        }
+      }
+    }
+    if (!button || !Array.isArray(button.then) || button.then.length === 0) return;
+
+    const [{ data: channel }, { data: contact }] = await Promise.all([
+      admin
+        .from("channels")
+        .select("id, type, org_id, phone_number_id, page_id, ig_business_account_id, access_token_vault_id, metadata")
+        .eq("id", input.channelId)
+        .maybeSingle(),
+      admin
+        .from("contacts")
+        .select("id, org_id, name, phone, email, instagram_id, telegram_id, messenger_id")
+        .eq("id", input.contactId)
+        .maybeSingle(),
+    ]);
+    if (!channel || channel.org_id !== automation.org_id) return;
+    if (!contact || contact.org_id !== automation.org_id) return;
+
+    const ctx: ActionCtx = {
+      automation,
+      contact: contact as ExecContact,
+      channel: channel as ExecChannel,
+      conversationId: input.conversationId,
+      triggerData: { _button_tap: true, button_title: button.title },
+    };
+    let convId = ctx.conversationId;
+    for (let j = 0; j < button.then.length; j++) {
+      try {
+        // Idempotency: a redelivered tap webhook OR a double-tap must not
+        // re-send the link. Stamp each follow-up with a stable key (per
+        // button + contact + step); execLeafAction skips if already sent.
+        const stampKey = `tap:${input.automationId}:${input.buttonId}:${input.contactId}:${j}`;
+        const r = await execLeafAction(admin, button.then[j], ctx, convId, stampKey);
+        convId = r.conversationId;
+      } catch (err) {
+        console.warn("[automations] button-tap action failed", err);
+      }
+    }
+  } catch (err) {
+    console.error("[automations] runButtonTap failed", err);
+  }
 }
 
 // Run an automation against a contact + optional conversation context.
@@ -781,10 +947,18 @@ async function sendChannelMessage(input: {
   content: string;
   conversationId: string;
   extraMetadata?: Record<string, unknown>;
+  // IG only: when set, send as a private reply to this comment
+  // (recipient: { comment_id }) instead of recipient: { id } — reaches a
+  // commenter who has no open 24h messaging window.
+  commentId?: string;
+  // IG only: quick-reply opt-in buttons attached to the message. Tapping one
+  // posts its title back + fires its payload to our webhook.
+  quickReplies?: Array<{ title: string; payload: string }>;
 }): Promise<{ ok: boolean; error?: string }> {
   const { channel, recipient, content, conversationId } = input;
   const msgMetadata = { automation: true, ...(input.extraMetadata ?? {}) };
-  if (!recipient) return { ok: false, error: "Contact has no handle for this channel" };
+  // A comment private-reply addresses the comment_id, not the contact handle.
+  if (!recipient && !input.commentId) return { ok: false, error: "Contact has no handle for this channel" };
 
   const admin = createAdminClient();
   const trimmed = content.trim();
@@ -897,17 +1071,34 @@ async function sendChannelMessage(input: {
     const url = channel.page_id
       ? `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`
       : `https://graph.instagram.com/${META_GRAPH_VERSION}/${igUserId}/messages`;
+    const igMessage: Record<string, unknown> = { text: trimmed };
+    if (input.quickReplies?.length) {
+      igMessage.quick_replies = input.quickReplies.slice(0, 13).map((q) => ({
+        content_type: "text",
+        title: q.title.slice(0, 20),
+        payload: q.payload,
+      }));
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        recipient: { id: recipient },
-        messaging_type: "RESPONSE",
-        message: { text: trimmed },
-      }),
+      body: JSON.stringify(
+        input.commentId
+          ? {
+              // Private reply to a comment — reaches a commenter with no open
+              // 24h window (allowed once per comment, within 7 days).
+              recipient: { comment_id: input.commentId },
+              message: igMessage,
+            }
+          : {
+              recipient: { id: recipient },
+              messaging_type: "RESPONSE",
+              message: igMessage,
+            },
+      ),
     });
     const json = (await res.json().catch(() => null)) as {
       message_id?: string;

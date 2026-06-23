@@ -52,6 +52,17 @@ export type AutomationCondition =
   | { field: "message"; op: "contains" | "not_contains"; value: string }
   | { field: "reply"; op: "received" | "timed_out"; value?: string };
 
+// A single Instagram quick-reply button. Tapping it (a) opens the 24h messaging
+// window (the tap is a user-initiated message) and (b) confirms intent — the
+// Meta-compliant way to deliver a link after a comment/DM: send an opt-in
+// button first, then fire `then` (e.g. send the link) only once the user taps.
+// `title` ≤ 20 chars (Meta truncates). `then` is LeafAction[] (no nesting).
+// `id` is a STABLE per-button identifier baked into the quick-reply payload so
+// a tap routes to the right `then` regardless of the action's position (which
+// shifts on resumed/post-wait runs or after an edit). Assigned at author/save
+// time; runButtonTap resolves by id, never by index.
+export type ButtonOption = { id: string; title: string; then: LeafAction[] };
+
 // Action variants. Discriminated union — the executor branches on `type`.
 // Top-level actions add `wait` (timed delay) + `condition` (if/else) on top of
 // the leaf actions. Branch arrays are LeafAction[] — TS enforces no nesting.
@@ -68,6 +79,14 @@ export type Action =
       conditions: AutomationCondition[];
       then: LeafAction[];
       else: LeafAction[];
+    }
+  // Instagram-only opt-in buttons. Sends `text` + up to ~3 quick-reply buttons;
+  // each button's `then` runs when the user TAPS it (handled via the webhook),
+  // not inline. This action is terminal for the inline chain.
+  | {
+      type: "send_buttons";
+      text: string;
+      buttons: ButtonOption[];
     };
 
 // Evaluate if/else conditions against the contact's tags + the trigger message.

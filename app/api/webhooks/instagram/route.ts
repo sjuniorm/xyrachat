@@ -6,7 +6,7 @@ import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
-import { resumeWaitingReplies } from "@/lib/automations/executor";
+import { resumeWaitingReplies, runButtonTap } from "@/lib/automations/executor";
 import { emit } from "@/lib/api/emit";
 import { notifyNewInbound } from "@/lib/push/notify";
 
@@ -136,6 +136,9 @@ type IgInboundMessage = {
   text?: string;
   is_echo?: boolean;
   is_deleted?: boolean;
+  // Set when the user taps a quick-reply button — payload carries our routing
+  // token (xyra_btn:<automationId>:<actionIndex>:<buttonIndex>).
+  quick_reply?: { payload?: string };
   reply_to?: { mid: string } | { story?: { id: string; url?: string } };
   attachments?: Array<{
     type: "image" | "video" | "audio" | "file" | "story_mention" | "share" | "ig_reel";
@@ -166,6 +169,17 @@ async function processPayload(payload: IgWebhookPayload) {
       // Skip echoes — these are our own outbound messages bounced back.
       if (ev.message?.is_echo) continue;
       if (ev.message?.is_deleted) continue;
+
+      // Quick-reply (opt-in button) tap → run the button's follow-up actions.
+      // The tap opened the messaging window, so the follow-up (e.g. the link)
+      // is deliverable. Handle it here and SKIP normal inbound processing so the
+      // button title isn't treated as a customer message (which would re-fire
+      // keyword triggers or the bot on the tapped label).
+      const qrPayload = ev.message?.quick_reply?.payload;
+      if (qrPayload && qrPayload.startsWith("xyra_btn:")) {
+        await handleButtonTap(channel, ev.sender?.id, qrPayload);
+        continue;
+      }
 
       if (ev.message) {
         await handleInbound(channel, ev);
@@ -208,6 +222,31 @@ type IgCommentChange = {
     media?: { id: string; media_product_type?: string };
   };
 };
+
+// A user tapped a Xyra opt-in quick-reply button. Decode the routing token and
+// run that button's follow-up actions (e.g. send the link). The tap opened the
+// messaging window, so the follow-up is deliverable as a normal message.
+async function handleButtonTap(
+  channel: IgChannel,
+  senderId: string | undefined,
+  payload: string,
+) {
+  // payload = xyra_btn:<automationId>:<buttonId> (both UUIDs — no colons inside)
+  const parts = payload.split(":");
+  if (parts.length !== 3 || !senderId) return;
+  const automationId = parts[1];
+  const buttonId = parts[2];
+  if (!automationId || !buttonId) return;
+  const contactId = await findOrCreateContact(channel, senderId);
+  if (!contactId) return;
+  await runButtonTap({
+    automationId,
+    buttonId,
+    contactId,
+    channelId: channel.id,
+    conversationId: null,
+  });
+}
 
 async function handleChange(
   channel: IgChannel,

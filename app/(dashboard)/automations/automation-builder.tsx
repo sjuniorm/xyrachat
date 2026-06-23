@@ -7,6 +7,7 @@ import {
   Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
+  MousePointerClick, Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -56,8 +57,11 @@ const ACTION_OPTIONS: Array<{
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   available: boolean;
+  // Instagram-only: quick-reply buttons are an IG messaging feature.
+  igOnly?: boolean;
 }> = [
   { type: "send_dm", label: "Send DM", icon: MessageSquare, available: true },
+  { type: "send_buttons", label: "Send buttons (opt-in)", icon: MousePointerClick, available: true, igOnly: true },
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
   { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
@@ -262,6 +266,15 @@ export function AutomationBuilder({
         break;
       case "add_to_sequence":
         fresh = { type, sequence_id: sequences[0]?.id ?? "" };
+        break;
+      case "send_buttons":
+        fresh = {
+          type,
+          text: "Tap below and I'll send it over 👇",
+          buttons: [
+            { id: crypto.randomUUID(), title: "Send me the link", then: [{ type: "send_dm", text: "" }] },
+          ],
+        };
         break;
       default:
         return;
@@ -494,7 +507,9 @@ export function AutomationBuilder({
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {ACTION_OPTIONS.filter((o) => o.available).map((o) => {
+            {ACTION_OPTIONS.filter(
+              (o) => o.available && (!o.igOnly || channel?.type === "instagram"),
+            ).map((o) => {
               const Icon = o.icon;
               return (
                 <Button
@@ -626,7 +641,8 @@ function ActionRow({
 
       {action.type !== "wait" &&
         action.type !== "wait_for_reply" &&
-        action.type !== "condition" && (
+        action.type !== "condition" &&
+        action.type !== "send_buttons" && (
           <LeafFields
             action={action}
             members={members}
@@ -634,6 +650,10 @@ function ActionRow({
             onChange={(next) => onChange(next)}
           />
         )}
+
+      {action.type === "send_buttons" && (
+        <ButtonsEditor action={action} onChange={onChange} />
+      )}
 
       {action.type === "condition" && (
         <ConditionEditor
@@ -723,6 +743,108 @@ function ActionRow({
 
 // Per-type field editors for a LEAF action — shared by the top-level ActionRow
 // and if/else branches.
+// Instagram opt-in buttons editor. Each button = a label + the message sent
+// when the user TAPS it (modeled as a send_dm in the button's `then`). This is
+// the Meta-compliant way to deliver a link: the tap opens the messaging window
+// and confirms intent before the link is sent.
+function ButtonsEditor({
+  action,
+  onChange,
+}: {
+  action: Extract<Action, { type: "send_buttons" }>;
+  onChange: (next: Action) => void;
+}) {
+  // Derive the per-button reply text from its first send_dm leaf (v1 shape).
+  const replyTextOf = (b: { then: LeafAction[] }) => {
+    const leaf = b.then.find((l) => l.type === "send_dm") as
+      | Extract<LeafAction, { type: "send_dm" }>
+      | undefined;
+    return leaf?.text ?? "";
+  };
+  const setButtons = (buttons: typeof action.buttons) => onChange({ ...action, buttons });
+  const updateButton = (i: number, patch: { title?: string; reply?: string }) => {
+    const next = action.buttons.map((b, j) => {
+      if (j !== i) return b;
+      const title = patch.title ?? b.title;
+      const reply = patch.reply ?? replyTextOf(b);
+      // Preserve the stable id (it's baked into the live quick-reply payload).
+      return { id: b.id, title, then: [{ type: "send_dm" as const, text: reply }] };
+    });
+    setButtons(next);
+  };
+  return (
+    <div className="space-y-2">
+      <div>
+        <Label className="text-[11px] text-white/60">Message with the buttons</Label>
+        <Textarea
+          value={action.text}
+          onChange={(e) => onChange({ ...action, text: e.target.value })}
+          rows={2}
+          placeholder="Tap below and I'll send it over 👇"
+          className="mt-1 text-xs"
+        />
+        <p className="mt-1 text-[10px] text-white/40">
+          Variables: <code>{"{{first_name}}"}</code>, <code>{"{{username}}"}</code>. On a comment trigger this is sent as a private reply so it reaches the commenter.
+        </p>
+      </div>
+      <div className="space-y-2">
+        {action.buttons.map((b, i) => (
+          <div key={i} className="rounded-md border border-white/10 bg-white/[0.03] p-2 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <MousePointerClick className="size-3 shrink-0 text-white/40" />
+              <Input
+                value={b.title}
+                maxLength={20}
+                onChange={(e) => updateButton(i, { title: e.target.value })}
+                placeholder="Button label (e.g. Send me the link)"
+                className="h-7 text-xs"
+              />
+              {action.buttons.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setButtons(action.buttons.filter((_, j) => j !== i))}
+                  className="text-white/40 hover:text-red-300"
+                  aria-label="Remove button"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
+            </div>
+            <Textarea
+              value={replyTextOf(b)}
+              onChange={(e) => updateButton(i, { reply: e.target.value })}
+              rows={2}
+              placeholder="Message sent when they tap — e.g. Here's the link: https://…"
+              className="text-xs"
+            />
+          </div>
+        ))}
+        {action.buttons.length < 3 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setButtons([
+                ...action.buttons,
+                { id: crypto.randomUUID(), title: "", then: [{ type: "send_dm", text: "" }] },
+              ])
+            }
+            className="h-7 gap-1.5 border-white/10 bg-white/5 px-2 text-[11px] hover:bg-white/10"
+          >
+            <Plus className="size-3" /> Add button
+          </Button>
+        )}
+      </div>
+      <p className="text-[10px] text-white/40">
+        Up to 3 buttons. The link is only sent after the user taps — Meta&apos;s
+        recommended opt-in flow (and it opens the messaging window). This step
+        ends the flow: put any follow-ups inside a button, not as later steps.
+      </p>
+    </div>
+  );
+}
+
 function LeafFields({
   action,
   members,

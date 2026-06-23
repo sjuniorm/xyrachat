@@ -80,6 +80,15 @@ function topSummary(a: Action): FlowNodeData {
   if (a.type === "condition") {
     return { kind: a.type, tone: "condition", title: "If / else", subtitle: conditionSummary(a) };
   }
+  if (a.type === "send_buttons") {
+    const n = a.buttons?.length ?? 0;
+    return {
+      kind: a.type,
+      tone: "message",
+      title: "Send buttons",
+      subtitle: clip(a.text || `${n} opt-in button${n === 1 ? "" : "s"}`, 56),
+    };
+  }
   return leafSummary(a);
 }
 

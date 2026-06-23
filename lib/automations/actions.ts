@@ -82,9 +82,10 @@ export async function createAutomation(payload: {
     return { ok: false, error: "Add at least one action step." };
   }
   for (const a of payload.actions) {
-    const err = validateAction(a);
+    const err = validateAction(a, ch.type);
     if (err) return { ok: false, error: err };
   }
+  const normalizedActions = normalizeActions(payload.actions);
 
   // For an external-webhook trigger, mint a per-automation secret so the
   // /api/automations/:id/trigger endpoint has something to authenticate
@@ -104,7 +105,7 @@ export async function createAutomation(payload: {
       description: payload.description ?? null,
       trigger_type: payload.triggerType,
       trigger_config: triggerConfig,
-      actions: payload.actions,
+      actions: normalizedActions,
       active: true,
     })
     .select("id")
@@ -140,10 +141,21 @@ export async function updateAutomation(
   }
 
   if (patch.actions) {
+    // Resolve the channel type so send_buttons (IG-only) is validated at save.
+    let channelType: string | undefined;
+    if (row.channel_id) {
+      const { data: ch } = await admin
+        .from("channels")
+        .select("type")
+        .eq("id", row.channel_id)
+        .maybeSingle();
+      channelType = ch?.type;
+    }
     for (const a of patch.actions) {
-      const err = validateAction(a);
+      const err = validateAction(a, channelType);
       if (err) return { ok: false, error: err };
     }
+    patch.actions = normalizeActions(patch.actions);
   }
 
   // Whitelist updatable columns.
@@ -209,7 +221,22 @@ const LEAF_TYPES = new Set([
   "add_to_sequence",
 ]);
 
-function validateAction(action: Action): string | null {
+// Assigns a stable id to any send_buttons button missing one (the live
+// quick-reply payload routes taps by id). UI-created buttons already carry one;
+// this covers API/SQL-authored automations so a tap can never misroute.
+function normalizeActions(actions: Action[]): Action[] {
+  return actions.map((a) => {
+    if (a.type !== "send_buttons") return a;
+    return {
+      ...a,
+      buttons: (a.buttons ?? []).map((b) =>
+        b.id ? b : { ...b, id: crypto.randomUUID() },
+      ),
+    };
+  });
+}
+
+function validateAction(action: Action, channelType?: string): string | null {
   switch (action.type) {
     case "send_dm":
       if (!action.text?.trim()) return "Each Send DM step needs a message.";
@@ -266,6 +293,35 @@ function validateAction(action: Action): string | null {
         }
         const err = validateAction(leaf);
         if (err) return err;
+      }
+      return null;
+    }
+    case "send_buttons": {
+      // Quick-reply opt-in buttons are an Instagram-only messaging feature —
+      // reject at save time so it doesn't fail silently at runtime.
+      if (channelType && channelType !== "instagram") {
+        return "Button steps are only available on Instagram channels.";
+      }
+      if (!action.text?.trim()) return "The button message needs some text.";
+      if (!Array.isArray(action.buttons) || action.buttons.length === 0) {
+        return "Add at least one button.";
+      }
+      if (action.buttons.length > 3) {
+        return "A button step can have at most 3 buttons.";
+      }
+      for (const b of action.buttons) {
+        if (!b.title?.trim()) return "Each button needs a label.";
+        if (b.title.trim().length > 20) return "Button labels must be 20 characters or fewer.";
+        if (!Array.isArray(b.then) || b.then.length === 0) {
+          return "Each button needs at least one action to run when tapped.";
+        }
+        for (const leaf of b.then) {
+          if (!LEAF_TYPES.has(leaf.type)) {
+            return "Button actions can only be simple actions (no nested waits or conditions).";
+          }
+          const err = validateAction(leaf);
+          if (err) return err;
+        }
       }
       return null;
     }
