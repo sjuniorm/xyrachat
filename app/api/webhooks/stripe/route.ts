@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type Stripe from "stripe";
 import { getStripe, bundleIdFromPriceId } from "@/lib/billing/stripe";
-import { provisionBundle, clearAllBundleEntitlements } from "@/lib/billing/provision";
+import { provisionBundleExclusive, clearAllBundleEntitlements } from "@/lib/billing/provision";
 import { recomputeAddonEntitlements, addonIdFromPriceId } from "@/lib/billing/addon-provision";
 import { BUNDLES, type BundleId } from "@/lib/billing/bundles";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -149,13 +149,10 @@ async function onCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   await syncSubscriptionRow(orgId, subscription, resolvedBundleId);
-  // Clear any prior bundle rows (e.g. lingering Trial entitlements) so the new
-  // pack is the only bundle source — otherwise the Trial's permissive channel
-  // flags (all channels = true) would survive into a restrictive paid plan via
-  // most-permissive resolution. (Add-ons + per-org overrides use non-bundle:%
-  // sources and survive.)
-  await clearAllBundleEntitlements(orgId);
-  await provisionBundle({
+  // Provision as the ONLY bundle source so a Trial→paid conversion doesn't leave
+  // the Trial's permissive flags lingering. provisionBundleExclusive provisions
+  // first, then clears other bundle sources (never row-less on failure).
+  await provisionBundleExclusive({
     orgId,
     bundleId: resolvedBundleId,
     stripeSubscriptionId: subscription.id,
@@ -283,15 +280,11 @@ async function onSubscriptionUpdated(subscription: Stripe.Subscription) {
     return;
   }
   await syncSubscriptionRow(orgId, subscription, bundleId);
-  // Re-provision entitlements every time — handles plan upgrades AND downgrades.
-  // The provision RPC only wipes rows for the NEW bundle's own source, so on a
-  // plan CHANGE the prior bundle's rows would otherwise linger (most-permissive
-  // resolution → the org keeps the old plan's higher limits, and a downgrade to
-  // Social Lite wouldn't actually drop the inbox). Clear ALL bundle rows first
-  // so the new pack is the only bundle source. (Per-org overrides + add-ons use
-  // non-`bundle:%` sources and survive; add-ons are recomputed just below.)
-  await clearAllBundleEntitlements(orgId);
-  await provisionBundle({
+  // Re-provision as the ONLY bundle source — handles upgrades AND downgrades.
+  // (The bare provision RPC only swaps the new source, so a plan change would
+  // otherwise leave the prior plan's rows lingering and most-permissive would
+  // keep its higher limits.) Provisions first, then clears other bundle sources.
+  await provisionBundleExclusive({
     orgId,
     bundleId,
     stripeSubscriptionId: subscription.id,

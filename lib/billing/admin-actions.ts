@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { provisionBundle } from "./provision";
+import { provisionBundle, provisionBundleExclusive } from "./provision";
 import { BUNDLES, type BundleId } from "./bundles";
 import { operatorOrgAllowed } from "@/lib/admin/operator";
 
@@ -60,7 +60,11 @@ export async function provisionOrgBundle(
     .maybeSingle();
   if (!org) return { ok: false, error: "Target org not found." };
 
-  const res = await provisionBundle({
+  // Exclusive: this is the operator plan-CHANGE tool, so the new pack must be
+  // the only bundle source (else a prior plan's rows linger via most-permissive
+  // — e.g. moving a Social Lite org up would keep feature:inbox=false hiding the
+  // inbox, and downgrades would keep the old higher limits).
+  const res = await provisionBundleExclusive({
     orgId: targetOrgId,
     bundleId,
     stripeSubscriptionId: null,
