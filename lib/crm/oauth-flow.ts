@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import type { CrmProvider, OAuthTokens } from "./types";
 import { hubspotConfigured, buildHubspotAuthUrl, exchangeHubspotCode } from "./hubspot";
+import { pipedriveConfigured, buildPipedriveAuthUrl, exchangePipedriveCode } from "./pipedrive";
+import { salesforceConfigured, buildSalesforceAuthUrl, exchangeSalesforceCode } from "./salesforce";
 import { saveCrmConnection } from "./connections";
 
 // Shared start/finish for the CRM OAuth callbacks (mirrors lib/calendar/oauth-flow).
@@ -14,14 +16,25 @@ function stateCookie(provider: CrmProvider): string {
   return `crm_state_${provider}`;
 }
 function isConfigured(provider: CrmProvider): boolean {
-  return provider === "hubspot" ? hubspotConfigured() : false;
+  switch (provider) {
+    case "hubspot": return hubspotConfigured();
+    case "pipedrive": return pipedriveConfigured();
+    case "salesforce": return salesforceConfigured();
+  }
 }
 function authUrl(provider: CrmProvider, state: string): string {
-  return provider === "hubspot" ? buildHubspotAuthUrl(state) : "";
+  switch (provider) {
+    case "hubspot": return buildHubspotAuthUrl(state);
+    case "pipedrive": return buildPipedriveAuthUrl(state);
+    case "salesforce": return buildSalesforceAuthUrl(state);
+  }
 }
 async function exchange(provider: CrmProvider, code: string): Promise<OAuthTokens> {
-  if (provider === "hubspot") return exchangeHubspotCode(code);
-  throw new Error("Unsupported CRM provider");
+  switch (provider) {
+    case "hubspot": return exchangeHubspotCode(code);
+    case "pipedrive": return exchangePipedriveCode(code);
+    case "salesforce": return exchangeSalesforceCode(code);
+  }
 }
 
 async function ownerAdminOrg(): Promise<{ orgId: string; userId: string } | null> {

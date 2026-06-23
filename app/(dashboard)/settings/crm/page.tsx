@@ -17,11 +17,12 @@ type Conn = {
   error_message: string | null;
 };
 
-// Only HubSpot is wired today; the others render "coming soon".
+// All three are wired. Each only shows "Connect" once the operator sets its
+// OAuth env vars (configured = live && env present); otherwise "not available".
 const PROVIDERS: Array<{ id: Conn["provider"]; name: string; env: string; startPath: string; live: boolean }> = [
   { id: "hubspot", name: "HubSpot", env: "HUBSPOT_CLIENT_ID", startPath: "/api/auth/hubspot/start", live: true },
-  { id: "pipedrive", name: "Pipedrive", env: "PIPEDRIVE_CLIENT_ID", startPath: "/api/auth/pipedrive/start", live: false },
-  { id: "salesforce", name: "Salesforce", env: "SALESFORCE_CLIENT_ID", startPath: "/api/auth/salesforce/start", live: false },
+  { id: "pipedrive", name: "Pipedrive", env: "PIPEDRIVE_CLIENT_ID", startPath: "/api/auth/pipedrive/start", live: true },
+  { id: "salesforce", name: "Salesforce", env: "SALESFORCE_CLIENT_ID", startPath: "/api/auth/salesforce/start", live: true },
 ];
 
 export default async function CrmSettingsPage({

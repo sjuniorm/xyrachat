@@ -2,18 +2,29 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret, vaultReadSecret, vaultUpdateSecret, vaultForgetSecret } from "@/lib/supabase/vault";
 import { hubspotClient, refreshHubspotToken } from "./hubspot";
+import { pipedriveClient, refreshPipedriveToken } from "./pipedrive";
+import { salesforceClient, refreshSalesforceToken } from "./salesforce";
 import type { CrmClient, CrmConnectionRow, CrmContactInput, CrmProvider, OAuthTokens } from "./types";
 
 // Provider-agnostic CRM facade: the contact-sync hook + UI call THESE. Token
 // storage (Vault), refresh-on-expiry, and provider dispatch live here. Mirrors
-// lib/calendar/connections.ts. Only HubSpot is wired today; Pipedrive/Salesforce
-// slot into the two dispatch switches.
+// lib/calendar/connections.ts.
 
 function clientFor(provider: CrmProvider): CrmClient | null {
-  return provider === "hubspot" ? hubspotClient : null;
+  switch (provider) {
+    case "hubspot": return hubspotClient;
+    case "pipedrive": return pipedriveClient;
+    case "salesforce": return salesforceClient;
+    default: return null;
+  }
 }
 function refreshFor(provider: CrmProvider, refreshToken: string) {
-  return provider === "hubspot" ? refreshHubspotToken(refreshToken) : null;
+  switch (provider) {
+    case "hubspot": return refreshHubspotToken(refreshToken);
+    case "pipedrive": return refreshPipedriveToken(refreshToken);
+    case "salesforce": return refreshSalesforceToken(refreshToken);
+    default: return null;
+  }
 }
 
 const COLUMNS =
