@@ -2,6 +2,8 @@
 // Lives alongside the executor + server actions so the same vocabulary
 // applies in the builder UI, the webhook handlers, and the DB JSONB.
 
+import type { BusinessHours } from "@/lib/bots/business-hours";
+
 export type TriggerType =
   | "ig_new_follower"
   | "ig_comment_keyword"
@@ -24,6 +26,11 @@ export type TriggerConfig = {
   // trigger_type 'webhook' — the shared secret an external system must send
   // (header X-Xyra-Secret or ?secret=) to POST /api/automations/:id/trigger.
   webhook_secret?: string;
+  // Optional "active hours" gate: when present + active, the automation only
+  // fires while `now` is inside one of these windows (in the schedule's
+  // timezone). Checked in dispatchTrigger BEFORE the one-shot dedupe, so an
+  // off-hours event doesn't consume a one-shot fire. Reuses the bot's shape.
+  business_hours?: BusinessHours;
 };
 
 // Leaf actions — the "do something" steps. These can appear at the top level

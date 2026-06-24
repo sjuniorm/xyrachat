@@ -10,6 +10,7 @@ import { runIntentClassifier } from "./executor";
 import { assertCanUseAutomations } from "@/lib/billing/gates";
 import { checkAiQuota } from "@/lib/billing/usage";
 import { isAnthropicConfigured } from "@/lib/ai/clients";
+import { sanitizeBusinessHours } from "@/lib/bots/business-hours";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -98,6 +99,11 @@ export async function createAutomation(payload: {
     const { randomBytes } = await import("crypto");
     triggerConfig.webhook_secret = `xyra_at_${randomBytes(24).toString("hex")}`;
   }
+  // Active-hours: coerce to a safe shape (valid tz, capped/validated windows)
+  // before persisting — the gate reads this on the hot path.
+  if (triggerConfig.business_hours) {
+    triggerConfig.business_hours = sanitizeBusinessHours(triggerConfig.business_hours);
+  }
 
   const { data, error } = await admin
     .from("automations")
@@ -159,6 +165,14 @@ export async function updateAutomation(
       if (err) return { ok: false, error: err };
     }
     patch.actions = normalizeActions(patch.actions);
+  }
+
+  // Sanitize the active-hours schedule (if the trigger_config is being updated).
+  if (patch.trigger_config?.business_hours) {
+    patch.trigger_config = {
+      ...patch.trigger_config,
+      business_hours: sanitizeBusinessHours(patch.trigger_config.business_hours),
+    };
   }
 
   // Whitelist updatable columns.

@@ -111,6 +111,37 @@ export function sanitizeBusinessHours(raw: unknown): BusinessHours {
   return out;
 }
 
+/**
+ * True when `now` falls inside one of the configured windows for the current day
+ * in the schedule's timezone. IGNORES `active` — the caller decides whether to
+ * enforce. Uses Intl (IANA tzdb, DST-correct) with no tz dependency. Mirrors the
+ * bot gate's inline evaluator (lib/ai/bot-gate.ts → isWithinHours) on this exact
+ * shape, so bot + automation hours behave identically.
+ */
+export function isWithinBusinessHours(hours: BusinessHours, now: Date = new Date()): boolean {
+  const tz = isValidTimeZone(hours.timezone) ? (hours.timezone as string) : "UTC";
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(now).map((p) => [p.type, p.value]));
+  const weekdayShort = (parts.weekday ?? "").toLowerCase().slice(0, 3);
+  const dayKey = (DAY_KEYS as readonly string[]).includes(weekdayShort)
+    ? (weekdayShort as DayKey)
+    : null;
+  if (!dayKey) return false;
+  const windows = hours[dayKey];
+  if (!Array.isArray(windows) || windows.length === 0) return false;
+  const minutes = Number(parts.hour ?? "0") * 60 + Number(parts.minute ?? "0");
+  for (const w of windows) {
+    if (toMinutes(w.start) <= minutes && minutes <= toMinutes(w.end)) return true;
+  }
+  return false;
+}
+
 /** First window for a day, or null when the day is closed. */
 export function dayWindow(hours: BusinessHours, day: DayKey): HoursWindow | null {
   const w = hours[day];

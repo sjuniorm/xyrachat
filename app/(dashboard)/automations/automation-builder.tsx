@@ -35,6 +35,15 @@ import {
   type TriggerType,
 } from "@/lib/automations/types";
 import { FlowCanvas } from "@/components/automations/flow-canvas";
+import { Switch } from "@/components/ui/switch";
+import { BusinessHoursEditor } from "@/components/bots/business-hours-editor";
+import {
+  DAY_KEYS,
+  allDaysClosed,
+  defaultBusinessHours,
+  sanitizeBusinessHours,
+  type BusinessHours,
+} from "@/lib/bots/business-hours";
 
 type Channel = { id: string; name: string; type: string };
 type Member = { id: string; name: string };
@@ -269,6 +278,18 @@ export function AutomationBuilder({
     initial?.triggerConfig?.match ?? "any",
   );
 
+  // Active-hours gate (optional). Reuses the bot's business-hours shape + editor.
+  const [hoursActive, setHoursActive] = useState(
+    Boolean(initial?.triggerConfig?.business_hours?.active),
+  );
+  const [hours, setHours] = useState<BusinessHours>(() => {
+    const initialHours = sanitizeBusinessHours(initial?.triggerConfig?.business_hours);
+    const hasWindow = DAY_KEYS.some((d) => (initialHours[d]?.length ?? 0) > 0);
+    return hasWindow
+      ? initialHours
+      : { ...defaultBusinessHours(initialHours.timezone), active: initialHours.active };
+  });
+
   const [actions, setActions] = useState<Action[]>(
     initial?.actions ?? [
       { type: "send_dm", text: "Hi {{first_name}}, thanks for reaching out!" },
@@ -291,8 +312,11 @@ export function AutomationBuilder({
     if (triggerType === "ig_comment_keyword" && postId.trim()) {
       cfg.post_id = postId.trim();
     }
+    if (hoursActive) {
+      cfg.business_hours = sanitizeBusinessHours({ ...hours, active: true });
+    }
     return cfg;
-  }, [triggerMeta, keywordsInput, matchMode, triggerType, postId]);
+  }, [triggerMeta, keywordsInput, matchMode, triggerType, postId, hoursActive, hours]);
 
   const flowTriggerLabel = useMemo(() => {
     const kw = triggerConfig.keywords ?? [];
@@ -635,6 +659,32 @@ export function AutomationBuilder({
             </div>
           )}
         </CardContent>
+      </Card>
+
+      {/* Active hours */}
+      <Card className="border-white/10 bg-card/60">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-base">When it can run</CardTitle>
+          <label className="flex items-center gap-2 text-xs text-white/60">
+            Only during set hours
+            <Switch checked={hoursActive} onCheckedChange={setHoursActive} />
+          </label>
+        </CardHeader>
+        {hoursActive && (
+          <CardContent className="space-y-3">
+            <p className="text-[11px] leading-snug text-white/50">
+              Outside these hours the automation won&apos;t fire — incoming messages
+              just won&apos;t get an automatic reply until you&apos;re open again.
+            </p>
+            {allDaysClosed(hours) && (
+              <p className="rounded-md border border-amber-400/30 bg-amber-400/5 px-2.5 py-2 text-[11px] text-amber-200/80">
+                These hours are closed every day — add at least one open window or
+                the automation will never run.
+              </p>
+            )}
+            <BusinessHoursEditor value={hours} onChange={setHours} />
+          </CardContent>
+        )}
       </Card>
 
       {/* Actions */}

@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { executeAutomation } from "./executor";
 import { matchesKeywords, type AutomationRow, type TriggerType } from "./types";
+import { isWithinBusinessHours } from "@/lib/bots/business-hours";
 
 // Entry point called by webhook handlers when a relevant event happens.
 // Loads matching active automations for the channel + trigger_type,
@@ -70,6 +71,13 @@ export async function dispatchTrigger(input: {
       const required = automation.trigger_config?.post_id;
       if (required && required !== input.postId) continue;
     }
+
+    // Active-hours gate: when the automation restricts to set hours and we're
+    // outside them, skip — but do this BEFORE the one-shot dedupe so an
+    // off-hours event doesn't consume the contact's only fire (they can still
+    // trigger it once we're open again).
+    const bh = automation.trigger_config?.business_hours;
+    if (bh && bh.active && !isWithinBusinessHours(bh)) continue;
 
     // One-shot dedupe for triggers that should fire once per contact.
     if (
