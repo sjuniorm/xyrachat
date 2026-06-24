@@ -41,7 +41,7 @@ type BotRow = {
   business_hours: Record<string, unknown>;
   knowledge_threshold: number;
   language: string;
-  behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string };
+  behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string | string[] };
   handoff_triggers: string[] | null;
   tools_config?: Record<string, { enabled?: boolean }> | null;
   auto_reopen_closed?: boolean;
@@ -97,8 +97,12 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
   const [threshold, setThreshold] = useState(bot.knowledge_threshold);
   const [neverSay, setNeverSay] = useState((bot.behavior_rules?.never_say ?? []).join("\n"));
   const [alwaysDo, setAlwaysDo] = useState((bot.behavior_rules?.always_do ?? []).join("\n"));
+  // handoff_message may be a single string (legacy) or an array of variants.
+  // Edit one variant per line; the bot picks one at random on handoff.
   const [handoffMessage, setHandoffMessage] = useState(
-    (bot.behavior_rules?.handoff_message as string) ?? "",
+    Array.isArray(bot.behavior_rules?.handoff_message)
+      ? (bot.behavior_rules.handoff_message as string[]).join("\n")
+      : (bot.behavior_rules?.handoff_message as string) ?? "",
   );
   const [triggers, setTriggers] = useState((bot.handoff_triggers ?? []).join(", "));
   const [hoursActive, setHoursActive] = useState(Boolean(bot.business_hours?.active));
@@ -136,7 +140,11 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
         behavior_rules: {
           never_say: neverSay.split("\n").map((s) => s.trim()).filter(Boolean),
           always_do: alwaysDo.split("\n").map((s) => s.trim()).filter(Boolean),
-          handoff_message: handoffMessage.trim() || undefined,
+          // One variant per line → array (random-picked) when >1, else a string.
+          handoff_message: (() => {
+            const lines = handoffMessage.split("\n").map((s) => s.trim()).filter(Boolean);
+            return lines.length > 1 ? lines : lines[0] || undefined;
+          })(),
         },
         handoff_triggers: triggers
           .split(",")
@@ -411,14 +419,18 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="handoff-message">Handoff message</Label>
+            <Label htmlFor="handoff-message">Handoff message(s)</Label>
             <Textarea
               id="handoff-message"
-              rows={2}
+              rows={3}
               value={handoffMessage}
               onChange={(e) => setHandoffMessage(e.target.value)}
-              placeholder="Let me get a teammate to help — one moment."
+              placeholder={"Let me get a teammate to help — one moment.\nOne sec, I'll bring in a colleague who can help.\nHanding you to a human now — they'll be right with you."}
             />
+            <p className="text-[10px] text-white/40">
+              One per line — the bot picks one at random each time it hands off, so it
+              doesn&apos;t always say the same thing.
+            </p>
           </div>
         </CardContent>
       </Card>

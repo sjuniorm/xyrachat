@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   generateBotResponse,
+  pickHandoffMessage,
   type BotRow,
   type ConversationMessage,
 } from "@/lib/ai/chatbot";
@@ -704,11 +705,7 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     // already IS the escalation copy (knowledge-gap / legacy token) — skip then
     // to avoid double-messaging.
     if (!result.handoffAcknowledged) {
-      const handoffMsg =
-        typeof bot.behavior_rules?.handoff_message === "string" &&
-        (bot.behavior_rules.handoff_message as string).trim()
-          ? (bot.behavior_rules.handoff_message as string)
-          : "Let me get a teammate to help — one moment.";
+      const handoffMsg = pickHandoffMessage((bot as BotRow).behavior_rules);
       await sendOutbound(input.channel.type, {
         conversationId: input.conversationId,
         content: handoffMsg,
@@ -792,10 +789,12 @@ const DEFAULT_MEDIA_UNREADABLE_MESSAGE =
   "Thanks! I can see you sent an attachment, but I couldn't open it on my end — could you describe it in a message or send it again?";
 
 function botHandoffCopy(bot: BotRow): string {
-  const m = bot.behavior_rules?.handoff_message;
-  return typeof m === "string" && m.trim()
-    ? m
-    : "Thanks for your message! I'm having trouble responding automatically right now — a team member will get back to you shortly.";
+  // Random-pick across handoff variants if configured; else the service-error
+  // default (this path covers outages/budget, not a normal handoff).
+  return pickHandoffMessage(
+    bot.behavior_rules,
+    "Thanks for your message! I'm having trouble responding automatically right now — a team member will get back to you shortly.",
+  );
 }
 
 // True if a bot message stamped metadata[flag]='true' already exists on the

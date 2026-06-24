@@ -66,6 +66,23 @@ export type BotResult = {
   embeddingTokens: number;
 };
 
+// Pick a handoff line. behavior_rules.handoff_message may be a single string
+// (legacy) OR an array of variants — when it's an array we pick one at random
+// so the handoff doesn't always read identically. Falls back to a sane default.
+export function pickHandoffMessage(
+  rules: Record<string, unknown> | null | undefined,
+  fallback = "Let me get a teammate to help — one moment.",
+): string {
+  const m = rules?.handoff_message;
+  if (Array.isArray(m)) {
+    const opts = (m as unknown[]).filter(
+      (x): x is string => typeof x === "string" && x.trim().length > 0,
+    );
+    if (opts.length > 0) return opts[Math.floor(Math.random() * opts.length)].trim();
+  }
+  return typeof m === "string" && m.trim() ? m.trim() : fallback;
+}
+
 // =====================================================================
 // Top-level entry point: retrieve, gate on threshold, generate, parse.
 // =====================================================================
@@ -129,10 +146,7 @@ export async function generateBotResponse(params: {
     retrieval.chunks.length > 0 &&
     retrieval.maxSimilarity < bot.knowledge_threshold
   ) {
-    const handoff =
-      typeof bot.behavior_rules?.handoff_message === "string"
-        ? (bot.behavior_rules.handoff_message as string)
-        : "Let me get a teammate to help — one moment.";
+    const handoff = pickHandoffMessage(bot.behavior_rules);
     return {
       response: handoff,
       shouldHandoff: true,
@@ -340,10 +354,7 @@ export async function generateBotResponse(params: {
 
   return {
     response:
-      cleanResponse ||
-      (typeof bot.behavior_rules?.handoff_message === "string"
-        ? (bot.behavior_rules.handoff_message as string)
-        : "One moment — connecting you with someone."),
+      cleanResponse || pickHandoffMessage(bot.behavior_rules, "One moment — connecting you with someone."),
     shouldHandoff,
     handoffReason,
     // When cleanResponse is empty we substituted the handoff copy as the whole
@@ -492,7 +503,20 @@ function buildSystemConfigBlock(
   pieces.push(objectiveBlock(bot.objective, bot.objective_config), "");
   pieces.push(toneBlock(bot.tone), "");
   pieces.push(personalityBlock(bot.personality), "");
-  pieces.push(`LANGUAGE: respond in ${bot.language} unless the user clearly switches.`, "");
+  // Multilingual by default: detect + mirror the customer's language every turn.
+  // `bot.language` may be a single code or a comma-separated set of preferred
+  // languages; the first is the fallback when the customer's language is unclear.
+  const preferred = String(bot.language ?? "en")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const fallbackLang = preferred[0] ?? "en";
+  pieces.push(
+    `LANGUAGE: detect the language the customer writes in and ALWAYS reply in that same language, switching whenever they do.${
+      preferred.length > 1 ? ` Preferred languages: ${preferred.join(", ")}.` : ""
+    } If their language is unclear, use ${fallbackLang}.`,
+    "",
+  );
   const rules = rulesBlock(bot.behavior_rules);
   if (rules) pieces.push(rules, "");
   // When the request_human_handoff TOOL is enabled, instruct the model to use
