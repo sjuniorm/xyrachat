@@ -22,6 +22,7 @@ import {
   GitBranch,
   Reply,
   CircleDot,
+  Sparkles,
 } from "lucide-react";
 import { buildFlow, type FlowNodeData } from "@/lib/automations/flow-layout";
 import type { Action } from "@/lib/automations/types";
@@ -50,6 +51,7 @@ const KIND_ICON: Record<string, typeof Zap> = {
   wait: Clock,
   wait_for_reply: Reply,
   condition: GitBranch,
+  ai_branch: Sparkles,
 };
 
 function FlowNodeCard({ data }: NodeProps) {

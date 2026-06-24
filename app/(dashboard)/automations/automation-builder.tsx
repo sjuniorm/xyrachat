@@ -7,7 +7,7 @@ import {
   Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
-  MousePointerClick, Plus, Zap, ChevronUp, ChevronDown,
+  MousePointerClick, Plus, Zap, ChevronUp, ChevronDown, Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,7 @@ const ACTION_OPTIONS: Array<{
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
   { type: "assign_smart", label: "Smart routing", icon: Shuffle, available: true },
   { type: "condition", label: "If / else", icon: GitBranch, available: true },
+  { type: "ai_branch", label: "AI intent split", icon: Sparkles, available: true },
   { type: "wait", label: "Wait / delay", icon: Clock, available: true },
   { type: "wait_for_reply", label: "Wait for reply", icon: Reply, available: true },
   { type: "webhook", label: "Webhook (POST)", icon: Webhook, available: true },
@@ -90,6 +91,7 @@ const ACTION_META: Record<
   assign_agent: { label: "Assign to agent", icon: UserPlus2, badge: "bg-amber-400/15 text-amber-300" },
   assign_smart: { label: "Smart routing", icon: Shuffle, badge: "bg-amber-400/15 text-amber-300" },
   condition: { label: "If / else", icon: GitBranch, badge: "bg-[color:var(--xyra-pink)]/20 text-[color:var(--xyra-pink)]" },
+  ai_branch: { label: "AI intent split", icon: Sparkles, badge: "bg-cyan-400/15 text-cyan-300" },
   wait: { label: "Wait / delay", icon: Clock, badge: "bg-zinc-400/15 text-zinc-200" },
   wait_for_reply: { label: "Wait for reply", icon: Reply, badge: "bg-blue-400/15 text-blue-300" },
   webhook: { label: "Webhook (POST)", icon: Webhook, badge: "bg-fuchsia-400/15 text-fuchsia-300" },
@@ -393,6 +395,16 @@ export function AutomationBuilder({
           buttons: [
             { id: crypto.randomUUID(), title: "Send me the link", then: [{ type: "send_dm", text: "" }] },
           ],
+        };
+        break;
+      case "ai_branch":
+        fresh = {
+          type,
+          intents: [
+            { id: crypto.randomUUID(), label: "", description: "", then: [] },
+            { id: crypto.randomUUID(), label: "", description: "", then: [] },
+          ],
+          else: [],
         };
         break;
       default:
@@ -788,6 +800,7 @@ function ActionRow({
       {action.type !== "wait" &&
         action.type !== "wait_for_reply" &&
         action.type !== "condition" &&
+        action.type !== "ai_branch" &&
         action.type !== "send_buttons" && (
           <LeafFields
             action={action}
@@ -799,6 +812,10 @@ function ActionRow({
 
       {action.type === "send_buttons" && (
         <ButtonsEditor action={action} onChange={onChange} />
+      )}
+
+      {action.type === "ai_branch" && (
+        <AiBranchEditor action={action} members={members} onChange={onChange} />
       )}
 
       {action.type === "condition" && (
@@ -987,6 +1004,109 @@ function ButtonsEditor({
         recommended opt-in flow (and it opens the messaging window). This step
         ends the flow: put any follow-ups inside a button, not as later steps.
       </p>
+    </div>
+  );
+}
+
+// AI intent-split editor: optional business context + a list of intents (label
+// + description + a leaf-action branch each) + a fallback branch. The classifier
+// runs server-side in the executor; this is purely the authoring surface.
+const MAX_AI_INTENTS_UI = 8;
+
+function AiBranchEditor({
+  action,
+  members,
+  onChange,
+}: {
+  action: Extract<Action, { type: "ai_branch" }>;
+  members: Member[];
+  onChange: (next: Action) => void;
+}) {
+  const setIntents = (intents: typeof action.intents) => onChange({ ...action, intents });
+  const updateIntent = (
+    i: number,
+    patch: Partial<{ label: string; description: string; then: LeafAction[] }>,
+  ) => setIntents(action.intents.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[11px] leading-snug text-white/55">
+        The AI reads the customer&apos;s message and runs the branch whose intent
+        best matches — it branches on meaning, not exact keywords. Uses a little
+        AI credit per message; if none match (or AI is unavailable) it runs the
+        fallback at the bottom.
+      </p>
+      <div>
+        <Label className="text-[11px] text-white/60">Business context (optional)</Label>
+        <Textarea
+          value={action.instruction ?? ""}
+          onChange={(e) => onChange({ ...action, instruction: e.target.value })}
+          rows={2}
+          placeholder="e.g. We're a dental clinic — customers ask about booking, prices, or emergencies."
+          className="mt-1 text-xs"
+        />
+      </div>
+      {action.intents.map((it, i) => (
+        <div
+          key={it.id || i}
+          className="space-y-2 rounded-lg border border-cyan-400/15 bg-cyan-400/[0.03] p-2.5"
+        >
+          <div className="flex items-center gap-2">
+            <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-cyan-400/15 text-[10px] font-medium text-cyan-300">
+              {i + 1}
+            </span>
+            <Input
+              value={it.label}
+              onChange={(e) => updateIntent(i, { label: e.target.value })}
+              placeholder="Intent name (e.g. Sales question)"
+              className="h-8 text-xs"
+            />
+            {action.intents.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setIntents(action.intents.filter((_, j) => j !== i))}
+                className="shrink-0 text-white/40 hover:text-red-300"
+                aria-label="Remove intent"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <Input
+            value={it.description ?? ""}
+            onChange={(e) => updateIntent(i, { description: e.target.value })}
+            placeholder="Describe it so the AI matches well (optional) — e.g. pricing, quotes, discounts"
+            className="h-8 text-xs"
+          />
+          <BranchList
+            label="Then run"
+            actions={it.then}
+            members={members}
+            onChange={(next) => updateIntent(i, { then: next })}
+          />
+        </div>
+      ))}
+      {action.intents.length < MAX_AI_INTENTS_UI && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setIntents([
+              ...action.intents,
+              { id: crypto.randomUUID(), label: "", description: "", then: [] },
+            ])
+          }
+          className="h-7 gap-1.5 border-white/10 bg-white/5 px-2 text-[11px] hover:bg-white/10"
+        >
+          <Plus className="size-3" /> Add intent
+        </Button>
+      )}
+      <BranchList
+        label="If none match"
+        actions={action.else}
+        members={members}
+        onChange={(next) => onChange({ ...action, else: next })}
+      />
     </div>
   );
 }

@@ -226,15 +226,31 @@ const LEAF_TYPES = new Set([
 // this covers API/SQL-authored automations so a tap can never misroute.
 function normalizeActions(actions: Action[]): Action[] {
   return actions.map((a) => {
-    if (a.type !== "send_buttons") return a;
-    return {
-      ...a,
-      buttons: (a.buttons ?? []).map((b) =>
-        b.id ? b : { ...b, id: crypto.randomUUID() },
-      ),
-    };
+    if (a.type === "send_buttons") {
+      return {
+        ...a,
+        buttons: (a.buttons ?? []).map((b) =>
+          b.id ? b : { ...b, id: crypto.randomUUID() },
+        ),
+      };
+    }
+    if (a.type === "ai_branch") {
+      // Each intent needs a stable id — the executor keys its sticky branch
+      // decision + per-leaf idempotency stamps on it (so a resumed/retried run
+      // replays the same branch and never re-classifies / double-sends).
+      return {
+        ...a,
+        intents: (a.intents ?? []).map((it) =>
+          it.id ? it : { ...it, id: crypto.randomUUID() },
+        ),
+      };
+    }
+    return a;
   });
 }
+
+// Cap the number of intents so the classifier prompt + flow stay bounded.
+const MAX_AI_INTENTS = 8;
 
 function validateAction(action: Action, channelType?: string): string | null {
   switch (action.type) {
@@ -322,6 +338,37 @@ function validateAction(action: Action, channelType?: string): string | null {
           const err = validateAction(leaf);
           if (err) return err;
         }
+      }
+      return null;
+    }
+    case "ai_branch": {
+      if (!Array.isArray(action.intents) || action.intents.length === 0) {
+        return "An AI intent split needs at least one intent.";
+      }
+      if (action.intents.length > MAX_AI_INTENTS) {
+        return `An AI intent split can have at most ${MAX_AI_INTENTS} intents.`;
+      }
+      for (const it of action.intents) {
+        if (!it.label?.trim()) return "Each intent needs a label.";
+        if (it.label.trim().length > 80) return "Intent labels must be 80 characters or fewer.";
+        // Branch leaves must be simple actions (no nested waits/conditions),
+        // same rule as if/else branches.
+        if (!Array.isArray(it.then)) return "Each intent needs an action list.";
+        for (const leaf of it.then) {
+          if (!LEAF_TYPES.has(leaf.type)) {
+            return "AI intent branches can only contain simple actions (no nested waits or conditions).";
+          }
+          const err = validateAction(leaf);
+          if (err) return err;
+        }
+      }
+      // The else branch is optional but, when present, follows the same rule.
+      for (const leaf of action.else ?? []) {
+        if (!LEAF_TYPES.has(leaf.type)) {
+          return "AI intent branches can only contain simple actions (no nested waits or conditions).";
+        }
+        const err = validateAction(leaf);
+        if (err) return err;
       }
       return null;
     }

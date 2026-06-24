@@ -80,6 +80,15 @@ function topSummary(a: Action): FlowNodeData {
   if (a.type === "condition") {
     return { kind: a.type, tone: "condition", title: "If / else", subtitle: conditionSummary(a) };
   }
+  if (a.type === "ai_branch") {
+    const labels = (a.intents ?? []).map((it) => it.label || "?").filter(Boolean);
+    return {
+      kind: a.type,
+      tone: "condition",
+      title: "AI intent split",
+      subtitle: clip(labels.length ? labels.join(" · ") : "(no intents)", 56),
+    };
+  }
   if (a.type === "send_buttons") {
     const n = a.buttons?.length ?? 0;
     return {
@@ -136,6 +145,38 @@ export function buildFlow(
       const elseEnd = layBranch(a.else, "else", BRANCH_DX);
       row = Math.max(row + 1, thenEnd, elseEnd);
       prev = id; // the spine continues from the condition
+    } else if (a.type === "ai_branch") {
+      // N intent columns + an "else" column, spread/centered around the spine.
+      const branches: Array<{ leaves: LeafAction[]; label: string; key: string }> = [
+        ...(a.intents ?? []).map((it, k) => ({
+          leaves: it.then ?? [],
+          label: it.label || `intent ${k + 1}`,
+          key: `i${k}`,
+        })),
+        { leaves: a.else ?? [], label: "none", key: "else" },
+      ];
+      const mid = (branches.length - 1) / 2;
+      let maxRow = row + 1;
+      branches.forEach((br, k) => {
+        const dx = (k - mid) * BRANCH_DX;
+        let bprev = id;
+        let brow = row + 1;
+        br.leaves.forEach((leaf, j) => {
+          const lid = `${id}-${br.key}-${j}`;
+          nodes.push({ id: lid, type: "flowNode", position: { x: dx, y: brow * ROW_H }, data: leafSummary(leaf) });
+          edges.push({
+            id: `e-${bprev}-${lid}`,
+            source: bprev,
+            target: lid,
+            ...(j === 0 ? { label: clip(br.label, 16) } : {}),
+          });
+          bprev = lid;
+          brow += 1;
+        });
+        maxRow = Math.max(maxRow, brow);
+      });
+      row = maxRow;
+      prev = id; // spine continues from the ai_branch node
     } else {
       row += 1;
       prev = id;

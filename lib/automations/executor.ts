@@ -2,6 +2,9 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { emit } from "@/lib/api/emit";
+import { getAnthropic, MODELS, isAnthropicConfigured } from "@/lib/ai/clients";
+import { checkAiQuota, consumeAiTokens } from "@/lib/billing/usage";
+import { aiInboundAllowed } from "@/lib/ai/flood-guard";
 import {
   renderTemplate,
   evaluateConditions,
@@ -326,10 +329,88 @@ async function execLeafAction(
   }
 }
 
+// Sentinel "decision" value for an ai_branch when no intent matched → run the
+// else branch. Stored in trigger_data._branch_decisions on resumed rows.
+const AI_BRANCH_ELSE = "__else__";
+
+// Classify the customer's message into one of an ai_branch's intents using a
+// cheap Haiku call. Returns the matched intent id, or AI_BRANCH_ELSE when none
+// fit / AI is unconfigured / the org's budget is exhausted / it errors — so the
+// flow degrades to the else branch instead of failing. Intents are NUMBERED for
+// the model (echoing a UUID is unreliable) and mapped back to the id.
+async function classifyIntent(
+  orgId: string,
+  contactId: string,
+  conversationId: string | null,
+  messageText: string,
+  action: Extract<Action, { type: "ai_branch" }>,
+): Promise<string> {
+  const text = (messageText ?? "").trim();
+  const intents = (action.intents ?? []).filter(
+    (i) => i.id && typeof i.label === "string" && i.label.trim().length > 0,
+  );
+  if (!text || intents.length === 0) return AI_BRANCH_ELSE;
+  if (!isAnthropicConfigured()) return AI_BRANCH_ELSE;
+  // Flood guard (per contact + conversation) then budget pre-check — both bail
+  // to the else branch rather than spending.
+  if (!(await aiInboundAllowed(orgId, contactId, conversationId ?? undefined))) {
+    return AI_BRANCH_ELSE;
+  }
+  const quota = await checkAiQuota(orgId);
+  if (!quota.ok) return AI_BRANCH_ELSE;
+
+  try {
+    const numbered = intents
+      .map(
+        (it, k) =>
+          `${k + 1}. ${it.label.trim()}${
+            it.description?.trim() ? ` — ${it.description.trim()}` : ""
+          }`,
+      )
+      .join("\n");
+    const system =
+      "You are an intent classifier for a customer-messaging automation. " +
+      "Read the customer's message and choose the single category that best matches its intent. " +
+      "Reply with ONLY the category number. If none clearly apply, reply with 0." +
+      (action.instruction?.trim() ? `\n\nBusiness context: ${action.instruction.trim()}` : "");
+    const resp = await getAnthropic().messages.create({
+      model: MODELS.rewrite,
+      max_tokens: 8,
+      // Deterministic: a re-classify of the same message picks the same branch,
+      // so a retry can't flip to a different (contradictory) branch.
+      temperature: 0,
+      system,
+      messages: [
+        {
+          role: "user",
+          content: `Categories:\n${numbered}\n\nCustomer message:\n"""${text.slice(0, 2000)}"""\n\nBest category number:`,
+        },
+      ],
+    });
+    const usage = resp.usage;
+    // Charge the instant it's spent — the budget invariant (mirrors bot-gate).
+    // consumeAiTokens fails open internally, so awaiting never throws here.
+    await consumeAiTokens(
+      orgId,
+      (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0),
+    );
+    const block = resp.content.find((b) => b.type === "text");
+    const raw = block && "text" in block ? block.text : "";
+    const m = raw.match(/\d+/);
+    const n = m ? parseInt(m[0], 10) : 0;
+    if (!n || n < 1 || n > intents.length) return AI_BRANCH_ELSE;
+    return intents[n - 1].id;
+  } catch (err) {
+    console.warn("[automations] ai_branch classify failed", err);
+    return AI_BRANCH_ELSE;
+  }
+}
+
 // Runs a list of actions in order. Leaf actions delegate to execLeafAction.
 // `wait` persists the REMAINING actions + STOPS (the runner resumes later).
 // `condition` evaluates if/else against the contact's tags + the trigger
-// message and runs the chosen branch's leaf actions inline.
+// message and runs the chosen branch's leaf actions inline. `ai_branch`
+// classifies the message with an LLM and runs the chosen intent's branch.
 async function runActionList(
   admin: ReturnType<typeof createAdminClient>,
   actions: Action[],
@@ -478,16 +559,24 @@ async function runActionList(
             ? "then"
             : "else";
           // Persist the decision so a retry of this scheduled row can't flip it.
+          // Bail (retry) on a persist failure rather than run the branch on an
+          // unpersisted decision — a leaf only runs after the decision is
+          // durably committed.
           if (ctx.scheduledActionId) {
             const merged = {
               ...(ctx.triggerData ?? {}),
               _branch_decisions: { ...decisions, [decisionKey]: branchName },
             };
-            ctx.triggerData = merged;
-            await admin
+            const { error: persistErr } = await admin
               .from("automation_scheduled_actions")
               .update({ trigger_data: merged })
               .eq("id", ctx.scheduledActionId);
+            if (persistErr) {
+              steps.push({ type: action.type, ok: false, error: `branch decision persist failed: ${persistErr.message}` });
+              firstFailure ??= persistErr.message;
+              return { steps, firstFailure, conversationId, scheduled: false };
+            }
+            ctx.triggerData = merged;
           }
         }
         const branch = branchName === "then" ? action.then : action.else;
@@ -516,6 +605,85 @@ async function runActionList(
         }
         // Reflect the branch outcome so a fully-failed branch yields all-ok:false
         // (→ computeStatus 'failed') instead of being masked as success.
+        steps.push({ type: action.type, ok: branchAllOk });
+        continue;
+      }
+
+      if (action.type === "ai_branch") {
+        // STICKY decision (mirrors `condition`): replay the same intent on a
+        // resumed/retried row so we never re-classify — which would re-charge AI
+        // tokens AND could pick a different branch (double-send across branches,
+        // since each branch's idempotency stamps differ).
+        const decisions =
+          (ctx.triggerData?._branch_decisions as Record<string, string> | undefined) ?? {};
+        const decisionKey = String(i);
+        let chosenId: string;
+        if (typeof decisions[decisionKey] === "string") {
+          chosenId = decisions[decisionKey];
+        } else {
+          const messageText =
+            typeof ctx.triggerData?.message_text === "string"
+              ? (ctx.triggerData.message_text as string)
+              : "";
+          chosenId = await classifyIntent(
+            automation.org_id,
+            contact.id,
+            conversationId,
+            messageText,
+            action,
+          );
+          // Persist BEFORE running the branch so a retry replays it (no second
+          // classify, no double charge). The whole no-flip guarantee depends on
+          // this decision being DURABLY written before any leaf sends — so if
+          // the persist fails, bail and let the chain retry rather than run the
+          // branch on an unpersisted decision (which a retry could re-classify
+          // and flip → a second, contradictory reply). A leaf only ever runs
+          // after the decision is committed.
+          if (ctx.scheduledActionId) {
+            const merged = {
+              ...(ctx.triggerData ?? {}),
+              _branch_decisions: { ...decisions, [decisionKey]: chosenId },
+            };
+            const { error: persistErr } = await admin
+              .from("automation_scheduled_actions")
+              .update({ trigger_data: merged })
+              .eq("id", ctx.scheduledActionId);
+            if (persistErr) {
+              steps.push({ type: action.type, ok: false, error: `branch decision persist failed: ${persistErr.message}` });
+              firstFailure ??= persistErr.message;
+              return { steps, firstFailure, conversationId, scheduled: false };
+            }
+            ctx.triggerData = merged;
+          }
+        }
+        const intent = (action.intents ?? []).find((x) => x.id === chosenId);
+        const branch = intent ? intent.then ?? [] : action.else ?? [];
+        // Stamp label: the (stable) intent id, or "else". Keeps resumed-run
+        // idempotency stamps unique + position-independent.
+        const branchLabel = intent ? chosenId : "else";
+        let branchAllOk = true;
+        for (let j = 0; j < branch.length; j++) {
+          const leaf = branch[j];
+          const stampKey = ctx.scheduledActionId
+            ? `${ctx.scheduledActionId}:${i}.ai.${branchLabel}.${j}`
+            : null;
+          try {
+            const r = await execLeafAction(admin, leaf, ctx, conversationId, stampKey);
+            conversationId = r.conversationId;
+            if (r.ok) {
+              steps.push({ type: leaf.type, ok: true });
+            } else {
+              branchAllOk = false;
+              steps.push({ type: leaf.type, ok: false, error: r.error });
+              firstFailure ??= r.error ?? "branch action failed";
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            branchAllOk = false;
+            steps.push({ type: leaf.type, ok: false, error: msg });
+            firstFailure ??= msg;
+          }
+        }
         steps.push({ type: action.type, ok: branchAllOk });
         continue;
       }

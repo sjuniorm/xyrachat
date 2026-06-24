@@ -87,7 +87,30 @@ export type Action =
       type: "send_buttons";
       text: string;
       buttons: ButtonOption[];
+    }
+  // AI intent split: an LLM reads the customer's message and routes the flow to
+  // the matching intent's branch (or `else` when none fit). The "smart" sibling
+  // of `condition` — branches on MEANING, not keywords. Each intent's `then` is
+  // LeafAction[] (no nesting). `id` is stable (assigned at save time) so a
+  // resumed/retried run replays the same branch without re-classifying. Costs AI
+  // tokens (charged to the org); falls back to `else` when the budget is
+  // exhausted, AI is unconfigured, or classification fails.
+  | {
+      type: "ai_branch";
+      // Optional extra context handed to the classifier (e.g. "We sell shoes").
+      instruction?: string;
+      intents: AiIntent[];
+      else: LeafAction[];
     };
+
+// One branch of an `ai_branch`. `label` is what the classifier matches on (e.g.
+// "Sales question"); `description` sharpens the match. `then` runs when chosen.
+export type AiIntent = {
+  id: string;
+  label: string;
+  description?: string;
+  then: LeafAction[];
+};
 
 // Evaluate if/else conditions against the contact's tags + the trigger message.
 // Pure — the caller supplies the already-fetched tags + message text.
