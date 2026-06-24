@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
 import { assertCanAddChannel } from "@/lib/billing/gates";
+import { subscribeIgWebhooks } from "@/lib/instagram/subscribe";
 import { NewInstagramChannelForm } from "./new-instagram-channel-form";
 
 async function createInstagramChannelAction(
@@ -55,6 +56,36 @@ async function createInstagramChannelAction(
     };
   }
 
+  // For IG-direct (Instagram Business Login, no linked Page) enrich from /me and
+  // record the login user id — the correct send-URL id — so the channel sends to
+  // the right id AND can be matched when webhooks arrive. Best-effort: a failed
+  // lookup still saves the channel with what was entered.
+  const metadata: Record<string, unknown> = igUsername ? { ig_username: igUsername } : {};
+  let igLoginUserId: string | null = null;
+  if (!pageId) {
+    try {
+      const meRes = await fetch(
+        "https://graph.instagram.com/v22.0/me?fields=id,username,profile_picture_url",
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (meRes.ok) {
+        const me = (await meRes.json()) as {
+          id?: string;
+          username?: string;
+          profile_picture_url?: string;
+        };
+        if (me.id) {
+          igLoginUserId = me.id;
+          metadata.ig_login_user_id = me.id;
+        }
+        if (me.username && !igUsername) metadata.ig_username = me.username;
+        if (me.profile_picture_url) metadata.ig_profile_pic_url = me.profile_picture_url;
+      }
+    } catch {
+      // best-effort enrichment — proceed with what was entered
+    }
+  }
+
   const admin = createAdminClient();
   const { error: insertErr } = await admin.from("channels").insert({
     org_id: orgId,
@@ -64,11 +95,23 @@ async function createInstagramChannelAction(
     ig_business_account_id: igAccountId,
     access_token_vault_id: vaultId,
     active: true,
-    metadata: igUsername ? { ig_username: igUsername } : {},
+    metadata,
   });
   if (insertErr) return { error: insertErr.message };
 
-  redirect("/settings/channels?connected=instagram");
+  // Subscribe the IG account to webhooks — easy to miss, and without it DMs
+  // never arrive even from testers. IG-direct path only (Page-linked manual
+  // setups subscribe via the Page). Non-fatal: the channel is saved either way.
+  let warn = "";
+  if (!pageId) {
+    const subscribed = await subscribeIgWebhooks(
+      igLoginUserId ?? igAccountId,
+      accessToken,
+    ).catch(() => false);
+    if (!subscribed) warn = "&warn=webhooks-unsubscribed";
+  }
+
+  redirect(`/settings/channels?connected=instagram${warn}`);
 }
 
 export default async function NewInstagramChannelPage() {

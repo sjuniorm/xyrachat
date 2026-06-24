@@ -97,8 +97,18 @@ export async function POST(req: NextRequest) {
 // =====================================================================
 function verifyMetaSignature(rawBody: string, header: string | null): boolean {
   if (!header || !header.startsWith("sha256=")) return false;
-  const secret = process.env.INSTAGRAM_APP_SECRET ?? process.env.META_APP_SECRET;
+  const igSecret = process.env.INSTAGRAM_APP_SECRET;
+  const secret = igSecret ?? process.env.META_APP_SECRET;
   if (!secret) return false;
+  if (!igSecret) {
+    // A single-app setup (IG product on the WhatsApp app) legitimately shares
+    // META_APP_SECRET. But if INSTAGRAM_APP_SECRET is simply MISSING while the
+    // IG app uses a different secret, every inbound 401s here — silently. Log
+    // the fallback so that misconfig is visible instead of looking like "no DMs".
+    console.warn(
+      "[ig webhook] INSTAGRAM_APP_SECRET unset — verifying with META_APP_SECRET fallback",
+    );
+  }
   const provided = header.slice("sha256=".length);
   const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
   const a = Buffer.from(provided, "hex");
@@ -325,9 +335,14 @@ async function fetchContactProfile(
   try {
     const token = await vaultReadSecret(channel.access_token_vault_id);
     if (!token) return { name: null, avatar_url: null };
+    // IG-direct (Instagram Business Login, no linked Page) profiles must be read
+    // from graph.instagram.com — the IG-user token is NOT valid on
+    // graph.facebook.com, so the FB host silently returned null name/avatar for
+    // every IG-direct contact. Page-linked channels still use the Graph host.
     // Token in the Authorization header, NOT the URL query string (a token in
     // the URL leaks into proxy/access logs). Matches the IG send route.
-    const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${igUserId}?fields=name,profile_pic`;
+    const base = channel.page_id ? "graph.facebook.com" : "graph.instagram.com";
+    const url = `https://${base}/${META_GRAPH_VERSION}/${igUserId}?fields=name,profile_pic`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return { name: null, avatar_url: null };
     const j = (await res.json()) as { name?: string; profile_pic?: string };

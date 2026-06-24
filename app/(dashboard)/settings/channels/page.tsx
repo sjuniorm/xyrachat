@@ -12,7 +12,7 @@ import { ChannelsFlash } from "./flash";
 export default async function ChannelsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ connected?: string; error?: string }>;
+  searchParams: Promise<{ connected?: string; error?: string; warn?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -41,7 +41,7 @@ export default async function ChannelsPage({
           <AddChannelButton />
         </header>
 
-        <ChannelsFlash connected={sp.connected} error={sp.error} />
+        <ChannelsFlash connected={sp.connected} error={sp.error} warn={sp.warn} />
 
         {list.length === 0 ? (
           <Card className="border-white/10 bg-card/60">

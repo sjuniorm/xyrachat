@@ -9,13 +9,21 @@ import { toast } from "sonner";
 export function ChannelsFlash({
   connected,
   error,
+  warn,
 }: {
   connected?: string;
   error?: string;
+  warn?: string;
 }) {
   const router = useRouter();
   useEffect(() => {
-    if (connected === "instagram") {
+    if (warn === "webhooks-unsubscribed") {
+      // The channel saved, but Meta wouldn't subscribe it to webhooks — so DMs
+      // won't arrive. Warn instead of the misleading green "connected!" success.
+      toast.warning(
+        "Channel saved, but we couldn't subscribe it to Instagram webhooks — DMs may not arrive yet. Check the token/permissions (in dev mode the account must be an Instagram Tester), then rotate the token to retry.",
+      );
+    } else if (connected === "instagram") {
       toast.success("Instagram channel connected.");
     } else if (connected === "telegram") {
       toast.success("Telegram bot connected.");
@@ -26,9 +34,9 @@ export function ChannelsFlash({
     } else if (error) {
       toast.error(error);
     }
-    if (connected || error) {
+    if (connected || error || warn) {
       router.replace("/settings/channels", { scroll: false });
     }
-  }, [connected, error, router]);
+  }, [connected, error, warn, router]);
   return null;
 }

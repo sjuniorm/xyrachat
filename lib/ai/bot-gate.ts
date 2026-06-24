@@ -1206,19 +1206,25 @@ async function sendTelegram(
     body: JSON.stringify({ chat_id: contact.telegram_id, text: args.content }),
   });
   const tgJson = (await tgRes.json().catch(() => null)) as
-    | { ok: boolean; result?: { message_id: number; chat: { id: number } } }
+    | { ok: boolean; result?: { message_id: number; chat: { id: number } }; description?: string }
     | null;
   const tgKey = tgJson?.result
     ? `${tgJson.result.chat.id}:${tgJson.result.message_id}`
     : null;
+  const tgFailed = !tgRes.ok || !tgJson?.ok;
+  if (tgFailed) {
+    console.error("[bot send] telegram send failed", tgRes.status, tgJson?.description);
+  }
   await admin.from("messages").insert({
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
     sender_type: args.senderType ?? "bot",
-    status: "sent",
+    status: tgFailed ? "failed" : "sent",
     telegram_message_id: tgKey,
-    metadata: args.botMetadata,
+    metadata: tgFailed
+      ? { ...args.botMetadata, send_error: tgJson?.description ?? `HTTP ${tgRes.status}` }
+      : args.botMetadata,
   });
   await admin
     .from("conversations")
@@ -1274,17 +1280,23 @@ async function sendWhatsApp(
     }),
   });
   const json = (await res.json().catch(() => null)) as
-    | { messages?: Array<{ id: string }> }
+    | { messages?: Array<{ id: string }>; error?: { message?: string; code?: number } }
     | null;
   const waId = json?.messages?.[0]?.id ?? null;
+  const waFailed = !res.ok || Boolean(json?.error);
+  if (waFailed) {
+    console.error("[bot send] whatsapp send failed", res.status, json?.error);
+  }
   await admin.from("messages").insert({
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
     sender_type: args.senderType ?? "bot",
-    status: "sent",
+    status: waFailed ? "failed" : "sent",
     wa_message_id: waId,
-    metadata: args.botMetadata,
+    metadata: waFailed
+      ? { ...args.botMetadata, send_error: json?.error?.message ?? `HTTP ${res.status}` }
+      : args.botMetadata,
   });
   await admin
     .from("conversations")
@@ -1340,16 +1352,22 @@ async function sendInstagram(
     }),
   });
   const json = (await res.json().catch(() => null)) as
-    | { message_id?: string }
+    | { message_id?: string; error?: { message?: string; code?: number } }
     | null;
+  const igFailed = !res.ok || Boolean(json?.error);
+  if (igFailed) {
+    console.error("[bot send] instagram send failed", res.status, json?.error);
+  }
   await admin.from("messages").insert({
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
     sender_type: args.senderType ?? "bot",
-    status: "sent",
+    status: igFailed ? "failed" : "sent",
     ig_message_id: json?.message_id ?? null,
-    metadata: args.botMetadata,
+    metadata: igFailed
+      ? { ...args.botMetadata, send_error: json?.error?.message ?? `HTTP ${res.status}` }
+      : args.botMetadata,
   });
   await admin
     .from("conversations")
@@ -1399,16 +1417,22 @@ async function sendMessenger(
     }),
   });
   const json = (await res.json().catch(() => null)) as
-    | { message_id?: string }
+    | { message_id?: string; error?: { message?: string; code?: number } }
     | null;
+  const fbFailed = !res.ok || Boolean(json?.error);
+  if (fbFailed) {
+    console.error("[bot send] messenger send failed", res.status, json?.error);
+  }
   await admin.from("messages").insert({
     conversation_id: args.conversationId,
     direction: "outbound",
     content: args.content,
     sender_type: args.senderType ?? "bot",
-    status: "sent",
+    status: fbFailed ? "failed" : "sent",
     messenger_message_id: json?.message_id ?? null,
-    metadata: args.botMetadata,
+    metadata: fbFailed
+      ? { ...args.botMetadata, send_error: json?.error?.message ?? `HTTP ${res.status}` }
+      : args.botMetadata,
   });
   await admin
     .from("conversations")
