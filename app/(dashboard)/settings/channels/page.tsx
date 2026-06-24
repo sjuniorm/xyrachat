@@ -62,7 +62,22 @@ export default async function ChannelsPage({
               <li key={c.id}>
                 <Card className="border-white/10 bg-card/60">
                   <CardContent className="flex items-center gap-4 py-4">
-                    <ChannelIcon channel={c.type} />
+                    {c.type === "instagram" && c.metadata?.ig_profile_pic_url ? (
+                      <span className="relative inline-flex shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={c.metadata.ig_profile_pic_url}
+                          alt={c.metadata?.ig_username ? `@${c.metadata.ig_username}` : "Instagram profile"}
+                          referrerPolicy="no-referrer"
+                          className="size-10 rounded-full object-cover ring-1 ring-white/10"
+                        />
+                        <span className="absolute -bottom-1 -right-1 rounded-full bg-card p-0.5">
+                          <ChannelIcon channel={c.type} size="sm" />
+                        </span>
+                      </span>
+                    ) : (
+                      <ChannelIcon channel={c.type} />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <p className="truncate font-medium text-white">{c.name}</p>
