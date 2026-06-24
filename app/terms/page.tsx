@@ -15,10 +15,6 @@ export default function TermsPage() {
         <XyraWordmark size="sm" />
       </Link>
       <h1>Terms of Service</h1>
-      <p className="not-prose rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-        Draft pending final legal review. Confirm with counsel before relying on
-        it commercially.
-      </p>
       <p>
         <em>Last updated: {UPDATED}.</em>
       </p>

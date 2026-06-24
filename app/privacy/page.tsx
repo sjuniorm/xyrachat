@@ -27,10 +27,6 @@ export default function PrivacyPage() {
         <XyraWordmark size="sm" />
       </Link>
       <h1>Privacy Policy</h1>
-      <p className="not-prose rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-        Draft pending final legal review — accurate to how the Service works
-        today; confirm with counsel before relying on it commercially.
-      </p>
       <p>
         <em>Last updated: {UPDATED}.</em>
       </p>
