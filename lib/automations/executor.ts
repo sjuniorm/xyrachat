@@ -10,6 +10,7 @@ import {
   evaluateConditions,
   type Action,
   type LeafAction,
+  type AiIntent,
   type AutomationRow,
 } from "./types";
 
@@ -333,17 +334,15 @@ async function execLeafAction(
 // else branch. Stored in trigger_data._branch_decisions on resumed rows.
 const AI_BRANCH_ELSE = "__else__";
 
-// Classify the customer's message into one of an ai_branch's intents using a
-// cheap Haiku call. Returns the matched intent id, or AI_BRANCH_ELSE when none
-// fit / AI is unconfigured / the org's budget is exhausted / it errors — so the
-// flow degrades to the else branch instead of failing. Intents are NUMBERED for
-// the model (echoing a UUID is unreliable) and mapped back to the id.
-async function classifyIntent(
+// Core intent classifier (NO flood guard) — shared by the live executor path
+// and the builder's "Test" action so the preview matches production exactly.
+// Returns the matched intent id, or AI_BRANCH_ELSE when none fit / AI is
+// unconfigured / the org's budget is exhausted / it errors. Intents are NUMBERED
+// for the model (echoing a UUID is unreliable) and mapped back to the id.
+export async function runIntentClassifier(
   orgId: string,
-  contactId: string,
-  conversationId: string | null,
   messageText: string,
-  action: Extract<Action, { type: "ai_branch" }>,
+  action: { instruction?: string; intents: AiIntent[] },
 ): Promise<string> {
   const text = (messageText ?? "").trim();
   const intents = (action.intents ?? []).filter(
@@ -351,11 +350,6 @@ async function classifyIntent(
   );
   if (!text || intents.length === 0) return AI_BRANCH_ELSE;
   if (!isAnthropicConfigured()) return AI_BRANCH_ELSE;
-  // Flood guard (per contact + conversation) then budget pre-check — both bail
-  // to the else branch rather than spending.
-  if (!(await aiInboundAllowed(orgId, contactId, conversationId ?? undefined))) {
-    return AI_BRANCH_ELSE;
-  }
   const quota = await checkAiQuota(orgId);
   if (!quota.ok) return AI_BRANCH_ELSE;
 
@@ -404,6 +398,23 @@ async function classifyIntent(
     console.warn("[automations] ai_branch classify failed", err);
     return AI_BRANCH_ELSE;
   }
+}
+
+// Live executor wrapper: adds the per-contact/conversation flood guard before
+// classifying. The Test action skips this (it's operator-authenticated and
+// charges the caller's own org budget, so a contact flood window doesn't apply).
+async function classifyIntent(
+  orgId: string,
+  contactId: string,
+  conversationId: string | null,
+  messageText: string,
+  action: Extract<Action, { type: "ai_branch" }>,
+): Promise<string> {
+  if (!(messageText ?? "").trim()) return AI_BRANCH_ELSE;
+  if (!(await aiInboundAllowed(orgId, contactId, conversationId ?? undefined))) {
+    return AI_BRANCH_ELSE;
+  }
+  return runIntentClassifier(orgId, messageText, action);
 }
 
 // Runs a list of actions in order. Leaf actions delegate to execLeafAction.

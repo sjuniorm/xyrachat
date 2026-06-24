@@ -24,6 +24,7 @@ import {
 import {
   createAutomation,
   updateAutomation,
+  testAiBranch,
 } from "@/lib/automations/actions";
 import {
   allowedTriggersForChannel,
@@ -1027,6 +1028,35 @@ function AiBranchEditor({
     i: number,
     patch: Partial<{ label: string; description: string; then: LeafAction[] }>,
   ) => setIntents(action.intents.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+
+  // Live "try a message → see which branch it picks" preview. Classifies the
+  // CURRENT (unsaved) intents server-side so descriptions can be tuned before
+  // going live. Result is the matched intent label, or null for the fallback.
+  const [testMsg, setTestMsg] = useState("");
+  const [testing, startTest] = useTransition();
+  const [testResult, setTestResult] = useState<{ label: string | null } | null>(null);
+  const runTest = () => {
+    const msg = testMsg.trim();
+    if (!msg) return;
+    startTest(async () => {
+      const res = await testAiBranch({
+        instruction: action.instruction,
+        intents: action.intents.map((it) => ({
+          id: it.id,
+          label: it.label,
+          description: it.description,
+        })),
+        message: msg,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        setTestResult(null);
+        return;
+      }
+      setTestResult({ label: res.data?.matchedLabel ?? null });
+    });
+  };
+
   return (
     <div className="space-y-2.5">
       <p className="text-[11px] leading-snug text-white/55">
@@ -1107,6 +1137,52 @@ function AiBranchEditor({
         members={members}
         onChange={(next) => onChange({ ...action, else: next })}
       />
+
+      <div className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+        <Label className="text-[11px] text-white/60">Test it</Label>
+        <p className="mt-0.5 text-[10px] text-white/40">
+          Type a sample customer message and see which branch the AI picks. Tests
+          your current intents (no need to save). Uses a little AI credit.
+        </p>
+        <div className="mt-1.5 flex items-center gap-2">
+          <Input
+            value={testMsg}
+            onChange={(e) => setTestMsg(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                runTest();
+              }
+            }}
+            placeholder="e.g. how much does it cost?"
+            className="h-8 text-xs"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={testing || !testMsg.trim()}
+            onClick={runTest}
+            className="h-8 shrink-0 border-white/10 bg-white/5 px-3 text-xs hover:bg-white/10"
+          >
+            {testing ? "Testing…" : "Test"}
+          </Button>
+        </div>
+        {testResult && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs">
+            <span className="text-white/50">Routed to:</span>
+            {testResult.label ? (
+              <span className="rounded-md bg-cyan-400/15 px-1.5 py-0.5 font-medium text-cyan-300">
+                {testResult.label}
+              </span>
+            ) : (
+              <span className="rounded-md bg-white/10 px-1.5 py-0.5 font-medium text-white/70">
+                If none match (fallback)
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

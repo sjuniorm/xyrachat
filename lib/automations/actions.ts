@@ -4,9 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Action, TriggerConfig, TriggerType } from "./types";
+import type { Action, AiIntent, TriggerConfig, TriggerType } from "./types";
 import { allowedTriggersForChannel } from "./types";
+import { runIntentClassifier } from "./executor";
 import { assertCanUseAutomations } from "@/lib/billing/gates";
+import { checkAiQuota } from "@/lib/billing/usage";
+import { isAnthropicConfigured } from "@/lib/ai/clients";
 
 type ActionResult<T = unknown> =
   | { ok: true; data?: T }
@@ -204,6 +207,57 @@ export async function setAutomationActive(
   active: boolean,
 ): Promise<ActionResult> {
   return updateAutomation(id, { active });
+}
+
+// Builder preview for an "AI intent split" node: classify a sample message
+// against the CURRENT (possibly unsaved) intents and report which branch it
+// would take, so the operator can tune intent labels/descriptions before going
+// live. Auth-gated to automation editors; runs against (and charges) the
+// caller's OWN org budget — no contact data, no writes. Mirrors the bot Test tab.
+export async function testAiBranch(payload: {
+  instruction?: string;
+  intents: Array<{ id?: string; label: string; description?: string }>;
+  message: string;
+}): Promise<ActionResult<{ matchedId: string | null; matchedLabel: string | null }>> {
+  const auth = await requireOrgRole(["owner", "admin", "supervisor"]);
+  if ("error" in auth) return { ok: false, error: auth.error };
+
+  const message = (payload.message ?? "").trim();
+  if (!message) return { ok: false, error: "Type a sample message to test." };
+  if (message.length > 2000) return { ok: false, error: "That test message is too long." };
+
+  const intents: AiIntent[] = (payload.intents ?? [])
+    .filter((i) => i.label?.trim())
+    .slice(0, MAX_AI_INTENTS)
+    .map((i) => ({
+      id: i.id || crypto.randomUUID(),
+      label: i.label.trim(),
+      description: i.description?.trim() || undefined,
+      then: [],
+    }));
+  if (intents.length === 0) {
+    return { ok: false, error: "Add at least one intent with a label first." };
+  }
+
+  // Clear, distinct messages so a "no match" result isn't confused with AI
+  // being off or the budget being spent.
+  if (!isAnthropicConfigured()) {
+    return { ok: false, error: "AI isn't configured on the server yet." };
+  }
+  const quota = await checkAiQuota(auth.orgId);
+  if (!quota.ok) {
+    return {
+      ok: false,
+      error: "Your monthly AI usage limit is reached — upgrade or wait for the reset to test.",
+    };
+  }
+
+  const chosen = await runIntentClassifier(auth.orgId, message, {
+    instruction: payload.instruction,
+    intents,
+  });
+  const matched = intents.find((it) => it.id === chosen) ?? null;
+  return { ok: true, data: { matchedId: matched?.id ?? null, matchedLabel: matched?.label ?? null } };
 }
 
 // =====================================================================
