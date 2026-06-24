@@ -14,11 +14,12 @@
 1. **Business Verification** (business.facebook.com → Security Center) is APPROVED
    for Mll Nexus Group SL (CIF B88931977). App Review permissions can't be
    granted until this is done.
-2. **App settings → Basic**: Privacy Policy URL `https://xyrachat.com/privacy`,
-   Terms URL `https://xyrachat.com/terms`, Data Deletion URL
-   `https://xyrachat.com/privacy` (our GDPR delete is at `/api/gdpr/delete`;
-   describe the request route in the privacy page), App icon, Category =
-   "Business and Pages".
+2. **App settings → Basic**: Privacy Policy URL `https://app.xyrachat.com/privacy`,
+   Terms URL `https://app.xyrachat.com/terms`, Data Deletion → "Data deletion
+   instructions URL" `https://app.xyrachat.com/privacy#data-deletion` (the page's
+   §8 documents the self-serve Settings → Team → Delete workspace flow + the
+   privacy@xyrachat.com contact), App icon, **Category = "Messaging"** (Xyra's
+   core function; matches the messaging permissions requested).
 3. **App is in Live mode** before final submission (toggle top bar). Webhooks
    subscribed + verified (green) for each product.
 4. A **reviewer test path**: Meta reviewers need to reproduce the use. Give them
