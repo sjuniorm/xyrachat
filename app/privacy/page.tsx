@@ -33,7 +33,7 @@ export default function PrivacyPage() {
 
       <p>
         Xyra Chat (the &quot;Service&quot;), operated by Mll Nexus Group SL
-        (trading as Mll Studio) (&quot;we&quot;, &quot;us&quot;), is a
+        (&quot;we&quot;, &quot;us&quot;), is a
         multi-channel customer-messaging platform. This policy
         explains what personal data we process, why, and the rights you have. It is
         written to align with the EU General Data Protection Regulation (GDPR) and
@@ -115,14 +115,28 @@ export default function PrivacyPage() {
         account plus any legally required period.
       </p>
 
-      <h2>8. Your rights</h2>
+      <h2 id="data-deletion">8. Your rights &amp; how to delete your data</h2>
       <p>
-        Under the GDPR you may request access, rectification, erasure, restriction,
-        portability, and object to processing. Signed-in users can export their data
-        (<code>/api/gdpr/export</code>) and request erasure
-        (<code>/api/gdpr/delete</code>), or email us. End customers of our business
-        users should contact that business (the controller); we assist them as
-        processor.
+        Under the GDPR you may request access, rectification, erasure,
+        restriction, portability, and object to processing.
+      </p>
+      <p>
+        <strong>Delete your data.</strong> A workspace owner can permanently
+        delete the entire workspace and all of its data at any time: sign in,
+        then go to <strong>Settings → Team → &ldquo;Delete workspace&rdquo;</strong>{" "}
+        and type the workspace name to confirm. This erases your conversations,
+        contacts, channels, bots, automations, broadcasts, billing and team
+        records, and deletes your account. Data is held for up to 30 days (so an
+        accidental deletion can still be reversed on request) and then
+        permanently purged. You can also email{" "}
+        <a href="mailto:privacy@xyrachat.com">privacy@xyrachat.com</a> from your
+        account email to request an export or erasure, and we will action it
+        within 30 days.
+      </p>
+      <p>
+        <strong>End customers</strong> of a business that uses Xyra Chat should
+        contact that business (the data controller) to exercise their rights; we
+        act as processor and assist the business in responding.
       </p>
 
       <h2>9. Cookies</h2>
@@ -141,7 +155,7 @@ export default function PrivacyPage() {
       <h2>11. Contact</h2>
       <p>
         Privacy questions: <a href="mailto:privacy@xyrachat.com">privacy@xyrachat.com</a>.
-        Operator: Mll Nexus Group SL (trading as Mll Studio), Calle Poetas
+        Operator: Mll Nexus Group SL, Calle Poetas
         Españoles 1, Local 1, 38678 Armeñime, Santa Cruz de Tenerife, Spain.
         As an EU-established company we are not required to appoint an Article 27
         EU representative; we have not appointed a dedicated Data Protection
