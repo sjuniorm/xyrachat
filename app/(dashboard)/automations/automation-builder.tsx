@@ -7,7 +7,7 @@ import {
   Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
-  MousePointerClick, Plus,
+  MousePointerClick, Plus, Zap, ChevronUp, ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   createAutomation,
   updateAutomation,
@@ -72,6 +77,25 @@ const ACTION_OPTIONS: Array<{
   { type: "add_to_sequence", label: "Add to sequence", icon: ListPlus, available: true },
 ];
 
+// Visual identity per action type — a readable label + icon + a colored icon
+// badge. Kept consistent with the flow-canvas tones so List and Flow views feel
+// like the same product.
+const ACTION_META: Record<
+  Action["type"],
+  { label: string; icon: React.ComponentType<{ className?: string }>; badge: string }
+> = {
+  send_dm: { label: "Send message", icon: MessageSquare, badge: "bg-emerald-400/15 text-emerald-300" },
+  send_buttons: { label: "Send buttons", icon: MousePointerClick, badge: "bg-[color:var(--xyra-purple)]/25 text-[color:var(--xyra-glow)]" },
+  tag_contact: { label: "Tag contact", icon: Tag, badge: "bg-sky-400/15 text-sky-300" },
+  assign_agent: { label: "Assign to agent", icon: UserPlus2, badge: "bg-amber-400/15 text-amber-300" },
+  assign_smart: { label: "Smart routing", icon: Shuffle, badge: "bg-amber-400/15 text-amber-300" },
+  condition: { label: "If / else", icon: GitBranch, badge: "bg-[color:var(--xyra-pink)]/20 text-[color:var(--xyra-pink)]" },
+  wait: { label: "Wait / delay", icon: Clock, badge: "bg-zinc-400/15 text-zinc-200" },
+  wait_for_reply: { label: "Wait for reply", icon: Reply, badge: "bg-blue-400/15 text-blue-300" },
+  webhook: { label: "Webhook (POST)", icon: Webhook, badge: "bg-fuchsia-400/15 text-fuchsia-300" },
+  add_to_sequence: { label: "Add to sequence", icon: ListPlus, badge: "bg-indigo-400/15 text-indigo-300" },
+};
+
 // Leaf action types offered inside an if/else branch (no nesting).
 const BRANCH_ACTION_OPTIONS: Array<{ type: LeafAction["type"]; label: string }> = [
   { type: "send_dm", label: "Send DM" },
@@ -105,6 +129,93 @@ function msToWait(ms: number): { value: number; unit: WaitUnit } {
   if (ms > 0 && ms % WAIT_UNIT_MS.days === 0) return { value: ms / WAIT_UNIT_MS.days, unit: "days" };
   if (ms > 0 && ms % WAIT_UNIT_MS.hours === 0) return { value: ms / WAIT_UNIT_MS.hours, unit: "hours" };
   return { value: Math.max(1, Math.round((ms || 0) / WAIT_UNIT_MS.minutes)), unit: "minutes" };
+}
+
+// Small square icon button used for the reorder/remove controls on a step card.
+function StepIconButton({
+  onClick,
+  label,
+  danger,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`inline-flex size-7 items-center justify-center rounded-md text-white/45 transition hover:bg-white/10 ${
+        danger ? "hover:text-red-300" : "hover:text-white"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Thin vertical connector drawn between flow steps so the List view reads as a
+// sequence, not a stack of forms.
+function StepConnector() {
+  return (
+    <div className="flex justify-center" aria-hidden>
+      <div className="h-5 w-px bg-gradient-to-b from-white/25 to-white/5" />
+    </div>
+  );
+}
+
+// "+ Add step" palette. A clean popover grid of the available action types
+// (filtered by channel) instead of a cramped row of chips.
+function AddStepMenu({
+  channelType,
+  onAdd,
+  children,
+}: {
+  channelType?: string;
+  onAdd: (type: Action["type"]) => void;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const opts = ACTION_OPTIONS.filter(
+    (o) => o.available && (!o.igOnly || channelType === "instagram"),
+  );
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-1.5">
+        <p className="px-1.5 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+          Add a step
+        </p>
+        <div className="flex flex-col gap-0.5">
+          {opts.map((o) => {
+            const meta = ACTION_META[o.type];
+            const Icon = meta.icon;
+            return (
+              <button
+                key={o.type}
+                type="button"
+                onClick={() => {
+                  onAdd(o.type);
+                  setOpen(false);
+                }}
+                className="flex items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition hover:bg-white/5"
+              >
+                <span
+                  className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md ${meta.badge}`}
+                >
+                  <Icon className="size-3.5" />
+                </span>
+                <span className="text-xs font-medium text-white">{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export function AutomationBuilder({
@@ -185,6 +296,14 @@ export function AutomationBuilder({
     const base = triggerType.replace(/_/g, " ");
     return kw.length ? `${base}: ${kw.join(", ")}` : base;
   }, [triggerConfig, triggerType]);
+
+  // Nicely-cased trigger summary for the flow anchor pill (uses the proper
+  // option label rather than the snake_case type).
+  const triggerSummary = useMemo(() => {
+    const kw = triggerConfig.keywords ?? [];
+    const base = triggerMeta?.label ?? triggerType.replace(/_/g, " ");
+    return kw.length ? `${base} — ${kw.join(", ")}` : base;
+  }, [triggerConfig, triggerMeta, triggerType]);
 
   const allowMessageCondition =
     (triggerMeta?.needsKeywords ?? false) ||
@@ -281,6 +400,12 @@ export function AutomationBuilder({
     }
     setActions((cur) => [...cur, fresh]);
   }
+
+  // Add a step and immediately select it (so the flow view opens its editor).
+  const handleAdd = (type: Action["type"]) => {
+    setSelectedIdx(actions.length);
+    addAction(type);
+  };
 
   function submit() {
     if (!name.trim()) return toast.error("Add a name.");
@@ -404,22 +529,32 @@ export function AutomationBuilder({
                   type="button"
                   disabled={disabled}
                   onClick={() => setTriggerType(t.value)}
-                  className={`rounded-lg border p-3 text-left text-xs transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`flex gap-2.5 rounded-lg border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                     active
                       ? "border-[color:var(--xyra-glow)]/60 bg-[color:var(--xyra-glow)]/10"
                       : "border-white/10 bg-white/5 hover:bg-white/10"
                   }`}
                 >
-                  <div className="flex items-center gap-1.5 font-medium text-white">
+                  <span
+                    className={`mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md transition ${
+                      active
+                        ? "bg-[color:var(--xyra-glow)]/20 text-[color:var(--xyra-glow)]"
+                        : "bg-white/10 text-white/70"
+                    }`}
+                  >
                     <Icon className="size-3.5" />
-                    {t.label}
-                    {disabled && (
-                      <Badge variant="outline" className="ml-auto h-4 border-white/20 bg-white/5 px-1 text-[9px] text-white/60">
-                        soon
-                      </Badge>
-                    )}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-white">
+                      {t.label}
+                      {disabled && (
+                        <Badge variant="outline" className="h-4 border-white/20 bg-white/5 px-1 text-[9px] text-white/60">
+                          soon
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[11px] leading-snug text-white/55">{t.blurb}</div>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-white/60">{t.blurb}</div>
                 </button>
               );
             })}
@@ -493,7 +628,7 @@ export function AutomationBuilder({
       <Card className="border-white/10 bg-card/60">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">Actions</CardTitle>
+            <CardTitle className="text-base">Steps</CardTitle>
             <div className="flex rounded-md border border-white/10 bg-white/5 p-0.5 text-[11px]">
               {(["linear", "flow"] as const).map((v) => (
                 <button
@@ -509,36 +644,52 @@ export function AutomationBuilder({
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {ACTION_OPTIONS.filter(
-              (o) => o.available && (!o.igOnly || channel?.type === "instagram"),
-            ).map((o) => {
-              const Icon = o.icon;
-              return (
-                <Button
-                  key={o.type}
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedIdx(actions.length); // select the newly-added step
-                    addAction(o.type);
-                  }}
-                  className="h-7 gap-1.5 border-white/10 bg-white/5 px-2 text-[11px] hover:bg-white/10"
-                >
-                  <Icon className="size-3" />
-                  {o.label}
-                </Button>
-              );
-            })}
-          </div>
+          <AddStepMenu channelType={channel?.type} onAdd={handleAdd}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-white/10 bg-white/5 px-2.5 text-xs hover:bg-white/10"
+            >
+              <Plus className="size-3.5" />
+              Add step
+            </Button>
+          </AddStepMenu>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {actions.length === 0 && (
-            <p className="text-xs text-white/50">No actions yet. Add one above.</p>
-          )}
+        <CardContent>
           {view === "linear" ? (
-            actions.map((a, i) => renderActionRow(a, i))
+            <div>
+              {/* Trigger anchor — what kicks the flow off. */}
+              <div className="flex items-center gap-2.5 rounded-xl border border-[color:var(--xyra-glow)]/30 bg-[color:var(--xyra-purple)]/10 px-3 py-2.5">
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color:var(--xyra-purple)]/25 text-[color:var(--xyra-glow)]">
+                  <Zap className="size-4" />
+                </span>
+                <div className="min-w-0 leading-tight">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-white/40">
+                    When this happens
+                  </p>
+                  <p className="truncate text-sm font-medium text-white">{triggerSummary}</p>
+                </div>
+              </div>
+
+              {actions.map((a, i) => (
+                <div key={i}>
+                  <StepConnector />
+                  {renderActionRow(a, i)}
+                </div>
+              ))}
+
+              <StepConnector />
+              <AddStepMenu channelType={channel?.type} onAdd={handleAdd}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/15 bg-white/[0.02] py-2.5 text-xs font-medium text-white/55 transition hover:border-[color:var(--xyra-glow)]/40 hover:bg-white/[0.04] hover:text-white"
+                >
+                  <Plus className="size-3.5" />
+                  {actions.length === 0 ? "Add your first step" : "Add step"}
+                </button>
+              </AddStepMenu>
+            </div>
           ) : (
             <div className="space-y-3">
               <FlowCanvas
@@ -601,44 +752,36 @@ function ActionRow({
   onMoveUp?: () => void;
   onMoveDown?: () => void;
 }) {
+  const meta = ACTION_META[action.type];
+  const Icon = meta.icon;
   return (
-    <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="inline-flex size-5 items-center justify-center rounded-full bg-white/10 text-[10px] text-white/80">
-          {index + 1}
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3.5 transition hover:border-white/20">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <span
+          className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${meta.badge}`}
+        >
+          <Icon className="size-4" />
         </span>
-        <span className="text-xs font-medium text-white capitalize">
-          {action.type.replace("_", " ")}
-        </span>
-        <div className="ml-auto flex gap-0.5">
+        <div className="min-w-0 leading-tight">
+          <p className="text-sm font-semibold text-white">{meta.label}</p>
+          <p className="text-[10px] font-medium uppercase tracking-wide text-white/35">
+            Step {index + 1}
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-0.5">
           {onMoveUp && (
-            <button
-              type="button"
-              onClick={onMoveUp}
-              className="text-[10px] text-white/50 hover:text-white"
-              aria-label="Move up"
-            >
-              ↑
-            </button>
+            <StepIconButton onClick={onMoveUp} label="Move up">
+              <ChevronUp className="size-3.5" />
+            </StepIconButton>
           )}
           {onMoveDown && (
-            <button
-              type="button"
-              onClick={onMoveDown}
-              className="text-[10px] text-white/50 hover:text-white"
-              aria-label="Move down"
-            >
-              ↓
-            </button>
+            <StepIconButton onClick={onMoveDown} label="Move down">
+              <ChevronDown className="size-3.5" />
+            </StepIconButton>
           )}
-          <button
-            type="button"
-            onClick={onRemove}
-            className="ml-1 text-white/40 hover:text-red-300"
-            aria-label="Remove"
-          >
+          <StepIconButton onClick={onRemove} label="Remove" danger>
             <Trash2 className="size-3.5" />
-          </button>
+          </StepIconButton>
         </div>
       </div>
 
