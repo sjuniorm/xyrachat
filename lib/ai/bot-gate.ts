@@ -714,6 +714,43 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
         contactId: input.contactId,
       });
     }
+    // Topic-based handoff routing (client-configured in the bot's Settings):
+    // match the inbound against handoff_routing rules and assign to the chosen
+    // teammate (+ optional auto-note). First matching rule wins; no match → the
+    // conversation stays unassigned (current behavior). The assignee is verified
+    // to be a member of THIS org before we assign (a stale/cross-org id is
+    // ignored).
+    let routedAssignee: string | null = null;
+    let routedNote: string | null = null;
+    const routing = Array.isArray((bot as BotRow).behavior_rules?.handoff_routing)
+      ? ((bot as BotRow).behavior_rules.handoff_routing as Array<{
+          keywords?: string[];
+          assignTo?: string;
+          note?: string;
+        }>)
+      : [];
+    if (routing.length > 0 && queryText) {
+      const lc = queryText.toLowerCase();
+      for (const rule of routing) {
+        const kws = (rule.keywords ?? []).filter(
+          (k): k is string => typeof k === "string" && k.trim().length > 0,
+        );
+        if (kws.length === 0 || !kws.some((k) => lc.includes(k.toLowerCase()))) continue;
+        if (typeof rule.assignTo === "string" && rule.assignTo) {
+          const { data: mem } = await admin
+            .from("memberships")
+            .select("user_id")
+            .eq("org_id", input.channel.org_id)
+            .eq("user_id", rule.assignTo)
+            .is("deleted_at", null)
+            .maybeSingle();
+          if (mem) routedAssignee = rule.assignTo;
+        }
+        routedNote = typeof rule.note === "string" && rule.note.trim() ? rule.note.trim() : null;
+        break; // first matching rule wins
+      }
+    }
+
     // Hand off to a human: open the conversation AND drop bot_only. Without
     // clearing bot_only the bot would just re-acquire the chat on the next
     // inbound (Gate 2 + the assigned check are bypassed in bot_only), so the
@@ -721,11 +758,27 @@ export async function runBotGate(input: BotGateInput): Promise<BotGateResult> {
     // hidden. Clearing it restores the agent composer and the normal guards.
     await admin
       .from("conversations")
-      .update({ status: "open", bot_only: false })
+      .update({
+        status: "open",
+        bot_only: false,
+        ...(routedAssignee ? { assigned_to: routedAssignee } : {}),
+      })
       .eq("id", input.conversationId);
+    if (routedNote) {
+      await admin.from("messages").insert({
+        conversation_id: input.conversationId,
+        direction: "outbound",
+        sender_type: "agent",
+        is_internal_note: true,
+        content: routedNote,
+        status: "sent",
+        metadata: { handoff_routing: true },
+      });
+    }
     await logOutcome(bot.id, input.conversationId, input.contactId, "handoff", {
       reason: result.handoffReason,
       max_similarity: result.maxSimilarity,
+      ...(routedAssignee ? { routed_to: routedAssignee } : {}),
     });
     // Connectors (Make/Zapier/n8n) subscribe to bot.handoff — the live gate
     // must emit it, not just the manual API route.

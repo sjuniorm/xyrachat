@@ -41,7 +41,12 @@ type BotRow = {
   business_hours: Record<string, unknown>;
   knowledge_threshold: number;
   language: string;
-  behavior_rules: { never_say?: string[]; always_do?: string[]; handoff_message?: string | string[] };
+  behavior_rules: {
+    never_say?: string[];
+    always_do?: string[];
+    handoff_message?: string | string[];
+    handoff_routing?: Array<{ keywords?: string[]; assignTo?: string; note?: string }>;
+  };
   handoff_triggers: string[] | null;
   tools_config?: Record<string, { enabled?: boolean }> | null;
   auto_reopen_closed?: boolean;
@@ -81,7 +86,9 @@ const TOOL_OPTIONS: Array<{ key: string; label: string; blurb: string }> = [
   },
 ];
 
-export function SettingsTab({ bot }: { bot: BotRow }) {
+type Member = { id: string; full_name: string | null };
+
+export function SettingsTab({ bot, members = [] }: { bot: BotRow; members?: Member[] }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [active, setActive] = useState(bot.active);
@@ -103,6 +110,14 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
     Array.isArray(bot.behavior_rules?.handoff_message)
       ? (bot.behavior_rules.handoff_message as string[]).join("\n")
       : (bot.behavior_rules?.handoff_message as string) ?? "",
+  );
+  // Topic-based handoff routing: keywords → assign to a teammate (+ optional note).
+  const [routing, setRouting] = useState<Array<{ keywords: string; assignTo: string; note: string }>>(
+    (Array.isArray(bot.behavior_rules?.handoff_routing) ? bot.behavior_rules.handoff_routing : []).map((r) => ({
+      keywords: (r.keywords ?? []).join(", "),
+      assignTo: r.assignTo ?? "",
+      note: r.note ?? "",
+    })),
   );
   const [triggers, setTriggers] = useState((bot.handoff_triggers ?? []).join(", "));
   const [hoursActive, setHoursActive] = useState(Boolean(bot.business_hours?.active));
@@ -145,6 +160,14 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
             const lines = handoffMessage.split("\n").map((s) => s.trim()).filter(Boolean);
             return lines.length > 1 ? lines : lines[0] || undefined;
           })(),
+          // Topic routing: keep only rules with at least one keyword + an assignee.
+          handoff_routing: routing
+            .map((r) => ({
+              keywords: r.keywords.split(",").map((s) => s.trim()).filter(Boolean),
+              assignTo: r.assignTo || undefined,
+              note: r.note.trim() || undefined,
+            }))
+            .filter((r) => r.keywords.length > 0 && r.assignTo),
         },
         handoff_triggers: triggers
           .split(",")
@@ -432,6 +455,78 @@ export function SettingsTab({ bot }: { bot: BotRow }) {
               doesn&apos;t always say the same thing.
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/10 bg-card/60">
+        <CardHeader>
+          <CardTitle className="text-base">Handoff routing</CardTitle>
+          <CardDescription>
+            Send handoffs to the right teammate by topic. When the customer&apos;s
+            message matches a rule&apos;s keywords, the bot assigns the chat to that
+            person (and can drop an internal note). First match wins; no match →
+            stays unassigned for anyone to pick up.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {routing.length === 0 && (
+            <p className="text-xs text-white/40">
+              No routing rules yet — handoffs go to the open/unassigned queue.
+            </p>
+          )}
+          {routing.map((rule, i) => (
+            <div key={i} className="space-y-2 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={rule.keywords}
+                  onChange={(e) =>
+                    setRouting((cur) => cur.map((r, j) => (j === i ? { ...r, keywords: e.target.value } : r)))
+                  }
+                  placeholder="Keywords (comma-separated): billing, invoice, iban"
+                  className="text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setRouting((cur) => cur.filter((_, j) => j !== i))}
+                  className="shrink-0 text-white/40 hover:text-red-300"
+                  aria-label="Remove rule"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+              <select
+                value={rule.assignTo}
+                onChange={(e) =>
+                  setRouting((cur) => cur.map((r, j) => (j === i ? { ...r, assignTo: e.target.value } : r)))
+                }
+                className="h-9 w-full rounded-md border border-white/10 bg-white/5 px-2 text-sm text-white"
+              >
+                <option value="" className="bg-card">Assign to…</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id} className="bg-card">
+                    {m.full_name ?? "Teammate"}
+                  </option>
+                ))}
+              </select>
+              <Input
+                value={rule.note}
+                onChange={(e) =>
+                  setRouting((cur) => cur.map((r, j) => (j === i ? { ...r, note: e.target.value } : r)))
+                }
+                placeholder="Optional internal note (e.g. Billing question — Debora handles these)"
+                className="text-sm"
+              />
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setRouting((cur) => [...cur, { keywords: "", assignTo: "", note: "" }])}
+            className="border-white/10"
+          >
+            + Add routing rule
+          </Button>
         </CardContent>
       </Card>
 

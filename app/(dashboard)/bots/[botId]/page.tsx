@@ -9,6 +9,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { createClient } from "@/lib/supabase/server";
+import { getOrgMembers } from "@/lib/team/server";
 import { OverviewTab } from "./overview-tab";
 import { KnowledgeTab } from "./knowledge-tab";
 import { SettingsTab } from "./settings-tab";
@@ -41,6 +42,7 @@ export default async function BotDetailPage({
     { data: outcomeRows },
     { data: feedbackRows },
     { data: visitorFeedbackRows },
+    members,
   ] = await Promise.all([
     supabase
       .from("bot_sources")
@@ -76,6 +78,8 @@ export default async function BotDetailPage({
       .select("rating")
       .eq("bot_id", botId)
       .limit(2000),
+    // Org members for the handoff-routing assignee picker.
+    getOrgMembers(),
   ]);
 
   const tally = (rows: unknown) =>
@@ -202,7 +206,11 @@ export default async function BotDetailPage({
           <TabsContent value="settings" className="mt-6">
             {/* Re-seed the form after a save (router.refresh) so the business-hours
                 editor reflects the persisted/sanitized value, not pre-save local state. */}
-            <SettingsTab key={JSON.stringify(bot.business_hours ?? {})} bot={bot} />
+            <SettingsTab
+              key={JSON.stringify(bot.business_hours ?? {})}
+              bot={bot}
+              members={(members ?? []).map((m) => ({ id: m.id, full_name: m.full_name }))}
+            />
           </TabsContent>
         </Tabs>
       </div>
