@@ -1,4 +1,4 @@
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactPanel } from "@/components/inbox/contact-panel";
 import {
@@ -38,7 +38,10 @@ export default async function InboxConversationPage({
       .is("deleted_at", null)
       .order("name", { ascending: true }),
   ]);
-  if (!detail) return notFound();
+  // A deleted (or not-yours / invalid) conversation should drop the user back on
+  // the inbox list + empty state, not a hard 404 — e.g. after deleting the chat
+  // you're viewing.
+  if (!detail) redirect("/inbox");
 
   const bots = (botsRes.data as Array<{ id: string; name: string }> | null) ?? [];
   // Resolve the serving bot for the bot-only bar: whether a bot replies at all
