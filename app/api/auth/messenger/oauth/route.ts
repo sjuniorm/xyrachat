@@ -61,7 +61,16 @@ export async function POST(req: Request) {
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: appId, client_secret: appSecret, code }).toString(),
+      // The code comes from FB.login (JS SDK popup), which uses NO redirect_uri.
+      // Meta's token exchange still requires the param and demands it MATCH the
+      // dialog — so it must be sent as an empty string. Omitting it triggers
+      // "Error validating verification code … redirect_uri identical".
+      body: new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        redirect_uri: "",
+        code,
+      }).toString(),
     },
   );
   const exchJson = (await exchRes.json().catch(() => null)) as
