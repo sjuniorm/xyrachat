@@ -445,8 +445,10 @@ export function AutomationBuilder({
   };
 
   // One-click "comment → DM opt-in" recipe — the standard, Meta-compliant flow
-  // for IG comment triggers: reply with an opt-in button + a "follow first" gate,
-  // then deliver the link only after the user taps. Editable after applying.
+  // for IG comment triggers: reply with an opt-in button, then deliver the link
+  // once the user taps. The optional "follow first" gate is intentionally NOT
+  // pre-filled (Meta's spam policy targets hard follow-gates, and it's risky in
+  // App Review) — add it deliberately via "Add a follow / opt-in step".
   const applyCommentRecipe = () => {
     const recipe: Action[] = [
       {
@@ -456,10 +458,6 @@ export function AutomationBuilder({
           {
             id: crypto.randomUUID(),
             title: "Send me the link",
-            gate: {
-              text: "One quick thing — follow us first, then tap below 🙌",
-              button_title: "I followed!",
-            },
             then: [{ type: "send_dm", text: "Here you go! 🔗 https://" }],
           },
         ],
@@ -769,9 +767,9 @@ export function AutomationBuilder({
                     Use the comment → DM opt-in recipe
                   </span>
                   <span className="mt-0.5 block text-[11px] text-white/55">
-                    Replies with an opt-in button (Meta&apos;s recommended flow) plus a
-                    “follow first” step, then DMs the link only after they tap. One
-                    click — edit the wording after.
+                    Replies with an opt-in button (Meta&apos;s recommended flow), then
+                    DMs the link only after they tap. One click — edit the wording
+                    after, or add a “follow first” step if you want one.
                   </span>
                 </span>
               </button>
