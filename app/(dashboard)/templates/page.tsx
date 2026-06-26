@@ -13,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import type { TemplateMetaStatus, WaTemplateRow } from "@/lib/templates/types";
 import { SyncTemplatesButton } from "./sync-button";
+import { DeleteTemplateButton } from "./delete-template-button";
 
 const STATUS_TONE: Record<
   TemplateMetaStatus,
@@ -68,6 +69,7 @@ export default async function TemplatesPage() {
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
   const canEdit = ["owner", "admin", "supervisor"].includes(profile.role);
+  const canDelete = ["owner", "admin"].includes(profile.role);
 
   // Templates + WA channel count (the New button is disabled when no WA
   // channels exist — without them there's no Meta business account to
@@ -192,23 +194,34 @@ export default async function TemplatesPage() {
                           <span>{t.meta_rejection_reason}</span>
                         </div>
                       )}
-                      {canEdit &&
-                        t.meta_status !== "PENDING" &&
-                        t.meta_status !== "IN_APPEAL" && (
-                          <div className="flex justify-end pt-1">
-                            <Button
-                              asChild
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 gap-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-white"
-                            >
-                              <Link href={`/templates/${t.id}/edit`}>
-                                <Pencil className="size-3" />
-                                Edit
-                              </Link>
-                            </Button>
-                          </div>
-                        )}
+                      {(canDelete ||
+                        (canEdit &&
+                          t.meta_status !== "PENDING" &&
+                          t.meta_status !== "IN_APPEAL")) && (
+                        <div className="flex justify-end gap-1 pt-1">
+                          {canEdit &&
+                            t.meta_status !== "PENDING" &&
+                            t.meta_status !== "IN_APPEAL" && (
+                              <Button
+                                asChild
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1.5 text-xs text-white/60 hover:bg-white/5 hover:text-white"
+                              >
+                                <Link href={`/templates/${t.id}/edit`}>
+                                  <Pencil className="size-3" />
+                                  Edit
+                                </Link>
+                              </Button>
+                            )}
+                          {canDelete && (
+                            <DeleteTemplateButton
+                              templateId={t.id}
+                              templateName={t.name}
+                            />
+                          )}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </li>

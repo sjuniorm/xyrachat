@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
@@ -372,8 +371,12 @@ export async function syncTemplates(): Promise<
 }
 
 // =====================================================================
-// DELETE — soft-delete locally; we don't delete on Meta's side because
-// they keep template history for reporting even if the template is unused.
+// DELETE — remove the template on Meta (so the name frees up and it's truly
+// gone, not just hidden), then soft-delete locally. The Meta delete is
+// best-effort: if it fails (already gone, token issue), we still remove it
+// locally so the user's list reflects their intent. syncTemplates only updates
+// rows WHERE deleted_at IS NULL and never inserts, so a deleted template won't
+// reappear on the next sync.
 // =====================================================================
 export async function deleteTemplate(
   templateId: string,
@@ -384,12 +387,35 @@ export async function deleteTemplate(
   const admin = createAdminClient();
   const { data: tpl } = await admin
     .from("wa_templates")
-    .select("org_id")
+    .select("org_id, name, channel_id")
     .eq("id", templateId)
     .maybeSingle();
   if (!tpl || tpl.org_id !== auth.orgId) {
     return { ok: false, error: "Template not in your org." };
   }
+
+  // Best-effort delete on Meta (frees the template name for re-use).
+  if (tpl.channel_id) {
+    const { data: ch } = await admin
+      .from("channels")
+      .select("wa_business_account_id, access_token_vault_id")
+      .eq("id", tpl.channel_id)
+      .maybeSingle();
+    if (ch?.wa_business_account_id && ch.access_token_vault_id) {
+      try {
+        const token = await vaultReadSecret(ch.access_token_vault_id);
+        if (token) {
+          await fetch(
+            `https://graph.facebook.com/${META_GRAPH_VERSION}/${ch.wa_business_account_id}/message_templates?name=${encodeURIComponent(tpl.name)}`,
+            { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+          );
+        }
+      } catch {
+        // best-effort — fall through to the local soft-delete regardless
+      }
+    }
+  }
+
   const { error } = await admin
     .from("wa_templates")
     .update({ deleted_at: new Date().toISOString() })
@@ -397,7 +423,7 @@ export async function deleteTemplate(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/templates");
-  redirect("/templates");
+  return { ok: true };
 }
 
 // =====================================================================
