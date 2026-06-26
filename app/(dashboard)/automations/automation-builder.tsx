@@ -8,6 +8,7 @@ import {
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
   MousePointerClick, Plus, Zap, ChevronUp, ChevronDown, Sparkles, MessageSquareReply,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ const ACTION_OPTIONS: Array<{
 }> = [
   { type: "send_dm", label: "Send DM", icon: MessageSquare, available: true },
   { type: "reply_comment", label: "Reply to comment (public)", icon: MessageSquareReply, available: true, igOnly: true },
+  { type: "send_link_button", label: "Link button (stays)", icon: ExternalLink, available: true },
   { type: "send_buttons", label: "Send buttons (opt-in)", icon: MousePointerClick, available: true, igOnly: true },
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
@@ -98,6 +100,7 @@ const ACTION_META: Record<
 > = {
   send_dm: { label: "Send message", icon: MessageSquare, badge: "bg-emerald-400/15 text-emerald-300" },
   reply_comment: { label: "Reply to comment", icon: MessageSquareReply, badge: "bg-emerald-400/15 text-emerald-300" },
+  send_link_button: { label: "Link button", icon: ExternalLink, badge: "bg-[color:var(--xyra-glow)]/20 text-[color:var(--xyra-glow)]" },
   send_buttons: { label: "Send buttons", icon: MousePointerClick, badge: "bg-[color:var(--xyra-purple)]/25 text-[color:var(--xyra-glow)]" },
   tag_contact: { label: "Tag contact", icon: Tag, badge: "bg-sky-400/15 text-sky-300" },
   assign_agent: { label: "Assign to agent", icon: UserPlus2, badge: "bg-amber-400/15 text-amber-300" },
@@ -388,6 +391,9 @@ export function AutomationBuilder({
       case "reply_comment":
         fresh = { type, text: "Thanks for your comment! 🙌 Check your DMs 📩" };
         break;
+      case "send_link_button":
+        fresh = { type, text: "Here's your link 👇", url: "", label: "Open link" };
+        break;
       case "tag_contact":
         fresh = { type, tag: "" };
         break;
@@ -467,7 +473,9 @@ export function AutomationBuilder({
           {
             id: crypto.randomUUID(),
             title: "Send me the link",
-            then: [{ type: "send_dm", text: "Here you go! 🔗 https://" }],
+            // Tap delivers a persistent, re-tappable link-button card (stays in
+            // the chat) instead of a one-off text — set your URL after applying.
+            then: [{ type: "send_link_button", text: "Here's your link 👇", url: "https://", label: "Open link" }],
           },
         ],
       },
@@ -1031,24 +1039,46 @@ function ButtonsEditor({
   action: Extract<Action, { type: "send_buttons" }>;
   onChange: (next: Action) => void;
 }) {
-  // Derive the per-button reply text from its first send_dm leaf (v1 shape).
+  // Each button's tap delivers a single leaf: either a send_dm (plain message)
+  // or a send_link_button (a persistent, re-tappable link card). Detect + edit
+  // each shape without clobbering the other.
   const replyTextOf = (b: { then: LeafAction[] }) => {
     const leaf = b.then.find((l) => l.type === "send_dm") as
       | Extract<LeafAction, { type: "send_dm" }>
       | undefined;
     return leaf?.text ?? "";
   };
+  const linkOf = (b: { then: LeafAction[] }) =>
+    b.then.find((l) => l.type === "send_link_button") as
+      | Extract<LeafAction, { type: "send_link_button" }>
+      | undefined;
   const setButtons = (buttons: typeof action.buttons) => onChange({ ...action, buttons });
-  const updateButton = (i: number, patch: { title?: string; reply?: string }) => {
-    const next = action.buttons.map((b, j) => {
-      if (j !== i) return b;
-      const title = patch.title ?? b.title;
-      const reply = patch.reply ?? replyTextOf(b);
-      // Spread keeps the stable id + any gate; override label + reply only.
-      return { ...b, title, then: [{ type: "send_dm" as const, text: reply }] };
-    });
-    setButtons(next);
-  };
+  const setButtonTitle = (i: number, title: string) =>
+    setButtons(action.buttons.map((b, j) => (j === i ? { ...b, title } : b)));
+  const setButtonReply = (i: number, reply: string) =>
+    setButtons(
+      action.buttons.map((b, j) =>
+        j === i ? { ...b, then: [{ type: "send_dm" as const, text: reply }] } : b,
+      ),
+    );
+  const setButtonLink = (i: number, patch: { text?: string; url?: string; label?: string }) =>
+    setButtons(
+      action.buttons.map((b, j) => {
+        if (j !== i) return b;
+        const cur =
+          linkOf(b) ?? { type: "send_link_button" as const, text: "Here's your link 👇", url: "", label: "Open link" };
+        return { ...b, then: [{ ...cur, ...patch }] };
+      }),
+    );
+  const setButtonMode = (i: number, mode: "message" | "link") =>
+    setButtons(
+      action.buttons.map((b, j) => {
+        if (j !== i) return b;
+        return mode === "link"
+          ? { ...b, then: [{ type: "send_link_button" as const, text: "Here's your link 👇", url: "", label: "Open link" }] }
+          : { ...b, then: [{ type: "send_dm" as const, text: "" }] };
+      }),
+    );
   // Add / edit / remove a button's optional follow-or-opt-in gate (an extra
   // confirm step shown before the link is delivered).
   const setGate = (
@@ -1093,7 +1123,7 @@ function ButtonsEditor({
               <Input
                 value={b.title}
                 maxLength={20}
-                onChange={(e) => updateButton(i, { title: e.target.value })}
+                onChange={(e) => setButtonTitle(i, e.target.value)}
                 placeholder="Button label (e.g. Send me the link)"
                 className="h-7 text-xs"
               />
@@ -1108,13 +1138,62 @@ function ButtonsEditor({
                 </button>
               )}
             </div>
-            <Textarea
-              value={replyTextOf(b)}
-              onChange={(e) => updateButton(i, { reply: e.target.value })}
-              rows={2}
-              placeholder="Message sent when they tap — e.g. Here's the link: https://…"
-              className="text-xs"
-            />
+            {/* On-tap mode: a plain message, or a persistent link-button card. */}
+            <div className="flex w-max rounded-md border border-white/10 bg-white/5 p-0.5 text-[10px]">
+              {(["message", "link"] as const).map((m) => {
+                const active = (linkOf(b) ? "link" : "message") === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setButtonMode(i, m)}
+                    className={`rounded px-2 py-0.5 ${active ? "bg-white/15 text-white" : "text-white/55 hover:text-white"}`}
+                  >
+                    {m === "message" ? "Send message" : "Link button (stays)"}
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const lk = linkOf(b);
+              return lk ? (
+                <div className="space-y-1.5">
+                  <Input
+                    value={lk.text}
+                    onChange={(e) => setButtonLink(i, { text: e.target.value })}
+                    placeholder="Card heading — e.g. Here's your link 👇"
+                    className="h-7 text-xs"
+                  />
+                  <div className="flex gap-1.5">
+                    <Input
+                      value={lk.url}
+                      onChange={(e) => setButtonLink(i, { url: e.target.value })}
+                      placeholder="https://your-link.com"
+                      className="h-7 flex-1 text-xs"
+                    />
+                    <Input
+                      value={lk.label ?? ""}
+                      maxLength={20}
+                      onChange={(e) => setButtonLink(i, { label: e.target.value })}
+                      placeholder="Button label"
+                      className="h-7 w-28 text-xs"
+                    />
+                  </div>
+                  <p className="text-[10px] text-white/40">
+                    A tappable card that <span className="text-white/60">stays in the chat</span> and
+                    re-opens the link — unlike a quick reply. Falls back to a text link if needed.
+                  </p>
+                </div>
+              ) : (
+                <Textarea
+                  value={replyTextOf(b)}
+                  onChange={(e) => setButtonReply(i, e.target.value)}
+                  rows={2}
+                  placeholder="Message sent when they tap — e.g. Here's the link: https://…"
+                  className="text-xs"
+                />
+              );
+            })()}
             {gate ? (
               <div className="space-y-1.5 rounded-md border border-[color:var(--xyra-purple)]/25 bg-[color:var(--xyra-purple)]/[0.06] p-2">
                 <div className="flex items-center justify-between gap-2">
@@ -1414,6 +1493,36 @@ function LeafFields({
             <code>{"{{first_name}}"}</code>, <code>{"{{username}}"}</code>.
           </p>
         </>
+      )}
+
+      {action.type === "send_link_button" && (
+        <div className="space-y-1.5">
+          <Input
+            value={action.text}
+            onChange={(e) => onChange({ ...action, text: e.target.value })}
+            placeholder="Card heading — e.g. Here's your link 👇"
+            className="text-xs"
+          />
+          <div className="flex gap-1.5">
+            <Input
+              value={action.url}
+              onChange={(e) => onChange({ ...action, url: e.target.value })}
+              placeholder="https://your-link.com"
+              className="flex-1 text-xs"
+            />
+            <Input
+              value={action.label ?? ""}
+              maxLength={20}
+              onChange={(e) => onChange({ ...action, label: e.target.value })}
+              placeholder="Button label"
+              className="w-32 text-xs"
+            />
+          </div>
+          <p className="text-[10px] text-white/40">
+            Sends a tappable button card that <span className="text-white/60">stays in the chat</span> and
+            opens the link (Instagram). Re-pressable, unlike quick replies. Falls back to a text link if needed.
+          </p>
+        </div>
       )}
 
       {action.type === "tag_contact" && (

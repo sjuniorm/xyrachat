@@ -283,6 +283,7 @@ export async function testAiBranch(payload: {
 const LEAF_TYPES = new Set([
   "send_dm",
   "reply_comment",
+  "send_link_button",
   "tag_contact",
   "assign_agent",
   "assign_smart",
@@ -331,6 +332,17 @@ function validateAction(action: Action, channelType?: string): string | null {
         return "Public comment replies are only available on Instagram channels.";
       }
       if (!action.text?.trim()) return "Each Reply-to-comment step needs a message.";
+      return null;
+    case "send_link_button":
+      if (!action.url?.trim()) return "Each Link-button step needs a URL.";
+      try {
+        const u = new URL(action.url.trim());
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          return "Link-button URL must start with http:// or https://.";
+        }
+      } catch {
+        return "Link-button URL is invalid.";
+      }
       return null;
     case "tag_contact":
       if (!action.tag?.trim()) return "Each Tag step needs a tag value.";

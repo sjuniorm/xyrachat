@@ -42,6 +42,11 @@ export type LeafAction =
   // POST /{comment_id}/replies). Only meaningful on ig_comment_keyword (needs
   // the comment_id in triggerData); no-ops with an error otherwise.
   | { type: "reply_comment"; text: string }
+  // Send a PERSISTENT link button (Instagram generic-template card with a
+  // web_url button). Unlike quick replies, the card stays in the thread and can
+  // be tapped again. Falls back to a plain-text "<text> <url>" send if the card
+  // API call fails or on non-IG channels — so the link always arrives.
+  | { type: "send_link_button"; text: string; url: string; label?: string }
   | { type: "tag_contact"; tag: string }
   | { type: "assign_agent"; agent_id: string | null }
   | {

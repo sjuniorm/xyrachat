@@ -46,6 +46,7 @@ const KIND_ICON: Record<string, typeof Zap> = {
   trigger: Zap,
   send_dm: MessageSquare,
   reply_comment: MessageSquare,
+  send_link_button: MessageSquare,
   tag_contact: Tag,
   assign_agent: UserPlus2,
   assign_smart: UserPlus2,

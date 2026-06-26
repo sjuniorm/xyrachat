@@ -228,6 +228,97 @@ async function execLeafAction(
       }
       return { ok: true, conversationId: convId };
     }
+    case "send_link_button": {
+      // A persistent link button: IG generic-template card with a web_url
+      // button. Stays in the thread + re-tappable (unlike quick replies), and
+      // the link IS the button so it can't "fail to send". Text fallback below
+      // guarantees delivery if the card API call is ever rejected.
+      let convId = conversationId;
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      if (!convId) return { ok: false, error: "No conversation", conversationId: convId };
+      if (stampKey) {
+        const { data: already } = await admin
+          .from("messages")
+          .select("id")
+          .eq("conversation_id", convId)
+          .eq("metadata->>sched_step", stampKey)
+          .limit(1)
+          .maybeSingle();
+        if (already) return { ok: true, conversationId: convId };
+      }
+      const td = ctx.triggerData as Record<string, string | null | undefined>;
+      const text = renderTemplate(action.text, contact, td);
+      const url = renderTemplate(action.url, contact, td).trim();
+      const label = (action.label?.trim() || "Open link").slice(0, 20);
+      const meta = {
+        automation: true,
+        link_button: true,
+        ...(stampKey ? { sched_step: stampKey } : {}),
+        automation_meta: { name: automation.name, trigger_type: automation.trigger_type },
+      };
+      const recipient = pickRecipient(channel.type, contact);
+      // IG: try the persistent card first.
+      if (channel.type === "instagram" && channel.access_token_vault_id && url) {
+        try {
+          const token = await vaultReadSecret(channel.access_token_vault_id);
+          const cMeta = (channel.metadata ?? {}) as { ig_login_user_id?: string };
+          const igUserId = channel.page_id ? null : cMeta.ig_login_user_id ?? channel.ig_business_account_id;
+          const sendUrl = channel.page_id
+            ? `https://graph.facebook.com/${META_GRAPH_VERSION}/${channel.page_id}/messages`
+            : `https://graph.instagram.com/${META_GRAPH_VERSION}/${igUserId}/messages`;
+          const res = await fetch(sendUrl, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: { id: recipient },
+              messaging_type: "RESPONSE",
+              message: {
+                attachment: {
+                  type: "template",
+                  payload: {
+                    template_type: "generic",
+                    elements: [
+                      {
+                        title: (text || "Here you go").slice(0, 80),
+                        buttons: [{ type: "web_url", url, title: label }],
+                      },
+                    ],
+                  },
+                },
+              },
+            }),
+          });
+          const json = (await res.json().catch(() => null)) as { error?: { message: string } } | null;
+          if (res.ok && !json?.error) {
+            await admin.from("messages").insert({
+              conversation_id: convId,
+              direction: "outbound",
+              content: `${text} ${url}`.trim(),
+              sender_type: "bot",
+              status: "sent",
+              metadata: meta,
+            });
+            await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", convId);
+            return { ok: true, conversationId: convId };
+          }
+          console.warn("[automations] send_link_button card rejected, falling back to text", json?.error);
+        } catch (err) {
+          console.warn("[automations] send_link_button card threw, falling back to text", err);
+        }
+      }
+      // Fallback (non-IG, no url, or card rejected): send the link as text.
+      const body = url ? `${text}\n${url}`.trim() : text;
+      const send = await sendChannelMessage({
+        channel,
+        recipient,
+        content: body,
+        conversationId: convId,
+        extraMetadata: meta,
+      });
+      return send.ok
+        ? { ok: true, conversationId: convId }
+        : { ok: false, error: send.error ?? "send failed", conversationId: convId };
+    }
     case "tag_contact": {
       const tag = action.tag.trim();
       if (!tag) return { ok: false, error: "Empty tag", conversationId };
