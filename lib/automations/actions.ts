@@ -282,6 +282,7 @@ export async function testAiBranch(payload: {
 // payload could try to smuggle a non-leaf in — reject it at the boundary.
 const LEAF_TYPES = new Set([
   "send_dm",
+  "reply_comment",
   "tag_contact",
   "assign_agent",
   "assign_smart",
@@ -324,6 +325,12 @@ function validateAction(action: Action, channelType?: string): string | null {
   switch (action.type) {
     case "send_dm":
       if (!action.text?.trim()) return "Each Send DM step needs a message.";
+      return null;
+    case "reply_comment":
+      if (channelType && channelType !== "instagram") {
+        return "Public comment replies are only available on Instagram channels.";
+      }
+      if (!action.text?.trim()) return "Each Reply-to-comment step needs a message.";
       return null;
     case "tag_contact":
       if (!action.tag?.trim()) return "Each Tag step needs a tag value.";

@@ -152,6 +152,82 @@ async function execLeafAction(
         ? { ok: true, conversationId: convId }
         : { ok: false, error: send.error ?? "send failed", conversationId: convId };
     }
+    case "reply_comment": {
+      // Public reply to the triggering IG comment (Comments API). Needs the
+      // comment_id the ig_comment_keyword trigger put in triggerData.
+      const commentId =
+        typeof ctx.triggerData?.comment_id === "string"
+          ? (ctx.triggerData.comment_id as string)
+          : "";
+      if (!commentId) {
+        return { ok: false, error: "No comment to reply to (use this on a comment trigger).", conversationId };
+      }
+      if (channel.type !== "instagram") {
+        return { ok: false, error: "Comment replies are Instagram-only.", conversationId };
+      }
+      let convId = conversationId;
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      // Idempotency: don't double-reply on a redelivered/retried run.
+      if (stampKey && convId) {
+        const { data: already } = await admin
+          .from("messages")
+          .select("id")
+          .eq("conversation_id", convId)
+          .eq("metadata->>sched_step", stampKey)
+          .limit(1)
+          .maybeSingle();
+        if (already) return { ok: true, conversationId: convId };
+      }
+      if (!channel.access_token_vault_id) {
+        return { ok: false, error: "Channel token missing", conversationId: convId };
+      }
+      const token = await vaultReadSecret(channel.access_token_vault_id);
+      const rendered = renderTemplate(
+        action.text,
+        contact,
+        ctx.triggerData as Record<string, string | null | undefined>,
+      );
+      // IG-direct (graph.instagram.com) vs Page-linked (graph.facebook.com),
+      // same host split as the message send path.
+      const host = channel.page_id ? "graph.facebook.com" : "graph.instagram.com";
+      const res = await fetch(
+        `https://${host}/${META_GRAPH_VERSION}/${commentId}/replies`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: rendered }),
+        },
+      );
+      const json = (await res.json().catch(() => null)) as
+        | { id?: string; error?: { message: string } }
+        | null;
+      if (!res.ok || json?.error) {
+        return {
+          ok: false,
+          error: json?.error?.message ?? `IG comment reply HTTP ${res.status}`,
+          conversationId: convId,
+        };
+      }
+      // Mirror the public reply into the inbox thread (outbound) so it's visible
+      // + the sched_step stamp dedupes a retry.
+      if (convId) {
+        await admin.from("messages").insert({
+          conversation_id: convId,
+          direction: "outbound",
+          content: rendered,
+          sender_type: "bot",
+          status: "sent",
+          metadata: {
+            automation: true,
+            comment_reply: true,
+            ...(stampKey ? { sched_step: stampKey } : {}),
+            automation_meta: { name: automation.name, trigger_type: automation.trigger_type },
+          },
+        });
+        await admin.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", convId);
+      }
+      return { ok: true, conversationId: convId };
+    }
     case "tag_contact": {
       const tag = action.tag.trim();
       if (!tag) return { ok: false, error: "Empty tag", conversationId };

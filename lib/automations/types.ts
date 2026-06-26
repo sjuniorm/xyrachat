@@ -38,6 +38,10 @@ export type TriggerConfig = {
 // branch), which keeps branch execution inline + bounded.
 export type LeafAction =
   | { type: "send_dm"; text: string }
+  // Public reply to the triggering Instagram comment (Comments API —
+  // POST /{comment_id}/replies). Only meaningful on ig_comment_keyword (needs
+  // the comment_id in triggerData); no-ops with an error otherwise.
+  | { type: "reply_comment"; text: string }
   | { type: "tag_contact"; tag: string }
   | { type: "assign_agent"; agent_id: string | null }
   | {

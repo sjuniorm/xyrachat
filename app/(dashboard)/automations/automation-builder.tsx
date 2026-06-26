@@ -7,7 +7,7 @@ import {
   Trash2, Save, AlertCircle,
   MessageSquare, Tag, UserPlus2, Webhook,
   Camera, AtSign, MessageCircle, Mail, Shuffle, Clock, GitBranch, Reply, ListPlus,
-  MousePointerClick, Plus, Zap, ChevronUp, ChevronDown, Sparkles,
+  MousePointerClick, Plus, Zap, ChevronUp, ChevronDown, Sparkles, MessageSquareReply,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ const ACTION_OPTIONS: Array<{
   igOnly?: boolean;
 }> = [
   { type: "send_dm", label: "Send DM", icon: MessageSquare, available: true },
+  { type: "reply_comment", label: "Reply to comment (public)", icon: MessageSquareReply, available: true, igOnly: true },
   { type: "send_buttons", label: "Send buttons (opt-in)", icon: MousePointerClick, available: true, igOnly: true },
   { type: "tag_contact", label: "Tag contact", icon: Tag, available: true },
   { type: "assign_agent", label: "Assign to agent", icon: UserPlus2, available: true },
@@ -96,6 +97,7 @@ const ACTION_META: Record<
   { label: string; icon: React.ComponentType<{ className?: string }>; badge: string }
 > = {
   send_dm: { label: "Send message", icon: MessageSquare, badge: "bg-emerald-400/15 text-emerald-300" },
+  reply_comment: { label: "Reply to comment", icon: MessageSquareReply, badge: "bg-emerald-400/15 text-emerald-300" },
   send_buttons: { label: "Send buttons", icon: MousePointerClick, badge: "bg-[color:var(--xyra-purple)]/25 text-[color:var(--xyra-glow)]" },
   tag_contact: { label: "Tag contact", icon: Tag, badge: "bg-sky-400/15 text-sky-300" },
   assign_agent: { label: "Assign to agent", icon: UserPlus2, badge: "bg-amber-400/15 text-amber-300" },
@@ -383,6 +385,9 @@ export function AutomationBuilder({
       case "send_dm":
         fresh = { type, text: "" };
         break;
+      case "reply_comment":
+        fresh = { type, text: "Thanks for your comment! 🙌 Check your DMs 📩" };
+        break;
       case "tag_contact":
         fresh = { type, tag: "" };
         break;
@@ -451,6 +456,10 @@ export function AutomationBuilder({
   // App Review) — add it deliberately via "Add a follow / opt-in step".
   const applyCommentRecipe = () => {
     const recipe: Action[] = [
+      // 1. Public reply on the post itself (Comments API) — fast, visible, and
+      //    the most direct demo of the comment permission.
+      { type: "reply_comment", text: "Thanks {{first_name}}! 🙌 Just sent you a DM 📩" },
+      // 2. Opt-in DM with the link (Meta's recommended private-reply flow).
       {
         type: "send_buttons",
         text: "Hey {{first_name}}! 🙌 Tap below and I'll send it straight to your DMs 👇",
@@ -767,9 +776,9 @@ export function AutomationBuilder({
                     Use the comment → DM opt-in recipe
                   </span>
                   <span className="mt-0.5 block text-[11px] text-white/55">
-                    Replies with an opt-in button (Meta&apos;s recommended flow), then
-                    DMs the link only after they tap. One click — edit the wording
-                    after, or add a “follow first” step if you want one.
+                    Publicly replies to the comment, then DMs an opt-in button that
+                    sends the link once they tap (Meta&apos;s recommended flow). One
+                    click — edit the wording after, or add a “follow first” step.
                   </span>
                 </span>
               </button>
@@ -1386,6 +1395,23 @@ function LeafFields({
           />
           <p className="mt-1 text-[10px] text-white/40">
             Variables: <code>{"{{contact_name}}"}</code>, <code>{"{{first_name}}"}</code>, <code>{"{{contact_phone}}"}</code>, <code>{"{{contact_email}}"}</code>, <code>{"{{username}}"}</code>, <code>{"{{message_text}}"}</code>
+          </p>
+        </>
+      )}
+
+      {action.type === "reply_comment" && (
+        <>
+          <Textarea
+            value={action.text}
+            onChange={(e) => onChange({ ...action, text: e.target.value })}
+            rows={2}
+            placeholder="Thanks for your comment! 🙌 Check your DMs 📩"
+            className="text-xs"
+          />
+          <p className="mt-1 text-[10px] text-white/40">
+            Posts a public reply on the comment (Instagram). Only runs on a{" "}
+            <span className="text-white/60">comment</span> trigger. Variables:{" "}
+            <code>{"{{first_name}}"}</code>, <code>{"{{username}}"}</code>.
           </p>
         </>
       )}

@@ -37,6 +37,8 @@ function leafSummary(a: LeafAction): FlowNodeData {
   switch (a.type) {
     case "send_dm":
       return { kind: a.type, tone: "message", title: "Send DM", subtitle: clip(a.text || "(empty)") };
+    case "reply_comment":
+      return { kind: a.type, tone: "message", title: "Reply to comment", subtitle: clip(a.text || "(empty)") };
     case "tag_contact":
       return { kind: a.type, tone: "tag", title: "Tag contact", subtitle: a.tag || "(no tag)" };
     case "assign_agent":
