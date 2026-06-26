@@ -5,8 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultCreateSecret } from "@/lib/supabase/vault";
 import { assertCanAddChannel } from "@/lib/billing/gates";
 import { NewMessengerChannelForm } from "./new-messenger-channel-form";
-import { MessengerLoginButton } from "./messenger-login-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const META_GRAPH_VERSION = "v22.0";
 
@@ -154,7 +154,12 @@ export default async function NewMessengerChannelPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <MessengerLoginButton appId={oauthAppId} configId={oauthConfigId} />
+              <Button
+                asChild
+                className="xyra-gradient border-0 text-white hover:opacity-90"
+              >
+                <a href="/api/auth/messenger/start">Continue with Facebook</a>
+              </Button>
             </CardContent>
           </Card>
         )}
