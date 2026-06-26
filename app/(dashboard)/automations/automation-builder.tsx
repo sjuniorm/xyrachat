@@ -444,6 +444,40 @@ export function AutomationBuilder({
     addAction(type);
   };
 
+  // One-click "comment → DM opt-in" recipe — the standard, Meta-compliant flow
+  // for IG comment triggers: reply with an opt-in button + a "follow first" gate,
+  // then deliver the link only after the user taps. Editable after applying.
+  const applyCommentRecipe = () => {
+    const recipe: Action[] = [
+      {
+        type: "send_buttons",
+        text: "Hey {{first_name}}! 🙌 Tap below and I'll send it straight to your DMs 👇",
+        buttons: [
+          {
+            id: crypto.randomUUID(),
+            title: "Send me the link",
+            gate: {
+              text: "One quick thing — follow us first, then tap below 🙌",
+              button_title: "I followed!",
+            },
+            then: [{ type: "send_dm", text: "Here you go! 🔗 https://" }],
+          },
+        ],
+      },
+    ];
+    // A single send_dm is the builder's seed step — replace it silently. Anything
+    // more (a flow the user built) gets a confirm before we overwrite it.
+    const isSeed = actions.length <= 1 && (actions[0]?.type ?? "send_dm") === "send_dm";
+    if (
+      !isSeed &&
+      !window.confirm("Replace the current steps with the comment → DM opt-in recipe?")
+    ) {
+      return;
+    }
+    setActions(recipe);
+    setSelectedIdx(0);
+  };
+
   function submit() {
     if (!name.trim()) return toast.error("Add a name.");
     if (!channelId) return toast.error("Pick a channel.");
@@ -720,6 +754,28 @@ export function AutomationBuilder({
           </AddStepMenu>
         </CardHeader>
         <CardContent>
+          {triggerType === "ig_comment_keyword" &&
+            !actions.some((a) => a.type === "send_buttons") && (
+              <button
+                type="button"
+                onClick={applyCommentRecipe}
+                className="mb-4 flex w-full items-start gap-2.5 rounded-xl border border-[color:var(--xyra-glow)]/30 bg-[color:var(--xyra-purple)]/10 px-3 py-2.5 text-left transition hover:bg-[color:var(--xyra-purple)]/15"
+              >
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-[color:var(--xyra-purple)]/25 text-[color:var(--xyra-glow)]">
+                  <MousePointerClick className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-white">
+                    Use the comment → DM opt-in recipe
+                  </span>
+                  <span className="mt-0.5 block text-[11px] text-white/55">
+                    Replies with an opt-in button (Meta&apos;s recommended flow) plus a
+                    “follow first” step, then DMs the link only after they tap. One
+                    click — edit the wording after.
+                  </span>
+                </span>
+              </button>
+            )}
           {view === "linear" ? (
             <div>
               {/* Trigger anchor — what kicks the flow off. */}
@@ -981,10 +1037,29 @@ function ButtonsEditor({
       if (j !== i) return b;
       const title = patch.title ?? b.title;
       const reply = patch.reply ?? replyTextOf(b);
-      // Preserve the stable id (it's baked into the live quick-reply payload).
-      return { id: b.id, title, then: [{ type: "send_dm" as const, text: reply }] };
+      // Spread keeps the stable id + any gate; override label + reply only.
+      return { ...b, title, then: [{ type: "send_dm" as const, text: reply }] };
     });
     setButtons(next);
+  };
+  // Add / edit / remove a button's optional follow-or-opt-in gate (an extra
+  // confirm step shown before the link is delivered).
+  const setGate = (
+    i: number,
+    gate: { text: string; button_title: string } | undefined,
+  ) => {
+    setButtons(
+      action.buttons.map((b, j) => {
+        if (j !== i) return b;
+        if (gate === undefined) {
+          // Drop the gate entirely (no empty {} left behind).
+          const rest = { ...b };
+          delete (rest as { gate?: unknown }).gate;
+          return rest;
+        }
+        return { ...b, gate };
+      }),
+    );
   };
   return (
     <div className="space-y-2">
@@ -1002,7 +1077,9 @@ function ButtonsEditor({
         </p>
       </div>
       <div className="space-y-2">
-        {action.buttons.map((b, i) => (
+        {action.buttons.map((b, i) => {
+          const gate = b.gate;
+          return (
           <div key={i} className="rounded-md border border-white/10 bg-white/[0.03] p-2 space-y-1.5">
             <div className="flex items-center gap-2">
               <MousePointerClick className="size-3 shrink-0 text-white/40" />
@@ -1031,8 +1108,58 @@ function ButtonsEditor({
               placeholder="Message sent when they tap — e.g. Here's the link: https://…"
               className="text-xs"
             />
+            {gate ? (
+              <div className="space-y-1.5 rounded-md border border-[color:var(--xyra-purple)]/25 bg-[color:var(--xyra-purple)]/[0.06] p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-medium text-[color:var(--xyra-glow)]">
+                    Follow / opt-in step (shown before the link)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setGate(i, undefined)}
+                    className="text-white/40 hover:text-red-300"
+                    aria-label="Remove follow step"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </div>
+                <Textarea
+                  value={gate.text}
+                  onChange={(e) => setGate(i, { text: e.target.value, button_title: gate.button_title })}
+                  rows={2}
+                  placeholder="Follow @yourbrand first, then tap below to get the link 🙌"
+                  className="text-xs"
+                />
+                <Input
+                  value={gate.button_title}
+                  maxLength={20}
+                  onChange={(e) => setGate(i, { text: gate.text, button_title: e.target.value })}
+                  placeholder="Confirm button (e.g. I followed!)"
+                  className="h-7 text-xs"
+                />
+                <p className="text-[10px] text-white/40">
+                  We can&apos;t verify a real follow — this is a trust prompt. The
+                  message above is sent first; the link only goes out after they
+                  tap this confirm button.
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setGate(i, {
+                    text: "Follow us first, then tap below to get the link 🙌",
+                    button_title: "I followed!",
+                  })
+                }
+                className="flex items-center gap-1.5 text-[11px] text-[color:var(--xyra-glow)] hover:underline"
+              >
+                <Plus className="size-3" /> Add a follow / opt-in step
+              </button>
+            )}
           </div>
-        ))}
+          );
+        })}
         {action.buttons.length < 3 && (
           <Button
             type="button"

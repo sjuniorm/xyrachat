@@ -147,7 +147,9 @@ type IgInboundMessage = {
   is_echo?: boolean;
   is_deleted?: boolean;
   // Set when the user taps a quick-reply button — payload carries our routing
-  // token (xyra_btn:<automationId>:<actionIndex>:<buttonIndex>).
+  // token: xyra_btn:<automationId>:<buttonId> (opt-in tap) or
+  // xyra_btn2:<automationId>:<buttonId> (a gate's confirm tap). Both UUIDs, so
+  // exactly 3 colon-separated parts.
   quick_reply?: { payload?: string };
   reply_to?: { mid: string } | { story?: { id: string; url?: string } };
   attachments?: Array<{
@@ -185,8 +187,10 @@ async function processPayload(payload: IgWebhookPayload) {
       // is deliverable. Handle it here and SKIP normal inbound processing so the
       // button title isn't treated as a customer message (which would re-fire
       // keyword triggers or the bot on the tapped label).
+      // xyra_btn:  = opt-in button tapped (may show a gate first)
+      // xyra_btn2: = the gate's confirm button ("I followed!") tapped → deliver
       const qrPayload = ev.message?.quick_reply?.payload;
-      if (qrPayload && qrPayload.startsWith("xyra_btn:")) {
+      if (qrPayload && /^xyra_btn2?:/.test(qrPayload)) {
         await handleButtonTap(channel, ev.sender?.id, qrPayload);
         continue;
       }
@@ -241,9 +245,17 @@ async function handleButtonTap(
   senderId: string | undefined,
   payload: string,
 ) {
-  // payload = xyra_btn:<automationId>:<buttonId> (both UUIDs — no colons inside)
+  // payload = <prefix>:<automationId>:<buttonId>  (UUIDs — no colons inside)
+  //   prefix "xyra_btn"  → initial opt-in tap (may send a gate first)
+  //   prefix "xyra_btn2" → the gate's confirm tap → deliver the button's `then`
   const parts = payload.split(":");
-  if (parts.length !== 3 || !senderId) return;
+  if (parts.length !== 3 || !senderId) {
+    // A pre-deploy button (old 4-part payload) or a malformed token: log so a
+    // tap that silently does nothing is observable rather than invisible.
+    console.warn(`[ig webhook] unrecognized button payload "${payload}"`);
+    return;
+  }
+  const prefix = parts[0];
   const automationId = parts[1];
   const buttonId = parts[2];
   if (!automationId || !buttonId) return;
@@ -255,6 +267,7 @@ async function handleButtonTap(
     contactId,
     channelId: channel.id,
     conversationId: null,
+    stage: prefix === "xyra_btn2" ? "gate" : "initial",
   });
 }
 

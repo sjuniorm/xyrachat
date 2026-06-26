@@ -12,6 +12,7 @@ import {
   type LeafAction,
   type AiIntent,
   type AutomationRow,
+  type ButtonOption,
 } from "./types";
 
 // Result the executor logs to automation_logs.
@@ -790,6 +791,9 @@ export async function runButtonTap(input: {
   contactId: string;
   channelId: string;
   conversationId: string | null;
+  // "initial" = the opt-in button itself was tapped (may first show a gate);
+  // "gate"    = the gate's confirm button ("I followed!") was tapped → deliver.
+  stage?: "initial" | "gate";
 }): Promise<void> {
   const admin = createAdminClient();
   try {
@@ -803,7 +807,7 @@ export async function runButtonTap(input: {
     const automation = automationRow as AutomationRow;
     // Resolve the button by its STABLE id across all send_buttons actions —
     // never by position (which shifts after an edit or on a resumed run).
-    let button: { id: string; title: string; then: LeafAction[] } | undefined;
+    let button: ButtonOption | undefined;
     for (const a of automation.actions ?? []) {
       if (a.type === "send_buttons") {
         const found = a.buttons?.find((b) => b.id === input.buttonId);
@@ -838,6 +842,50 @@ export async function runButtonTap(input: {
       triggerData: { _button_tap: true, button_title: button.title },
     };
     let convId = ctx.conversationId;
+
+    // GATE: on the INITIAL tap, if this button has an opt-in gate, send the gate
+    // prompt (e.g. "Follow us first → I followed!") and STOP. The button's `then`
+    // (the actual payload, e.g. the link) only runs once the gate's own
+    // quick-reply is tapped, which arrives as a separate webhook with
+    // stage === "gate". This is a TRUST gate — IG can't verify a real follow.
+    const stage = input.stage ?? "initial";
+    if (stage === "initial" && button.gate) {
+      if (!convId) convId = await ensureConversation(admin, channel.org_id, channel.id, contact.id);
+      if (!convId) return;
+      // Idempotency: a redelivered initial-tap webhook (or a double-tap) must not
+      // re-send the gate prompt. Stamp the gate send + skip if it already exists.
+      const gateStamp = `gate:${input.automationId}:${input.buttonId}:${input.contactId}`;
+      const { data: alreadyGated } = await admin
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", convId)
+        .eq("metadata->>sched_step", gateStamp)
+        .limit(1)
+        .maybeSingle();
+      if (alreadyGated) return;
+      const td = ctx.triggerData as Record<string, string | null | undefined>;
+      await sendChannelMessage({
+        channel: ctx.channel,
+        recipient: pickRecipient(ctx.channel.type, ctx.contact),
+        content: renderTemplate(button.gate.text, ctx.contact, td),
+        conversationId: convId,
+        quickReplies: [
+          {
+            title: renderTemplate(button.gate.button_title, ctx.contact, td),
+            payload: `xyra_btn2:${input.automationId}:${input.buttonId}`,
+          },
+        ],
+        extraMetadata: {
+          sched_step: gateStamp,
+          automation_meta: { name: automation.name, trigger_type: automation.trigger_type },
+          button_prompt: true,
+          gate: true,
+        },
+      });
+      return;
+    }
+
+    // INITIAL (no gate) OR the gate confirm tap → run the button's `then` (deliver).
     for (let j = 0; j < button.then.length; j++) {
       try {
         // Idempotency: a redelivered tap webhook OR a double-tap must not

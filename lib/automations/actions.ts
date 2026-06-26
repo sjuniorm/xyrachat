@@ -406,6 +406,15 @@ function validateAction(action: Action, channelType?: string): string | null {
           const err = validateAction(leaf);
           if (err) return err;
         }
+        // Optional follow/opt-in gate: an extra confirm step shown before the
+        // button delivers its `then` (e.g. "Follow us first → I followed!").
+        if (b.gate !== undefined) {
+          if (!b.gate.text?.trim()) return "The follow/opt-in step needs a message.";
+          if (!b.gate.button_title?.trim()) return "The follow/opt-in step needs a button label.";
+          if (b.gate.button_title.trim().length > 20) {
+            return "Follow/opt-in button labels must be 20 characters or fewer.";
+          }
+        }
       }
       return null;
     }

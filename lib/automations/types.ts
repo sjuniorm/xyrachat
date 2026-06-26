@@ -68,7 +68,20 @@ export type AutomationCondition =
 // a tap routes to the right `then` regardless of the action's position (which
 // shifts on resumed/post-wait runs or after an edit). Assigned at author/save
 // time; runButtonTap resolves by id, never by index.
-export type ButtonOption = { id: string; title: string; then: LeafAction[] };
+// Optional "opt-in gate" before a button delivers its `then` (e.g. the
+// higgsfield-style "please follow to get the link → I followed!" step). When set,
+// tapping the button first sends `text` + a single quick-reply (`button_title`);
+// only when THAT is tapped does the button's `then` run. NOTE: this is a
+// trust-based prompt — Instagram's API can't verify a follow, so "I followed!" is
+// social pressure, not enforcement.
+export type ButtonGate = { text: string; button_title: string };
+
+export type ButtonOption = {
+  id: string;
+  title: string;
+  gate?: ButtonGate;
+  then: LeafAction[];
+};
 
 // Action variants. Discriminated union — the executor branches on `type`.
 // Top-level actions add `wait` (timed delay) + `condition` (if/else) on top of
