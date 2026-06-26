@@ -7,6 +7,7 @@ import {
   Controls,
   Handle,
   Position,
+  MarkerType,
   type NodeProps,
   type Node,
   type Edge,
@@ -113,10 +114,18 @@ export function FlowCanvas({
       })) as unknown as Node[],
       edges: f.edges.map((e) => ({
         ...e,
-        animated: true,
-        style: { stroke: "rgba(255,255,255,0.25)" },
-        labelStyle: { fill: "rgba(255,255,255,0.7)", fontSize: 10 },
-        labelBgStyle: { fill: "rgba(20,10,30,0.9)" },
+        type: "smoothstep",
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 16,
+          height: 16,
+          color: "rgba(255,255,255,0.4)",
+        },
+        style: { stroke: "rgba(255,255,255,0.22)", strokeWidth: 1.5 },
+        labelStyle: { fill: "rgba(255,255,255,0.85)", fontSize: 10, fontWeight: 600 },
+        labelBgStyle: { fill: "rgba(20,10,30,0.95)" },
+        labelBgPadding: [5, 3] as [number, number],
+        labelBgBorderRadius: 5,
       })) as unknown as Edge[],
     };
   }, [triggerLabel, actions, selectedActionIndex]);

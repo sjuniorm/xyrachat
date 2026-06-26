@@ -25,8 +25,8 @@ export type FlowEdge = {
   label?: string;
 };
 
-const ROW_H = 104;
-const BRANCH_DX = 250;
+const ROW_H = 108;
+const BRANCH_DX = 270;
 
 function clip(s: string, n = 48): string {
   const t = s.replace(/\s+/g, " ").trim();
@@ -177,6 +177,48 @@ export function buildFlow(
       });
       row = maxRow;
       prev = id; // spine continues from the ai_branch node
+    } else if (a.type === "send_buttons") {
+      // Each opt-in button is its own column: an optional follow/opt-in gate
+      // node, then the button's `then` (e.g. the link). With one button this is
+      // a clean straight line below the node; multiple buttons fan out. This is
+      // what the buttons actually DO — without it the node looks like a dead end.
+      const btns = a.buttons ?? [];
+      const mid = (btns.length - 1) / 2;
+      let maxRow = row + 1;
+      btns.forEach((b, k) => {
+        const dx = (k - mid) * BRANCH_DX;
+        let bprev = id;
+        let brow = row + 1;
+        let labelled = false;
+        if (b.gate) {
+          const gid = `${id}-b${k}-gate`;
+          nodes.push({
+            id: gid,
+            type: "flowNode",
+            position: { x: dx, y: brow * ROW_H },
+            data: { kind: "send_dm", tone: "neutral", title: "Ask to follow", subtitle: clip(b.gate.text || "(follow step)", 40) },
+          });
+          edges.push({ id: `e-${bprev}-${gid}`, source: bprev, target: gid, label: clip(b.title, 16) });
+          bprev = gid;
+          brow += 1;
+          labelled = true;
+        }
+        (b.then ?? []).forEach((leaf, j) => {
+          const lid = `${id}-b${k}-${j}`;
+          nodes.push({ id: lid, type: "flowNode", position: { x: dx, y: brow * ROW_H }, data: leafSummary(leaf) });
+          edges.push({
+            id: `e-${bprev}-${lid}`,
+            source: bprev,
+            target: lid,
+            ...(!labelled && j === 0 ? { label: clip(b.title, 16) } : {}),
+          });
+          bprev = lid;
+          brow += 1;
+        });
+        maxRow = Math.max(maxRow, brow);
+      });
+      row = maxRow;
+      prev = id; // send_buttons is terminal, but keep the spine consistent
     } else {
       row += 1;
       prev = id;
