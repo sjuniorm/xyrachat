@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { vaultReadSecret } from "@/lib/supabase/vault";
@@ -191,7 +191,7 @@ async function processPayload(payload: IgWebhookPayload) {
       // xyra_btn2: = the gate's confirm button ("I followed!") tapped → deliver
       const qrPayload = ev.message?.quick_reply?.payload;
       if (qrPayload && /^xyra_btn2?:/.test(qrPayload)) {
-        await handleButtonTap(channel, ev.sender?.id, qrPayload);
+        await handleButtonTap(channel, ev);
         continue;
       }
 
@@ -240,11 +240,9 @@ type IgCommentChange = {
 // A user tapped a Xyra opt-in quick-reply button. Decode the routing token and
 // run that button's follow-up actions (e.g. send the link). The tap opened the
 // messaging window, so the follow-up is deliverable as a normal message.
-async function handleButtonTap(
-  channel: IgChannel,
-  senderId: string | undefined,
-  payload: string,
-) {
+async function handleButtonTap(channel: IgChannel, ev: IgMessagingEvent) {
+  const senderId = ev.sender?.id;
+  const payload = ev.message?.quick_reply?.payload ?? "";
   // payload = <prefix>:<automationId>:<buttonId>  (UUIDs — no colons inside)
   //   prefix "xyra_btn"  → initial opt-in tap (may send a gate first)
   //   prefix "xyra_btn2" → the gate's confirm tap → deliver the button's `then`
@@ -261,12 +259,50 @@ async function handleButtonTap(
   if (!automationId || !buttonId) return;
   const contactId = await findOrCreateContact(channel, senderId);
   if (!contactId) return;
+
+  // Store the tap as a VISIBLE inbound message so the inbox thread mirrors the
+  // real IG conversation (opt-in prompt → "Send me the link" → link). We do NOT
+  // run auto-translate / bot gate / keyword triggers on it — it's a button
+  // confirmation, not a fresh customer message (that's why the caller skips
+  // handleInbound). Idempotent on the IG mid, so a redelivered tap won't dupe.
+  const admin = createAdminClient();
+  const tapText = ev.message?.text?.trim();
+  const mid = ev.message?.mid;
+  let conversationId: string | null = null;
+  if (mid && tapText) {
+    const conv = await findOrCreateConversation(channel.org_id, channel.id, contactId);
+    conversationId = conv.id;
+    if (conversationId) {
+      const { data: insertedId } = await admin.rpc("insert_inbound_ig_message", {
+        p_conversation_id: conversationId,
+        p_content: tapText,
+        p_media_url: null,
+        p_media_type: null,
+        p_ig_message_id: mid,
+        p_replied_to_message_id: null,
+        p_metadata: { quick_reply: true },
+        p_created_at: new Date(ev.timestamp).toISOString(),
+      });
+      if (insertedId) {
+        await admin
+          .from("conversations")
+          .update({
+            last_message_at: new Date().toISOString(),
+            last_inbound_at: new Date().toISOString(),
+          })
+          .eq("id", conversationId);
+      }
+    }
+  }
+
   await runButtonTap({
     automationId,
     buttonId,
     contactId,
     channelId: channel.id,
-    conversationId: null,
+    // Reuse the conversation we just resolved so the gate/then idempotency
+    // stamps key off the same row (no second find-or-create on this path).
+    conversationId,
     stage: prefix === "xyra_btn2" ? "gate" : "initial",
   });
 }
@@ -281,19 +317,26 @@ async function handleChange(
     if (!senderId || !v.text) return;
     const contactId = await findOrCreateContact(channel, senderId);
     if (!contactId) return;
-    void dispatchTrigger({
-      channel,
-      contactId,
-      triggerType: "ig_comment_keyword",
-      matchText: v.text,
-      postId: v.media?.id ?? null,
-      triggerData: {
-        comment_id: v.id,
-        comment_text: v.text,
-        post_id: v.media?.id,
-        username: v.from?.username,
-      },
-    });
+    // after() keeps the serverless function alive to finish the reply AFTER the
+    // 200 is sent — without it (bare `void`) Vercel freezes the instance the
+    // moment we respond, so the comment-reply send only runs when the instance
+    // is next thawed (the multi-second-to-minutes delay). after() runs it
+    // promptly (~1-2s) while still acking Meta immediately.
+    after(() =>
+      dispatchTrigger({
+        channel,
+        contactId,
+        triggerType: "ig_comment_keyword",
+        matchText: v.text,
+        postId: v.media?.id ?? null,
+        triggerData: {
+          comment_id: v.id,
+          comment_text: v.text,
+          post_id: v.media?.id,
+          username: v.from?.username,
+        },
+      }),
+    );
     return;
   }
   // Other change types (mentions, story_insights) are no-ops for now —
@@ -570,39 +613,45 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
     });
   }
 
-  void emit({
-    type: "message.received",
-    orgId: channel.org_id,
-    data: {
-      id: insertedId,
-      conversation_id: conversationId,
-      contact_id: contactId,
-      channel_id: channel.id,
-      channel_type: channel.type,
-      direction: "inbound",
-      content: extracted.content,
-      media_type: extracted.media_type,
-      created_at: new Date(ev.timestamp).toISOString(),
-    },
-  });
-  if (wasNewConversation) {
-    void emit({
-      type: "conversation.opened",
+  after(() =>
+    emit({
+      type: "message.received",
       orgId: channel.org_id,
       data: {
-        id: conversationId,
+        id: insertedId,
+        conversation_id: conversationId,
         contact_id: contactId,
         channel_id: channel.id,
         channel_type: channel.type,
+        direction: "inbound",
+        content: extracted.content,
+        media_type: extracted.media_type,
+        created_at: new Date(ev.timestamp).toISOString(),
       },
-    });
+    }),
+  );
+  if (wasNewConversation) {
+    after(() =>
+      emit({
+        type: "conversation.opened",
+        orgId: channel.org_id,
+        data: {
+          id: conversationId,
+          contact_id: contactId,
+          channel_id: channel.id,
+          channel_type: channel.type,
+        },
+      }),
+    );
   }
-  // Wake the assigned agent's mobile device(s). Fire-and-forget.
-  void notifyNewInbound({
-    conversationId,
-    channelType: channel.type,
-    preview: extracted.content,
-  });
+  // Wake the assigned agent's mobile device(s). after() so it isn't frozen.
+  after(() =>
+    notifyNewInbound({
+      conversationId,
+      channelType: channel.type,
+      preview: extracted.content,
+    }),
+  );
   await runBotGate({
     channel: { id: channel.id, type: channel.type, org_id: channel.org_id },
     conversationId,
@@ -618,30 +667,36 @@ async function handleInbound(channel: IgChannel, ev: IgMessagingEvent) {
 
   // Resume any automation parked on a wait_for_reply for this conversation
   // (any inbound counts as the reply, media included).
-  void resumeWaitingReplies(conversationId, extracted.content ?? "").catch((err) => {
-    console.error("[ig] resumeWaitingReplies failed", err);
-  });
+  after(() =>
+    resumeWaitingReplies(conversationId, extracted.content ?? "").catch((err) => {
+      console.error("[ig] resumeWaitingReplies failed", err);
+    }),
+  );
 
-  // Automation triggers — fire-and-forget after bot gate so a slow
-  // automation can't pin the webhook response.
+  // Automation triggers — run after the 200 (via after(), so they finish
+  // promptly instead of being frozen) and after the bot gate above.
   if (extracted.content) {
-    void dispatchTrigger({
-      channel,
-      contactId,
-      triggerType: "ig_dm_keyword",
-      matchText: extracted.content,
-      conversationId,
-      triggerData: { ig_message_id: msg.mid, text: extracted.content },
-    });
+    after(() =>
+      dispatchTrigger({
+        channel,
+        contactId,
+        triggerType: "ig_dm_keyword",
+        matchText: extracted.content!,
+        conversationId,
+        triggerData: { ig_message_id: msg.mid, text: extracted.content },
+      }),
+    );
   }
   if (extracted.media_type === "story_mention") {
-    void dispatchTrigger({
-      channel,
-      contactId,
-      triggerType: "ig_story_mention",
-      conversationId,
-      triggerData: { ig_message_id: msg.mid },
-    });
+    after(() =>
+      dispatchTrigger({
+        channel,
+        contactId,
+        triggerType: "ig_story_mention",
+        conversationId,
+        triggerData: { ig_message_id: msg.mid },
+      }),
+    );
   }
 }
 
