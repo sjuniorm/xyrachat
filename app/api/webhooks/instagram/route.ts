@@ -408,6 +408,23 @@ async function fetchContactProfile(
   }
 }
 
+// Fetch the IG profile (name/avatar) + patch the contact — runs in the
+// background via after() so the slow Graph call never sits on the reply's
+// critical path. Cosmetic data; best-effort.
+async function enrichContactProfile(
+  channel: IgChannel,
+  contactId: string,
+  igUserId: string,
+  current: { name: string | null; avatar_url: string | null },
+) {
+  const profile = await fetchContactProfile(channel, igUserId);
+  const patch: Record<string, string> = {};
+  if (!current.name && profile.name) patch.name = profile.name;
+  if (!current.avatar_url && profile.avatar_url) patch.avatar_url = profile.avatar_url;
+  if (Object.keys(patch).length === 0) return;
+  await createAdminClient().from("contacts").update(patch).eq("id", contactId);
+}
+
 async function findOrCreateContact(
   channel: IgChannel,
   igUserId: string,
@@ -422,32 +439,30 @@ async function findOrCreateContact(
     .maybeSingle();
 
   if (existing.data) {
-    // Backfill name + avatar if we didn't have them before.
+    // Backfill name + avatar in the BACKGROUND — don't make the reply wait on
+    // a Graph profile lookup.
     if (!existing.data.name || !existing.data.avatar_url) {
-      const profile = await fetchContactProfile(channel, igUserId);
-      const patch: Record<string, string> = {};
-      if (!existing.data.name && profile.name) patch.name = profile.name;
-      if (!existing.data.avatar_url && profile.avatar_url) {
-        patch.avatar_url = profile.avatar_url;
-      }
-      if (Object.keys(patch).length > 0) {
-        await admin.from("contacts").update(patch).eq("id", existing.data.id);
-      }
+      const row = existing.data;
+      after(() =>
+        enrichContactProfile(channel, row.id, igUserId, {
+          name: row.name,
+          avatar_url: row.avatar_url,
+        }),
+      );
     }
     return existing.data.id;
   }
 
-  const profile = await fetchContactProfile(channel, igUserId);
+  // New contact: insert immediately (no Graph call on the hot path), then
+  // enrich name/avatar in the background.
   const { data } = await admin
     .from("contacts")
-    .insert({
-      org_id: channel.org_id,
-      instagram_id: igUserId,
-      name: profile.name,
-      avatar_url: profile.avatar_url,
-    })
+    .insert({ org_id: channel.org_id, instagram_id: igUserId, name: null, avatar_url: null })
     .select("id")
     .single();
+  if (data?.id) {
+    after(() => enrichContactProfile(channel, data.id, igUserId, { name: null, avatar_url: null }));
+  }
   return data?.id ?? null;
 }
 

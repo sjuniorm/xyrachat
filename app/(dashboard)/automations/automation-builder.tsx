@@ -463,12 +463,13 @@ export function AutomationBuilder({
   const applyCommentRecipe = () => {
     const recipe: Action[] = [
       // 1. Public reply on the post itself (Comments API) — fast, visible, and
-      //    the most direct demo of the comment permission.
-      { type: "reply_comment", text: "Thanks {{first_name}}! 🙌 Just sent you a DM 📩" },
+      //    the most direct demo of the comment permission. Kept name-free so it's
+      //    instant even before the commenter's profile is fetched.
+      { type: "reply_comment", text: "Thanks so much! 🙌 Just sent you a DM 📩" },
       // 2. Opt-in DM with the link (Meta's recommended private-reply flow).
       {
         type: "send_buttons",
-        text: "Hey {{first_name}}! 🙌 Tap below and I'll send it straight to your DMs 👇",
+        text: "Hey! 🙌 Tap below and I'll send it straight to your DMs 👇",
         buttons: [
           {
             id: crypto.randomUUID(),
