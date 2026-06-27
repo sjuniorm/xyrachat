@@ -9,7 +9,7 @@ export const metadata = { title: "Privacy Policy — Xyra Chat" };
 const UPDATED = "9 June 2026";
 
 const SUBPROCESSORS: { name: string; purpose: string; region: string }[] = [
-  { name: "Supabase", purpose: "Database, auth, file storage, realtime", region: "EU (Frankfurt)" },
+  { name: "Supabase", purpose: "Database, auth, file storage, realtime", region: "EU (Ireland)" },
   { name: "Vercel", purpose: "Application hosting + edge network", region: "Global (EU/US)" },
   { name: "Anthropic", purpose: "AI assistant + reply generation (Claude)", region: "US" },
   { name: "OpenAI", purpose: "Text embeddings for knowledge search", region: "US" },
@@ -102,7 +102,7 @@ export default function PrivacyPage() {
 
       <h2>6. International transfers</h2>
       <p>
-        We host primary data in the EU where possible (Supabase Frankfurt, PostHog
+        We host primary data in the EU where possible (Supabase Ireland, PostHog
         EU). Some sub-processors (e.g. Anthropic, OpenAI) process data in the US under
         Standard Contractual Clauses and/or the EU–US Data Privacy Framework.
       </p>
