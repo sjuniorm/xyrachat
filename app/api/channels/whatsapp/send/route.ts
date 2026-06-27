@@ -193,7 +193,9 @@ export async function POST(req: Request) {
     .insert({
       conversation_id: conv.id,
       direction: "outbound",
-      content: type === "text" ? content!.trim() : null,
+      // Templates store the variable-filled body text (the picker sends it as
+      // `content`) so the inbox bubble shows the message instead of being blank.
+      content: content?.trim() || null,
       sender_type: "agent",
       sender_id: user.id,
       status: "sent",

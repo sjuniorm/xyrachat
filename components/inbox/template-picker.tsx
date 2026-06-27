@@ -148,6 +148,9 @@ export function TemplatePicker({
           templateName: selected.name,
           templateLanguage: selected.language,
           templateComponents: components,
+          // The variable-filled body so the inbox bubble shows the sent text
+          // (otherwise the stored message has no content and renders blank).
+          content: applyVariables(body, values),
         }),
       });
       const data = (await res.json().catch(() => null)) as { error?: string } | null;

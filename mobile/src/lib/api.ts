@@ -92,6 +92,7 @@ export async function sendTemplate(params: {
   templateName: string;
   templateLanguage: string;
   components: Array<Record<string, unknown>>;
+  content?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await authedPost("/api/channels/whatsapp/send", {
     conversationId: params.conversationId,
@@ -99,6 +100,7 @@ export async function sendTemplate(params: {
     templateName: params.templateName,
     templateLanguage: params.templateLanguage,
     templateComponents: params.components,
+    content: params.content,
   });
   return res.ok ? { ok: true } : res;
 }

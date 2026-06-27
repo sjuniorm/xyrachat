@@ -53,7 +53,30 @@ export function TemplatePicker({
       .is("deleted_at", null)
       .order("name")
       .then(({ data }) => {
-        setTemplates((data as WaTemplate[] | null) ?? []);
+        const all = (data as WaTemplate[] | null) ?? [];
+        // Only show templates the picker can fully fill (BODY variables). A
+        // header-text or dynamic-URL-button variable would be sent missing its
+        // parameter and Meta rejects it — those stay usable from the web app.
+        const sendable = all.filter((t) => {
+          for (const c of t.components ?? []) {
+            const cc = c as {
+              type?: string;
+              format?: string;
+              text?: string;
+              buttons?: Array<{ type?: string; url?: string }>;
+            };
+            if (cc.type === "HEADER" && cc.format === "TEXT" && /\{\{\s*\d+\s*\}\}/.test(cc.text ?? "")) {
+              return false;
+            }
+            if (cc.type === "BUTTONS") {
+              for (const b of cc.buttons ?? []) {
+                if (b.type === "URL" && /\{\{\s*\d+\s*\}\}/.test(b.url ?? "")) return false;
+              }
+            }
+          }
+          return true;
+        });
+        setTemplates(sendable);
         setLoading(false);
       });
   }, [visible, channelId]);
@@ -65,6 +88,9 @@ export function TemplatePicker({
       templateName: t.name,
       templateLanguage: t.language,
       components: buildSendComponents(vals),
+      // The filled body text so the inbox bubble shows the message (otherwise
+      // the stored row has no content and renders blank).
+      content: applyVariables(templateBody(t), vals),
     });
     setSending(false);
     if (res.ok) onClose();
