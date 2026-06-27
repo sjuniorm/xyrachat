@@ -45,11 +45,17 @@ export async function POST(req: Request) {
   if (type === "text" && !content?.trim()) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
+  if (type === "template" && !body.templateName?.trim()) {
+    return NextResponse.json(
+      { error: "templateName is required for template sends" },
+      { status: 400 },
+    );
+  }
 
   // 2. Load conversation (RLS-scoped — agent must belong to the org).
   const { data: conv, error: convErr } = await supabase
     .from("conversations")
-    .select("id, channel_id, contact_id, org_id")
+    .select("id, channel_id, contact_id, org_id, last_inbound_at")
     .eq("id", conversationId)
     .maybeSingle();
   if (convErr || !conv) {
@@ -81,6 +87,48 @@ export async function POST(req: Request) {
   }
   if (!contact?.phone) {
     return NextResponse.json({ error: "Contact has no phone" }, { status: 400 });
+  }
+
+  // 3b. WhatsApp 24-hour customer-service window (defense-in-depth — the web +
+  // mobile composers also guard this, but the client is bypassable). Free text
+  // is only delivered within 24h of the contact's last inbound; outside it Meta
+  // silently drops it and the agent would see a false "sent". Templates are
+  // always allowed. Mirrors /api/v1/messages + support/survey enforcement.
+  if (type === "text") {
+    const lastIn = conv.last_inbound_at ? new Date(conv.last_inbound_at).getTime() : 0;
+    if (Date.now() - lastIn > 24 * 60 * 60 * 1000) {
+      return NextResponse.json(
+        {
+          error: "WhatsApp's 24-hour window is closed — send an approved template instead.",
+          code: "wa_window_closed",
+        },
+        { status: 422 },
+      );
+    }
+  }
+
+  // 3c. Template sends must reference an APPROVED template on THIS channel —
+  // don't trust the client's name/components blindly (clear error instead of an
+  // opaque Meta rejection; RLS-scoped so it's org-safe).
+  if (type === "template") {
+    const { data: tpl } = await supabase
+      .from("wa_templates")
+      .select("id")
+      .eq("channel_id", conv.channel_id)
+      .eq("name", body.templateName)
+      .eq("language", body.templateLanguage ?? "en_US")
+      .eq("meta_status", "APPROVED")
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!tpl) {
+      return NextResponse.json(
+        {
+          error: "That template isn't an approved template on this channel.",
+          code: "template_not_approved",
+        },
+        { status: 422 },
+      );
+    }
   }
 
   // 4. Decrypt the access token (service-role only).

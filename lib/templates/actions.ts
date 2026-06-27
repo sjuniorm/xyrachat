@@ -18,6 +18,38 @@ type ActionResult<T = unknown> =
   | { ok: true; data?: T }
   | { ok: false; error: string };
 
+export type PickerTemplate = {
+  id: string;
+  name: string;
+  language: string;
+  category: TemplateCategory;
+  components: TemplateComponent[];
+  example_values: Record<string, string[]>;
+};
+
+// Approved WhatsApp templates for a channel — used by the inbox composer's
+// template picker (the only way to message outside the 24h window). RLS scopes
+// wa_templates to the caller's org, so a cross-org channelId returns nothing.
+export async function getApprovedTemplatesForChannel(
+  channelId: string,
+): Promise<{ ok: true; templates: PickerTemplate[] } | { ok: false; error: string }> {
+  if (!channelId) return { ok: false, error: "Missing channel." };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not signed in." };
+  const { data, error } = await supabase
+    .from("wa_templates")
+    .select("id, name, language, category, components, example_values")
+    .eq("channel_id", channelId)
+    .eq("meta_status", "APPROVED")
+    .is("deleted_at", null)
+    .order("name", { ascending: true });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, templates: (data ?? []) as PickerTemplate[] };
+}
+
 type AuthSuccess = {
   user: { id: string };
   orgId: string;

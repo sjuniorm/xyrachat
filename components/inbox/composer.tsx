@@ -25,6 +25,9 @@ import type { Conversation, Message } from "@/lib/mock-data";
 import { TOP_LANGUAGES, languageLabel } from "@/lib/i18n/languages";
 import { EmojiPicker } from "@/components/inbox/emoji-picker";
 import { SavedRepliesPopover } from "@/components/inbox/saved-replies-popover";
+import { TemplatePicker } from "@/components/inbox/template-picker";
+
+const WA_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type AssistAction =
   | "improve"
@@ -68,6 +71,16 @@ export function Composer({
   const uploadingRef = useRef(false);
   const router = useRouter();
 
+  // WhatsApp's 24-hour customer-service window. Free text is only delivered
+  // within 24h of the contact's last inbound message; outside it, Meta silently
+  // drops free text and ONLY an approved template goes through. Internal notes
+  // are exempt (they never reach WhatsApp).
+  const isWhatsApp = conversation.channel === "whatsapp";
+  const within24h =
+    !!conversation.lastInboundAt &&
+    Date.now() - new Date(conversation.lastInboundAt).getTime() < WA_WINDOW_MS;
+  const waLocked = isWhatsApp && !within24h && !internal;
+
   // Auto-grow textarea up to 120px.
   function autoGrow() {
     const el = taRef.current;
@@ -109,6 +122,12 @@ export function Composer({
 
   async function send() {
     if (!text.trim() || pending) return;
+    // Block free text outside WhatsApp's 24h window — it would silently never
+    // arrive. The template picker is the only compliant path here.
+    if (waLocked) {
+      toast.error("Outside WhatsApp's 24-hour window — send an approved template instead.");
+      return;
+    }
     setPending(true);
     // Internal notes don't hit a provider — they're org-only. Stored in
     // the messages table with is_internal_note=true so they appear in
@@ -214,6 +233,8 @@ export function Composer({
 
   async function runAssist(action: AssistAction, language?: string) {
     if (!text.trim() || pending) return;
+    // No AI spend on a locked WhatsApp window — the draft couldn't be sent.
+    if (waLocked) return;
     setAssistOpen(false);
     const prev = text;
     setPending(true);
@@ -342,6 +363,11 @@ export function Composer({
 
   async function suggestReply() {
     if (pending || !hasBotAssigned) return;
+    // No AI spend on a locked WhatsApp window — the drafted reply couldn't be sent.
+    if (waLocked) {
+      toast.message("Outside the 24-hour window — send a template to re-open the chat.");
+      return;
+    }
     // Suggest-reply drafts a CUSTOMER reply — meaningless in internal-note mode.
     if (internal) {
       toast.message("Turn off “Internal note” to draft a customer reply.");
@@ -401,6 +427,22 @@ export function Composer({
         </div>
       )}
 
+      {waLocked && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+          <span className="flex-1">
+            Outside WhatsApp&apos;s 24-hour window — free messages won&apos;t be
+            delivered. Send an approved <span className="font-medium">template</span> to
+            re-open the conversation.
+          </span>
+          <TemplatePicker
+            conversationId={conversation.id}
+            channelId={conversation.channelId}
+            contactName={conversation.contact?.name ?? ""}
+            emphasize
+          />
+        </div>
+      )}
+
       <div
         className={cn(
           "rounded-2xl border bg-white/5 transition",
@@ -414,7 +456,14 @@ export function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={1}
-          placeholder={internal ? "Internal note (only your team sees this)…" : "Type a message…"}
+          disabled={waLocked}
+          placeholder={
+            waLocked
+              ? "Outside the 24-hour window — send a template instead"
+              : internal
+                ? "Internal note (only your team sees this)…"
+                : "Type a message…"
+          }
           aria-label="Compose message"
           className={cn(
             // field-sizing-fixed overrides shadcn's default `field-sizing-content`,
@@ -433,7 +482,7 @@ export function Composer({
                 type="button"
                 variant="ghost"
                 size="sm"
-                disabled={!text.trim() || pending}
+                disabled={!text.trim() || pending || waLocked}
                 className="h-8 gap-1.5 px-2 text-xs"
                 aria-label="AI Assist (⌘J)"
                 title="AI Assist (⌘J)"
@@ -526,7 +575,7 @@ export function Composer({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={!hasBotAssigned || pending}
+            disabled={!hasBotAssigned || pending || waLocked}
             onClick={suggestReply}
             className="h-8 gap-1.5 px-2 text-xs disabled:opacity-50"
             title={
@@ -555,7 +604,7 @@ export function Composer({
             size="icon"
             className="size-8 text-white/60 hover:text-white"
             onClick={onAttachClick}
-            disabled={pending || internal}
+            disabled={pending || internal || waLocked}
             aria-label="Attach file"
             title={internal ? "Turn off Internal note to send a file" : "Attach file"}
           >
@@ -573,6 +622,16 @@ export function Composer({
             }}
           />
 
+          {/* WhatsApp template picker — proactively within the window; the
+              banner above carries the emphasized one when the window's closed. */}
+          {isWhatsApp && !waLocked && (
+            <TemplatePicker
+              conversationId={conversation.id}
+              channelId={conversation.channelId}
+              contactName={conversation.contact?.name ?? ""}
+            />
+          )}
+
           <div className="ml-auto flex items-center gap-3">
             <label className="flex items-center gap-2 text-xs text-white/70">
               <Switch
@@ -586,7 +645,7 @@ export function Composer({
               type="button"
               size="sm"
               onClick={send}
-              disabled={!text.trim() || pending}
+              disabled={!text.trim() || pending || waLocked}
               className={cn(
                 "h-8 gap-1.5 border-0 text-white",
                 internal

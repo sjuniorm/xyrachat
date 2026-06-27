@@ -160,6 +160,8 @@ export function adaptConversation(
     last_message_at: c.last_message_at,
     created_at: c.created_at,
     snooze_until: c.snooze_until,
+    channelId: c.channel.id,
+    lastInboundAt: c.last_inbound_at,
     unread_count: c.unread_count,
     assigned_agent: c.assigned_agent
       ? {

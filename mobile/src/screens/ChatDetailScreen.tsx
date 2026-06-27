@@ -105,12 +105,28 @@ export function ChatDetailScreen({ route, navigation }: Props) {
   const assignedToMe = conv?.assigned_to === userId;
   const closed = conv?.status === "closed";
   const isWhatsApp = conv?.channel?.type === "whatsapp";
+  // WhatsApp 24-hour customer-service window: outside it, only an approved
+  // template is delivered (Meta drops free text). Internal notes are exempt.
+  const within24h =
+    !!conv?.last_inbound_at &&
+    Date.now() - new Date(conv.last_inbound_at).getTime() < 24 * 60 * 60 * 1000;
+  const waLocked = isWhatsApp && !within24h && !noteMode;
   const canSend =
-    text.trim().length > 0 && !sending && (noteMode || Boolean(conv?.channel));
+    text.trim().length > 0 &&
+    !sending &&
+    !waLocked &&
+    (noteMode || Boolean(conv?.channel));
 
   const onSend = async () => {
     const body = text.trim();
     if (!body) return;
+    if (waLocked) {
+      Alert.alert(
+        "Outside the 24-hour window",
+        "WhatsApp only delivers free messages within 24h of the customer's last message. Tap the template icon to send an approved template instead.",
+      );
+      return;
+    }
     setSending(true);
 
     if (noteMode) {
@@ -340,6 +356,25 @@ export function ChatDetailScreen({ route, navigation }: Props) {
             )}
           </View>
 
+          {waLocked ? (
+            <View
+              style={{
+                marginHorizontal: 12,
+                marginBottom: 8,
+                padding: 10,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "rgba(245,158,11,0.4)",
+                backgroundColor: "rgba(245,158,11,0.12)",
+              }}
+            >
+              <Text style={{ color: "#FCD34D", fontSize: 12 }}>
+                Outside WhatsApp&apos;s 24-hour window — tap the template icon to
+                send an approved template.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={[styles.composer, noteMode && styles.composerNote]}>
             <Pressable onPress={onAttach} hitSlop={8} style={styles.iconBtn}>
               <MaterialCommunityIcons
@@ -357,7 +392,7 @@ export function ChatDetailScreen({ route, navigation }: Props) {
                 <MaterialCommunityIcons
                   name="file-document-outline"
                   size={22}
-                  color={colors.textMuted}
+                  color={waLocked ? colors.white : colors.textMuted}
                 />
               </Pressable>
             ) : null}
@@ -365,14 +400,16 @@ export function ChatDetailScreen({ route, navigation }: Props) {
               value={text}
               onChangeText={setText}
               placeholder={
-                noteMode
-                  ? "Write an internal note…"
-                  : conv?.channel
-                    ? "Type a message…"
-                    : "Channel unavailable"
+                waLocked
+                  ? "Outside the 24-hour window — send a template"
+                  : noteMode
+                    ? "Write an internal note…"
+                    : conv?.channel
+                      ? "Type a message…"
+                      : "Channel unavailable"
               }
               placeholderTextColor={colors.textFaint}
-              editable={noteMode || Boolean(conv?.channel)}
+              editable={!waLocked && (noteMode || Boolean(conv?.channel))}
               multiline
               style={[styles.input, noteMode && styles.inputNote]}
             />

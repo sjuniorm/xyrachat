@@ -96,6 +96,11 @@ export type Conversation = {
   unread_count: number;
   assigned_agent?: Agent;
   detected_language?: string; // BCP-47 like 'es-ES', 'en'
+  // The channel's DB id (used by the composer to load WhatsApp templates) and
+  // the timestamp of the contact's last inbound message (used to compute the
+  // WhatsApp 24-hour customer-service window). Optional so mock data is unaffected.
+  channelId?: string;
+  lastInboundAt?: string | null;
   messages: Message[];
 };
 
