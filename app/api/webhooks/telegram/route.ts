@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { insertConversationWithRetry } from "@/lib/inbox/conversation";
 import { runBotGate } from "@/lib/ai/bot-gate";
 import { maybeAutoTranslate } from "@/lib/ai/auto-translate";
 import { dispatchTrigger } from "@/lib/automations/triggers";
@@ -178,12 +179,7 @@ async function findOrCreateConversation(
     }
     return { id: existing.data.id, created: false };
   }
-  const { data } = await admin
-    .from("conversations")
-    .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
-    .select("id")
-    .single();
-  return { id: data?.id ?? null, created: Boolean(data?.id) };
+  return insertConversationWithRetry(admin, orgId, channelId, contactId);
 }
 
 function extractContent(msg: TelegramMessage): {

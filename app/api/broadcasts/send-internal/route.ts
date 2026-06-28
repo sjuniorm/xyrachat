@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { insertConversationWithRetry } from "@/lib/inbox/conversation";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { fetchAudience } from "@/lib/broadcasts/audience";
 import type { AudienceFilter, VariableMapping } from "@/lib/broadcasts/types";
@@ -280,12 +281,7 @@ async function ensureConversation(
     .limit(1)
     .maybeSingle();
   if (existing.data) return existing.data.id;
-  const { data } = await admin
-    .from("conversations")
-    .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
-    .select("id")
-    .single();
-  return data?.id ?? null;
+  return (await insertConversationWithRetry(admin, orgId, channelId, contactId)).id;
 }
 
 function resolveComponents(

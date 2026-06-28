@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { insertConversationWithRetry } from "@/lib/inbox/conversation";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import { emit } from "@/lib/api/emit";
 import { getAnthropic, MODELS, isAnthropicConfigured } from "@/lib/ai/clients";
@@ -1724,10 +1725,5 @@ async function ensureConversation(
     }
     return existing.data.id;
   }
-  const { data } = await admin
-    .from("conversations")
-    .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
-    .select("id")
-    .single();
-  return data?.id ?? null;
+  return (await insertConversationWithRetry(admin, orgId, channelId, contactId)).id;
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { insertConversationWithRetry } from "@/lib/inbox/conversation";
 import { vaultReadSecret } from "@/lib/supabase/vault";
 import type { MessageStatus } from "@/lib/db-types";
 import { runBotGate } from "@/lib/ai/bot-gate";
@@ -224,12 +225,7 @@ async function findOrCreateConversation(
     }
     return { id: existing.data.id, created: false };
   }
-  const { data } = await admin
-    .from("conversations")
-    .insert({ org_id: orgId, channel_id: channelId, contact_id: contactId })
-    .select("id")
-    .single();
-  return { id: data?.id ?? null, created: Boolean(data?.id) };
+  return insertConversationWithRetry(admin, orgId, channelId, contactId);
 }
 
 function extractContent(msg: FbInboundMessage): {
