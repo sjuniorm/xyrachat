@@ -3,6 +3,7 @@ import { Inter, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { PostHogProvider } from "@/components/posthog-provider";
 import { CookieBanner } from "@/components/consent/cookie-banner";
+import { ChunkReloader } from "@/components/chunk-reloader";
 import { headers } from "next/headers";
 import "./globals.css";
 
@@ -16,10 +17,31 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://app.xyrachat.com";
+const SITE_TITLE = "Xyra Chat — One inbox for every customer conversation";
+const SITE_DESC =
+  "Xyra Chat unifies WhatsApp, Instagram, Messenger and live chat into one inbox with automations, bots and broadcasts.";
+
 export const metadata: Metadata = {
-  title: "Xyra Chat — One inbox for every customer conversation",
-  description:
-    "Xyra Chat unifies WhatsApp, Instagram, Messenger and live chat into one inbox with automations, bots and broadcasts.",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESC,
+  // Explicit PNG og:image — Facebook/Messenger don't render SVG link previews,
+  // and an explicit tag clears the Sharing Debugger "inferred og:image" warning.
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    title: SITE_TITLE,
+    description: SITE_DESC,
+    siteName: "Xyra Chat",
+    images: [{ url: "/brand/logo.png", width: 1024, height: 1024, alt: "Xyra Chat" }],
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESC,
+    images: ["/brand/logo.png"],
+  },
 };
 
 const EEA_COUNTRIES = new Set([
@@ -44,6 +66,7 @@ export default async function RootLayout({
       className={`${inter.variable} ${geistMono.variable} h-full overflow-x-hidden antialiased`}
     >
       <body className="min-h-full flex flex-col overflow-x-hidden bg-background text-foreground">
+        <ChunkReloader />
         <PostHogProvider consentRequired={showConsent}>
           {children}
           <Toaster
