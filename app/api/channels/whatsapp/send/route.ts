@@ -16,6 +16,9 @@ type SendBody = {
   templateLanguage?: string;
   templateComponents?: unknown[];
   repliedToMessageId?: string;
+  // Client-supplied de-dupe token (stable across retries of the SAME send) so a
+  // cross-tab resend or a client-timeout retry doesn't deliver the message twice.
+  idempotencyKey?: string;
 };
 
 export async function POST(req: Request) {
@@ -60,6 +63,22 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (convErr || !conv) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+  }
+
+  // Idempotency: if this exact send was already processed (same client token in
+  // this conversation), return the stored message instead of sending again.
+  // Guards cross-tab resends + client-timeout retries from double-delivering.
+  if (body.idempotencyKey) {
+    const { data: dup } = await supabase
+      .from("messages")
+      .select("id, wa_message_id")
+      .eq("conversation_id", conv.id)
+      .eq("metadata->>idempotency_key", body.idempotencyKey)
+      .limit(1)
+      .maybeSingle();
+    if (dup) {
+      return NextResponse.json({ message: dup, wa_message_id: dup.wa_message_id, idempotent: true });
+    }
   }
 
   // 3. Load channel + contact (admin client; we've already RLS-verified org).
@@ -201,15 +220,12 @@ export async function POST(req: Request) {
       status: "sent",
       wa_message_id: waMessageId,
       replied_to_message_id: body.repliedToMessageId ?? null,
-      metadata:
-        type === "template"
-          ? {
-              wa_template: {
-                name: body.templateName ?? "",
-                language: body.templateLanguage ?? "en_US",
-              },
-            }
-          : {},
+      metadata: {
+        ...(type === "template"
+          ? { wa_template: { name: body.templateName ?? "", language: body.templateLanguage ?? "en_US" } }
+          : {}),
+        ...(body.idempotencyKey ? { idempotency_key: body.idempotencyKey } : {}),
+      },
     })
     .select("*")
     .single();

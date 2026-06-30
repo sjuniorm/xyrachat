@@ -69,6 +69,11 @@ export function Composer({
   // Single-flight guard for media uploads — bulletproof against a rapid
   // re-trigger before the `pending` state re-renders the disabled button.
   const uploadingRef = useRef(false);
+  // Stable idempotency key per WhatsApp draft: keyed to the text so a retry of
+  // the SAME failed send reuses it (server de-dupes), an edited draft gets a new
+  // one, and it's cleared on success. Stops timeout-retries / cross-tab resends
+  // from double-delivering.
+  const idemRef = useRef<{ text: string; key: string } | null>(null);
   const router = useRouter();
 
   // WhatsApp's 24-hour customer-service window. Free text is only delivered
@@ -178,17 +183,24 @@ export function Composer({
         );
         return;
       }
+      const trimmed = text.trim();
+      if (conversation.channel === "whatsapp") {
+        if (!idemRef.current || idemRef.current.text !== trimmed) {
+          idemRef.current = { text: trimmed, key: crypto.randomUUID() };
+        }
+      }
       const payload =
         conversation.channel === "whatsapp"
           ? {
               conversationId: conversation.id,
-              content: text.trim(),
+              content: trimmed,
               type: "text" as const,
               repliedToMessageId: quotedMessage?.id ?? undefined,
+              idempotencyKey: idemRef.current?.key,
             }
           : {
               conversationId: conversation.id,
-              content: text.trim(),
+              content: trimmed,
               repliedToMessageId: quotedMessage?.id ?? undefined,
             };
       const res = await fetch(endpoint, {
@@ -206,6 +218,7 @@ export function Composer({
         return;
       }
       setText("");
+      idemRef.current = null; // sent OK → next draft gets a fresh key
       onClearQuote();
       // Immediate re-fetch so the outbound bubble appears without waiting
       // on Realtime/polling. Realtime + the 5s poller still run as backups.
