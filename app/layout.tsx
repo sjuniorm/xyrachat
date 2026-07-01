@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { PostHogProvider } from "@/components/posthog-provider";
 import { CookieBanner } from "@/components/consent/cookie-banner";
 import { ChunkReloader } from "@/components/chunk-reloader";
+import { Analytics } from "@vercel/analytics/next";
 import { headers } from "next/headers";
 import "./globals.css";
 
@@ -67,6 +68,7 @@ export default async function RootLayout({
     >
       <body className="min-h-full flex flex-col overflow-x-hidden bg-background text-foreground">
         <ChunkReloader />
+        <Analytics />
         <PostHogProvider consentRequired={showConsent}>
           {children}
           <Toaster
